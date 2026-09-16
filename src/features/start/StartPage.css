@@ -1,0 +1,106 @@
+.start {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  flex: 1;
+  min-height: calc(100dvh - var(--header-height));
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.start__hero {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 60% center;
+}
+
+.start__shade {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    75deg,
+    rgb(11 21 51 / 78%) 0%,
+    rgb(11 21 51 / 45%) 38%,
+    transparent 62%
+  );
+}
+
+.start__content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding: var(--space-10) var(--space-8) var(--space-12);
+  color: var(--color-text-inverse);
+}
+
+.start__eyebrow {
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.start__title {
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  text-shadow: 0 4px 24px rgb(11 21 51 / 50%);
+}
+
+.start__lead {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  text-shadow: 0 2px 12px rgb(11 21 51 / 60%);
+}
+
+.start__cta {
+  margin-top: var(--space-2);
+  min-width: 320px;
+  animation: start-bounce 2.4s var(--ease-out) infinite;
+}
+
+.start__teacher {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-6);
+}
+
+@keyframes start-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+  }
+
+  88% {
+    transform: translateY(-6px);
+  }
+}
+
+@media (orientation: portrait), (max-width: 720px) {
+  .start__hero {
+    height: 55%;
+    object-position: center top;
+  }
+
+  .start__shade {
+    background: linear-gradient(to bottom, transparent 30%, var(--navy-900) 58%);
+  }
+
+  .start__content {
+    padding: var(--space-8) var(--space-5);
+  }
+
+  .start__cta {
+    width: 100%;
+    min-width: 0;
+  }
+}

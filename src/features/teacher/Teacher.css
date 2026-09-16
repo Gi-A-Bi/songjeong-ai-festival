@@ -1,0 +1,421 @@
+/* 교사용 메뉴 */
+.teacher-nav__link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.teacher-nav__link:hover {
+  background: var(--color-surface-sunken);
+}
+
+.teacher-nav__link.active {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-active);
+}
+
+.teacher-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* 로그인 */
+.teacher-login {
+  justify-content: center;
+  max-width: 560px;
+}
+
+.teacher-login__panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: center;
+}
+
+.teacher-login__icon {
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+/* 진행 제어 */
+.control-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.control-bar__facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.control-bar__facts dt {
+  margin-bottom: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.control-bar__facts dd {
+  margin: 0;
+}
+
+.control-bar__select {
+  max-width: 160px;
+}
+
+.control-bar__round {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-heavy);
+}
+
+.control-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.control-bar__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+}
+
+/* 미션 카드 */
+.mission-cards {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-3);
+  list-style: none;
+}
+
+.mission-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 2px solid var(--color-border);
+  border-top: 6px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.mission-card__image {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.mission-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  padding: var(--space-3);
+}
+
+.mission-card__body > :last-child {
+  margin-top: auto;
+}
+
+.mission-card__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--accent-ink);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-heavy);
+}
+
+.mission-card__title {
+  font-size: var(--font-size-body);
+}
+
+.mission-card__count {
+  font-size: var(--font-size-sm);
+}
+
+.mission-card__count strong {
+  font-size: var(--font-size-xl);
+}
+
+.mission-card__bar {
+  width: 100%;
+  height: 10px;
+  accent-color: var(--color-primary);
+}
+
+.teacher-shortcuts {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.teacher-shortcuts__image {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+}
+
+.teacher-shortcuts__link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--touch-min);
+  font-weight: var(--font-weight-bold);
+}
+
+.dev-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border-style: dashed;
+}
+
+/* 미션 운영 */
+.round-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.round-picker__button {
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-weight: var(--font-weight-bold);
+}
+
+.round-picker__button[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-active);
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.data-table caption {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-weight: var(--font-weight-bold);
+}
+
+.data-table th,
+.data-table td {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.data-table thead th {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+}
+
+.data-table td.data-table__num,
+.data-table th.data-table__num {
+  text-align: center;
+}
+
+.data-table tr.data-table__row--missing td {
+  background: var(--color-warning-soft);
+}
+
+.table-input {
+  width: 96px;
+  min-height: var(--touch-min);
+  padding: var(--space-1) var(--space-2);
+  border: 2px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-body);
+  text-align: center;
+}
+
+.rank-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.rank-stepper__button {
+  display: grid;
+  place-items: center;
+  width: var(--touch-min);
+  height: var(--touch-min);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.rank-stepper__button:disabled {
+  opacity: 0.4;
+}
+
+.rank-stepper__value {
+  min-width: 2.5em;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+  text-align: center;
+}
+
+.ticket-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent-orange-strong);
+}
+
+.answer-summary {
+  max-width: 320px;
+  color: var(--color-text-muted);
+}
+
+.teacher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+/* 카드 교환 */
+.exchange-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(360px, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.exchange-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.exchange-form__row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.exchange-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.exchange-preview__side {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+
+.exchange-preview__value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-heavy);
+}
+
+.exchange-preview__value--negative {
+  color: var(--color-danger);
+}
+
+.exchange-log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+.exchange-log__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  font-size: var(--font-size-sm);
+}
+
+.card-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--font-weight-bold);
+}
+
+.card-cell--zero {
+  color: var(--color-text-subtle);
+}
+
+.card-cell__thumb {
+  width: 24px;
+  height: auto;
+  border-radius: 3px;
+}
+
+@media (max-width: 1100px) {
+  .mission-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .exchange-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .control-bar__facts,
+  .mission-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .teacher-shortcuts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

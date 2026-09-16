@@ -1,0 +1,80 @@
+.timer {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  column-gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-stage);
+  color: var(--color-text-inverse);
+  box-shadow: var(--shadow-md);
+}
+
+.timer .icon {
+  grid-row: 1 / span 2;
+  color: var(--blue-400);
+}
+
+.timer__label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  opacity: 0.85;
+}
+
+.timer__value {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-heavy);
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.timer--lg {
+  padding: var(--space-3) var(--space-5);
+}
+
+.timer--lg .timer__label {
+  font-size: var(--font-size-sm);
+}
+
+.timer--lg .timer__value {
+  font-size: var(--font-size-2xl);
+}
+
+.timer--warning {
+  background: var(--orange-600);
+}
+
+.timer--warning .icon {
+  color: var(--gold-400);
+  animation: timer-pulse 1s var(--ease-out) infinite;
+}
+
+.timer--over {
+  background: var(--color-danger);
+}
+
+.timer--over .icon,
+.timer--paused .icon {
+  color: var(--color-text-inverse);
+}
+
+.timer--paused {
+  background: var(--gray-600);
+}
+
+.timer--idle {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  box-shadow: none;
+}
+
+.timer--idle .icon {
+  color: var(--color-text-subtle);
+}
+
+@keyframes timer-pulse {
+  50% {
+    transform: scale(1.18);
+  }
+}

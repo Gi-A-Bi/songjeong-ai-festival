@@ -1,0 +1,95 @@
+.hunt-instruction {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+.hunt-board {
+  position: relative;
+  align-self: center;
+  width: min(100%, calc((100dvh - 420px) * 16 / 9));
+  min-width: min(100%, 560px);
+  overflow: hidden;
+  border: 4px solid var(--accent);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  cursor: crosshair;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hunt-board--locked {
+  cursor: default;
+}
+
+.hunt-board__image {
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+}
+
+.hunt-marker {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.hunt-marker--found {
+  aspect-ratio: 1;
+  border: 5px solid var(--color-success);
+  border-radius: 50%;
+  background: rgb(37 128 58 / 20%);
+  color: var(--color-text-inverse);
+  animation: hunt-pop var(--duration-slow) var(--ease-bounce);
+}
+
+.hunt-marker--found .icon {
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+
+.hunt-marker--miss {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  color: var(--color-text-inverse);
+  animation: hunt-miss 1.2s var(--ease-out) forwards;
+}
+
+.hunt-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-right: auto;
+}
+
+@keyframes hunt-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.4);
+  }
+}
+
+@keyframes hunt-miss {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}

@@ -1,0 +1,194 @@
+/*
+ * 디자인 토큰. 색상·간격·글자 크기는 이 파일의 변수만 사용한다.
+ * 학교 초록을 기본으로, 네온 블루·보라·주황을 포인트로 쓴다.
+ */
+:root {
+  color-scheme: light;
+
+  /* 원색 팔레트 */
+  --green-50: #effaec;
+  --green-100: #dcf3d5;
+  --green-200: #b9e5ad;
+  --green-400: #5cb04c;
+  --green-500: #3c9a45;
+  --green-600: #25803a;
+  --green-700: #1c6a2e;
+  --green-800: #134d21;
+  --blue-50: #e8f7ff;
+  --blue-100: #cdeeff;
+  --blue-400: #3cc3ff;
+  --blue-500: #0ea5ff;
+  --blue-600: #0a7ad1;
+  --blue-700: #075ea3;
+  --purple-50: #f2eeff;
+  --purple-100: #e2d9ff;
+  --purple-400: #9f84ff;
+  --purple-500: #7c5cff;
+  --purple-600: #5f3fe0;
+  --orange-50: #fff4e8;
+  --orange-100: #ffe3c4;
+  --orange-400: #ffa94d;
+  --orange-500: #ff8a1f;
+  --orange-600: #c85f00;
+  --gold-100: #fff1c7;
+  --gold-400: #ffc933;
+  --gold-600: #a86b00;
+  --pink-100: #ffe0ef;
+  --pink-500: #ec4fa0;
+  --pink-600: #b8307a;
+  --red-50: #fdeeee;
+  --red-500: #e5484d;
+  --red-600: #c02b31;
+  --navy-950: #0b1533;
+  --navy-900: #111d42;
+  --navy-800: #1a2a5c;
+  --navy-700: #283a75;
+  --gray-50: #f7f9fb;
+  --gray-100: #eef2f6;
+  --gray-200: #dfe5ec;
+  --gray-300: #c5cfda;
+  --gray-400: #9aa6b6;
+  --gray-500: #6b778a;
+  --gray-600: #515c6f;
+  --gray-700: #394356;
+  --white: #ffffff;
+
+  /* 의미 색 */
+  --color-bg: #f1f7ef;
+  --color-bg-accent: #e7f3ff;
+  --color-surface: var(--white);
+  --color-surface-muted: var(--gray-50);
+  --color-surface-sunken: var(--gray-100);
+  --color-surface-glass: rgb(255 255 255 / 92%);
+  --color-border: var(--gray-200);
+  --color-border-strong: var(--gray-300);
+  --color-text: var(--navy-900);
+  --color-text-muted: var(--gray-600);
+  --color-text-subtle: var(--gray-500);
+  --color-text-inverse: var(--white);
+
+  --color-primary: var(--green-600);
+  --color-primary-hover: var(--green-700);
+  --color-primary-active: var(--green-800);
+  --color-primary-soft: var(--green-100);
+  --color-primary-glow: rgb(60 154 69 / 35%);
+
+  --color-accent-blue: var(--blue-500);
+  --color-accent-blue-strong: var(--blue-700);
+  --color-accent-blue-soft: var(--blue-50);
+  --color-accent-purple: var(--purple-500);
+  --color-accent-purple-strong: var(--purple-600);
+  --color-accent-purple-soft: var(--purple-50);
+  --color-accent-orange: var(--orange-500);
+  --color-accent-orange-strong: var(--orange-600);
+  --color-accent-orange-soft: var(--orange-50);
+
+  --color-success: var(--green-600);
+  --color-success-soft: var(--green-100);
+  --color-warning: var(--orange-600);
+  --color-warning-soft: var(--orange-100);
+  --color-danger: var(--red-600);
+  --color-danger-soft: var(--red-50);
+  --color-info: var(--blue-700);
+  --color-info-soft: var(--blue-100);
+  --color-neutral: var(--gray-600);
+  --color-neutral-soft: var(--gray-100);
+
+  --color-focus: var(--blue-500);
+  --color-overlay: rgb(11 21 51 / 62%);
+  --color-stage: var(--navy-900);
+  --color-stage-raised: var(--navy-800);
+
+  /* 미션·카드 포인트 색 */
+  --accent-golden-bell: var(--gold-400);
+  --accent-golden-bell-ink: var(--gold-600);
+  --accent-golden-bell-soft: var(--gold-100);
+  --accent-error-hunt: var(--purple-500);
+  --accent-error-hunt-ink: var(--purple-600);
+  --accent-error-hunt-soft: var(--purple-50);
+  --accent-drawing: var(--pink-500);
+  --accent-drawing-ink: var(--pink-600);
+  --accent-drawing-soft: var(--pink-100);
+  --accent-ozobot: var(--blue-500);
+  --accent-ozobot-ink: var(--blue-700);
+  --accent-ozobot-soft: var(--blue-50);
+  --accent-library-check: var(--green-500);
+  --accent-library-check-ink: var(--green-700);
+  --accent-library-check-soft: var(--green-100);
+
+  /* 간격 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* 모서리 */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+
+  /* 글자 */
+  --font-family-base:
+    'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', system-ui, sans-serif;
+  --font-family-number: ui-rounded, 'SF Pro Rounded', 'Segoe UI', var(--font-family-base);
+  --font-size-xs: 0.875rem;
+  --font-size-sm: 1rem;
+  --font-size-body: 1.125rem;
+  --font-size-lg: 1.375rem;
+  --font-size-xl: 1.75rem;
+  --font-size-2xl: 2.25rem;
+  --font-size-3xl: 3rem;
+  --font-weight-regular: 400;
+  --font-weight-medium: 600;
+  --font-weight-bold: 700;
+  --font-weight-heavy: 800;
+  --line-height-tight: 1.2;
+  --line-height-body: 1.55;
+
+  /* 터치 크기 */
+  --touch-min: 48px;
+  --button-height: 56px;
+  --button-height-lg: 72px;
+  --icon-size-sm: 20px;
+  --icon-size-md: 24px;
+  --icon-size-lg: 32px;
+
+  /* 그림자 */
+  --shadow-sm: 0 1px 2px rgb(17 29 66 / 8%), 0 1px 3px rgb(17 29 66 / 6%);
+  --shadow-md: 0 4px 12px rgb(17 29 66 / 10%), 0 2px 4px rgb(17 29 66 / 6%);
+  --shadow-lg: 0 16px 40px rgb(17 29 66 / 16%), 0 4px 12px rgb(17 29 66 / 8%);
+  --shadow-glow-blue: 0 0 0 3px rgb(14 165 255 / 25%), 0 8px 24px rgb(14 165 255 / 30%);
+  --shadow-glow-primary: 0 8px 24px var(--color-primary-glow);
+
+  /* 움직임 */
+  --duration-fast: 120ms;
+  --duration-base: 220ms;
+  --duration-slow: 450ms;
+  --duration-flip: 750ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* 레이아웃 */
+  --header-height: 64px;
+  --content-max: 1240px;
+  --z-header: 20;
+  --z-sticky: 30;
+  --z-dialog: 100;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+    --duration-flip: 0ms;
+  }
+}

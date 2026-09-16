@@ -1,0 +1,17 @@
+node_modules
+dist
+coverage
+*.tsbuildinfo
+*.local
+.env
+.env.*
+!.env.example
+
+# Firebase 로컬 캐시와 비밀 파일
+.firebase
+*-debug.log
+serviceAccount*.json
+*service-account*.json
+
+.DS_Store
+Thumbs.db

@@ -1,0 +1,295 @@
+/* 카드함 */
+.card-page__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.card-page__top .page__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.card-page__hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-accent-orange-strong);
+  font-weight: var(--font-weight-medium);
+}
+
+.collection-complete {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  background: var(--color-stage);
+  color: var(--color-text-inverse);
+  box-shadow: var(--shadow-lg);
+}
+
+.collection-complete__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.collection-complete__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+}
+
+.collection-complete__kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--gold-400);
+  font-weight: var(--font-weight-heavy);
+}
+
+.collection-complete__title {
+  font-size: var(--font-size-2xl);
+}
+
+/* 피날레 */
+.finale {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  background: var(--color-stage);
+  color: var(--color-text-inverse);
+  box-shadow: var(--shadow-lg);
+}
+
+.finale__scene {
+  width: 100%;
+  height: auto;
+  max-height: 46dvh;
+  object-fit: cover;
+}
+
+.finale__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.finale__class {
+  color: var(--gold-400);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+}
+
+.finale__title {
+  font-size: var(--font-size-3xl);
+  animation: finale-glow 2s ease-in-out infinite;
+}
+
+.finale__lead {
+  font-size: var(--font-size-lg);
+}
+
+.finale__cards {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-block: var(--space-2);
+  list-style: none;
+}
+
+.finale__cards li {
+  animation: finale-rise var(--duration-slow) var(--ease-bounce) both;
+}
+
+.finale__card {
+  width: min(96px, 16vw);
+  height: auto;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+}
+
+@keyframes finale-glow {
+  50% {
+    text-shadow: 0 0 24px var(--gold-400);
+  }
+}
+
+@keyframes finale-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px) rotate(-6deg);
+  }
+}
+
+/* 카드 뽑기 */
+.draw-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+}
+
+.draw-stage__scene {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+}
+
+.draw-stage__text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: linear-gradient(90deg, rgb(11 21 51 / 75%), transparent 70%);
+  color: var(--color-text-inverse);
+}
+
+.draw-stage__title {
+  font-size: var(--font-size-3xl);
+}
+
+.draw-stage__count {
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-orange-strong);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+.draw-page__guide {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-heavy);
+  text-align: center;
+}
+
+.draw-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-6);
+  list-style: none;
+}
+
+.draw-grid__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  width: min(200px, 28vw);
+}
+
+.draw-grid__caption {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.flip-card {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  perspective: 1200px;
+}
+
+.flip-card:disabled {
+  cursor: default;
+}
+
+.flip-card:not(:disabled):hover .flip-card__inner {
+  transform: translateY(-6px) rotate(-2deg);
+}
+
+.flip-card__inner {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform var(--duration-flip) var(--ease-out);
+}
+
+.flip-card--revealed .flip-card__inner {
+  transform: rotateY(180deg);
+}
+
+.flip-card__face {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  backface-visibility: hidden;
+}
+
+.flip-card__face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.flip-card__face--front {
+  transform: rotateY(180deg);
+}
+
+.earned {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.earned__mascot {
+  width: 120px;
+  height: auto;
+}
+
+.earned__card {
+  width: 120px;
+  height: auto;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  animation: dialog-pop var(--duration-slow) var(--ease-bounce);
+}
+
+.earned__name {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-heavy);
+}
+
+@media (max-width: 720px) {
+  .collection-complete {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .draw-stage__text {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  .draw-stage__title {
+    font-size: var(--font-size-2xl);
+  }
+
+  .earned {
+    flex-wrap: wrap;
+    justify-content: center;
+    text-align: center;
+  }
+}

@@ -1,0 +1,104 @@
+.mission-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1;
+}
+
+.mission-shell__head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: 3px solid var(--accent);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(100deg, var(--accent-soft), var(--color-surface) 45%);
+  box-shadow: var(--shadow-md);
+}
+
+.mission-shell__thumb {
+  width: 176px;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius-lg);
+}
+
+.mission-shell__heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.mission-shell__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--accent-ink);
+  font-weight: var(--font-weight-heavy);
+}
+
+.mission-shell__title {
+  font-size: var(--font-size-2xl);
+}
+
+.mission-shell__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.mission-shell__team {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--font-weight-bold);
+}
+
+.mission-shell__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1;
+}
+
+.mission-shell__actions {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-lg);
+}
+
+@media (max-width: 960px) {
+  .mission-shell__head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .mission-shell__thumb {
+    display: none;
+  }
+
+  .mission-shell__meta {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .mission-shell__title {
+    font-size: var(--font-size-xl);
+  }
+}

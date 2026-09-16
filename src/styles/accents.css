@@ -1,0 +1,30 @@
+/* 미션·카드별 포인트 색을 --accent 계열 변수로 연결한다. */
+.accent-golden-bell {
+  --accent: var(--accent-golden-bell);
+  --accent-ink: var(--accent-golden-bell-ink);
+  --accent-soft: var(--accent-golden-bell-soft);
+}
+
+.accent-error-hunt {
+  --accent: var(--accent-error-hunt);
+  --accent-ink: var(--accent-error-hunt-ink);
+  --accent-soft: var(--accent-error-hunt-soft);
+}
+
+.accent-drawing {
+  --accent: var(--accent-drawing);
+  --accent-ink: var(--accent-drawing-ink);
+  --accent-soft: var(--accent-drawing-soft);
+}
+
+.accent-ozobot {
+  --accent: var(--accent-ozobot);
+  --accent-ink: var(--accent-ozobot-ink);
+  --accent-soft: var(--accent-ozobot-soft);
+}
+
+.accent-library-check {
+  --accent: var(--accent-library-check);
+  --accent-ink: var(--accent-library-check-ink);
+  --accent-soft: var(--accent-library-check-soft);
+}
