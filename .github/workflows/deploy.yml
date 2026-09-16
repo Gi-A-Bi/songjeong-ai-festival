@@ -29,6 +29,11 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run test -- --run
+      - name: Java 21 준비(Firestore 에뮬레이터 요구)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: 보안 규칙과 Firestore 저장소 테스트(에뮬레이터)
         run: npx -y firebase-tools@15 emulators:exec --only auth,firestore --project demo-songjeong "npx vitest run --config vitest.rules.config.ts"
       - name: 빌드
