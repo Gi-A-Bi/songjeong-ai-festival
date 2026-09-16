@@ -12,7 +12,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-songjeong-rules \"vitest run --config vitest.rules.config.ts\"",
+    "test:emulator": "firebase emulators:exec --only auth,firestore --project demo-songjeong \"vitest run --config vitest.rules.config.ts\"",
     "emulators": "firebase emulators:start --only auth,firestore --project demo-songjeong"
   },
   "dependencies": {

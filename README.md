@@ -55,10 +55,10 @@ npm run emulators
 ### 보안 규칙 테스트
 
 ```bash
-npm run test:rules
+npm run test:emulator
 ```
 
-에뮬레이터를 자동으로 띄워 학생·교사 권한 규칙 18가지를 확인합니다.
+에뮬레이터를 자동으로 띄워 보안 규칙과 Firestore 저장소 동작을 확인합니다.
 
 ## 화면 둘러보기
 

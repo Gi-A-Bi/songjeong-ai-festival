@@ -1006,6 +1006,12 @@ export class FirestoreEventRepository implements EventRepository {
       const teacher = this.teacher;
       if (!teacher) throw new RepositoryError('not-allowed', '교사로 로그인해야 할 수 있어요.');
 
+      // 문서 ID를 requestId로 고정해 중복 클릭·재시도에도 기록이 하나만 생긴다.
+      // 재시도는 카드가 이미 옮겨진 뒤이므로 수량 검사보다 먼저 확인한다.
+      const ref = doc(this.sub(input.eventId, 'exchanges'), input.requestId);
+      const alreadyRecorded = await getDoc(ref);
+      if (alreadyRecorded.exists()) return mapExchange(alreadyRecorded);
+
       const [fromSnap, toSnap] = await Promise.all([
         getDoc(doc(this.sub(input.eventId, 'classes'), input.fromClassId)),
         getDoc(doc(this.sub(input.eventId, 'classes'), input.toClassId)),
@@ -1032,8 +1038,6 @@ export class FirestoreEventRepository implements EventRepository {
         );
       }
 
-      // 문서 ID를 requestId로 고정해 중복 클릭에도 기록이 하나만 생긴다.
-      const ref = doc(this.sub(input.eventId, 'exchanges'), input.requestId);
       await runTransaction(this.db, async (transaction) => {
         const existing = await transaction.get(ref);
         if (existing.exists()) return;

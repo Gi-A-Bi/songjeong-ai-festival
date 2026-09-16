@@ -41,8 +41,9 @@ export function TeacherLoginPage() {
             교사용 로그인
           </h1>
           <p className="muted">
-            행사 날에는 등록된 학교 Google 계정으로 로그인해요. 지금은 로컬 목업이라 개발용 교사로
-            들어갑니다.
+            {repository.mode === 'mock'
+              ? '지금은 로컬 목업이라 실제 로그인 없이 개발용 교사로 들어갑니다.'
+              : '등록된 학교 Google 계정으로 로그인하세요. 등록되지 않은 계정은 교사 화면을 쓸 수 없습니다.'}
           </p>
           {login.status === 'error' ? (
             <InlineAlert tone="danger">{toUserMessage(login.error)}</InlineAlert>
@@ -55,7 +56,7 @@ export function TeacherLoginPage() {
             loading={login.isPending}
             loadingLabel="입장하는 중"
           >
-            개발용 교사로 입장
+            {repository.mode === 'mock' ? '개발용 교사로 입장' : 'Google 계정으로 로그인'}
           </Button>
         </section>
       </main>

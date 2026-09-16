@@ -8,7 +8,7 @@ import { Bytes, doc, serverTimestamp, setDoc, updateDoc } from 'firebase/firesto
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 
-const PROJECT_ID = 'demo-songjeong-rules';
+const PROJECT_ID = 'demo-songjeong';
 const EVENT = 'events/e1';
 
 let testEnv: RulesTestEnvironment;
