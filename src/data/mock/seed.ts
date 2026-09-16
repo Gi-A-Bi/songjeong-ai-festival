@@ -2,13 +2,14 @@ import { DEFAULT_EVENT_ID } from '../../config';
 import { drawCardType } from '../../domain/cards';
 import { getTicketCountForRank } from '../../domain/rewards';
 import { getTeamNoForMission, ROUND_NUMBERS, TEAM_NUMBERS } from '../../domain/rotation';
-import { calculateAutoScore } from '../../domain/scoring';
 import type {
   CardType,
   ClassInfo,
+  DrawingFile,
   DrawTicket,
   Exchange,
   FestivalEvent,
+  GoldenBellQuestion,
   Grade,
   Mission,
   MissionResult,
@@ -44,7 +45,10 @@ export interface MockState {
   teams: Team[];
   roundStatuses: Record<string, RoundStatus>;
   submissions: Record<string, Submission>;
-  revealedAnswers: Record<string, boolean>;
+  /** 미션·학년·라운드별 작은 상태(정답 공개, 마지막 변경 시각) */
+  missionStates: Record<string, { answerRevealed: boolean; updatedAt: number }>;
+  /** 팀별 그림 파일 */
+  drawings: Record<string, DrawingFile>;
   results: MissionResult[];
   tickets: DrawTicket[];
   exchanges: Exchange[];
@@ -52,6 +56,94 @@ export interface MockState {
   /** requestId → 처리된 문서 ID(멱등 처리용) */
   processedRequests: Record<string, string>;
 }
+
+/** 골든벨 샘플 7문항. 실제 문제는 교사가 미션 운영 화면에서 등록한다. */
+const SAMPLE_GOLDEN_BELL_QUESTIONS: GoldenBellQuestion[] = [
+  {
+    id: 'q1',
+    question: 'AI가 알려 준 정보를 쓰기 전에 가장 먼저 해야 할 일은 무엇일까요?',
+    choices: [
+      '그대로 친구에게 알려 준다',
+      '책이나 믿을 만한 자료로 사실인지 확인한다',
+      '더 길게 써 달라고 한다',
+      '마음에 들 때만 믿는다',
+    ],
+    answerIndex: 1,
+    explanation: 'AI도 틀릴 수 있어요. 책이나 믿을 만한 자료로 꼭 확인해요.',
+  },
+  {
+    id: 'q2',
+    question: 'AI에게 질문할 때 알려 주면 안 되는 정보는 무엇일까요?',
+    choices: [
+      '좋아하는 동물',
+      '궁금한 과학 질문',
+      '우리 집 주소와 전화번호',
+      '오늘 배운 수업 주제',
+    ],
+    answerIndex: 2,
+    explanation: '이름, 주소, 전화번호 같은 개인정보는 AI에게 알려 주지 않아요.',
+  },
+  {
+    id: 'q3',
+    question: 'AI가 만든 사진인지 알아보는 좋은 방법은 무엇일까요?',
+    choices: [
+      '손가락 개수나 그림자처럼 작은 부분을 자세히 본다',
+      '색이 예쁘면 진짜라고 믿는다',
+      '사진을 빨리 넘겨 본다',
+      '크게 나온 사진은 모두 진짜라고 생각한다',
+    ],
+    answerIndex: 0,
+    explanation: 'AI 그림은 손가락, 글자, 그림자 같은 작은 부분이 이상한 경우가 많아요.',
+  },
+  {
+    id: 'q4',
+    question: 'AI는 주로 어떻게 배울까요?',
+    choices: [
+      '잠을 많이 자면서 배운다',
+      '태어날 때부터 모든 것을 안다',
+      '밥을 먹으면서 배운다',
+      '아주 많은 자료(데이터)를 보고 배운다',
+    ],
+    answerIndex: 3,
+    explanation: 'AI는 많은 데이터 속에서 규칙을 찾아 배워요.',
+  },
+  {
+    id: 'q5',
+    question: '친구 얼굴 사진으로 AI 그림을 만들고 싶을 때 먼저 해야 할 일은?',
+    choices: [
+      '몰래 만들어서 깜짝 보여 준다',
+      '친구에게 허락을 받는다',
+      '반 단체방에 먼저 올린다',
+      '얼굴을 조금 바꾸면 괜찮다',
+    ],
+    answerIndex: 1,
+    explanation: '다른 사람의 얼굴 사진은 꼭 허락을 받고 사용해요.',
+  },
+  {
+    id: 'q6',
+    question: '로봇이 길을 따라 정확하게 움직이려면 무엇이 필요할까요?',
+    choices: [
+      '로봇에게 큰 소리로 부탁하기',
+      '로봇을 손으로 밀어 주기',
+      '순서와 규칙이 정확한 명령',
+      '로봇을 예쁘게 꾸미기',
+    ],
+    answerIndex: 2,
+    explanation: '로봇은 정해진 순서와 규칙(명령)대로 움직여요.',
+  },
+  {
+    id: 'q7',
+    question: 'AI의 답이 이상하다고 느꼈을 때 가장 좋은 행동은 무엇일까요?',
+    choices: [
+      '다른 자료로 확인하고 선생님께 이야기한다',
+      'AI가 한 말이니 그냥 믿는다',
+      '화가 나서 컴퓨터를 끈다',
+      '친구에게 틀린 답을 그대로 알려 준다',
+    ],
+    answerIndex: 0,
+    explanation: '이상한 답은 다른 자료로 확인하고 어른과 함께 이야기해요.',
+  },
+];
 
 /** 샘플 미션 콘텐츠. 실제 문제·교실은 행사 전에 교사가 설정한다(명세 24장). */
 export function createSampleMissions(): Mission[] {
@@ -68,16 +160,7 @@ export function createSampleMissions(): Mission[] {
       enabled: true,
       config: {
         type: 'golden_bell',
-        questionNo: 1,
-        question: 'AI가 알려 준 정보를 쓰기 전에 가장 먼저 해야 할 일은 무엇일까요?',
-        choices: [
-          '그대로 친구에게 알려 준다',
-          '책이나 믿을 만한 자료로 사실인지 확인한다',
-          '더 길게 써 달라고 한다',
-          '마음에 들 때만 믿는다',
-        ],
-        answerIndex: 1,
-        explanation: 'AI도 틀릴 수 있어요. 책이나 믿을 만한 자료로 꼭 확인해요.',
+        questions: SAMPLE_GOLDEN_BELL_QUESTIONS,
       },
     },
     {
@@ -163,7 +246,17 @@ function sampleAnswer(mission: Mission, variant: number): SubmissionAnswer {
   const config = mission.config;
   switch (config.type) {
     case 'golden_bell':
-      return { type: 'golden_bell', choiceIndex: variant % config.choices.length };
+      return {
+        type: 'golden_bell',
+        selections: Object.fromEntries(
+          config.questions.map((question, index) => [
+            question.id,
+            (index + variant) % 3 === 0
+              ? question.answerIndex
+              : (question.answerIndex + 1) % question.choices.length,
+          ]),
+        ),
+      };
     case 'error_hunt':
       return {
         type: 'error_hunt',
@@ -174,7 +267,14 @@ function sampleAnswer(mission: Mission, variant: number): SubmissionAnswer {
         remainingSeconds: 60 + variant * 20,
       };
     case 'drawing':
-      return { type: 'drawing', strokeCount: 12 + variant * 3, previewDataUrl: null };
+      return {
+        type: 'drawing',
+        strokeCount: 12 + variant * 3,
+        mimeType: 'image/webp',
+        byteSize: 0,
+        width: 960,
+        height: 540,
+      };
     case 'ozobot':
       return { type: 'ozobot', ready: true };
     case 'library_check':
@@ -339,6 +439,7 @@ export function createSeedState(now: number): MockState {
         status: 'verified',
         answer: sampleAnswer(mission, classNo),
         score,
+        reopened: false,
         submittedAt,
         updatedAt: round1FinalizedAt,
       };
@@ -365,6 +466,7 @@ export function createSeedState(now: number): MockState {
           sourceResultId: rId,
           cardType,
           claimedAt: team1Id === DEMO_TEAM_ID ? null : round1FinalizedAt + MINUTE,
+          revokedAt: null,
           createdAt: round1FinalizedAt,
         });
       });
@@ -385,7 +487,8 @@ export function createSeedState(now: number): MockState {
           roundNo: round2,
           status: 'submitted',
           answer,
-          score: calculateAutoScore(mission.config, answer),
+          score: null,
+          reopened: false,
           submittedAt: submittedAt2,
           updatedAt: submittedAt2,
         };
@@ -401,6 +504,7 @@ export function createSeedState(now: number): MockState {
       sourceResultId: 'dev-start',
       cardType,
       claimedAt: round1StartedAt,
+      revokedAt: null,
       createdAt: round1StartedAt,
     });
   });
@@ -412,7 +516,8 @@ export function createSeedState(now: number): MockState {
     teams,
     roundStatuses,
     submissions,
-    revealedAnswers: {},
+    missionStates: {},
+    drawings: {},
     results,
     tickets,
     exchanges: [],

@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../config';
+import { toTeamId } from '../data/mock/keys';
 import { DEMO_TEAM_ID } from '../data/mock/seed';
 import { renderApp } from '../test/renderApp';
 
@@ -41,5 +42,31 @@ describe('학생 화면', () => {
     const revealed = screen.getByRole('button', { name: /을 얻었어요$/ });
     expect(revealed).toBeDisabled();
     expect(screen.getByText(/남은 뽑기권/)).toHaveTextContent('2장');
+  });
+
+  it('지금 라운드가 아닌 미션은 살펴보기만 하고 제출할 수 없다', async () => {
+    renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/mission/golden-bell`);
+    expect(await screen.findByText(/4라운드에 하는 미션이에요/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /정답 제출/ })).toBeDisabled();
+  });
+
+  it('골든벨은 여러 문제를 풀고 확인한 뒤 한 번에 제출한다', async () => {
+    const user = userEvent.setup();
+    // 2라운드 골든벨은 5팀이 한다.
+    renderApp(`/team/${DEFAULT_EVENT_ID}/${toTeamId(4, 2, 5)}/mission/golden-bell`);
+    expect(await screen.findByText('문제 1 / 7')).toBeInTheDocument();
+    await user.click(
+      screen.getByRole('radio', { name: /책이나 믿을 만한 자료로 사실인지 확인한다/ }),
+    );
+    await user.click(screen.getByRole('button', { name: /다음 문제/ }));
+    expect(screen.getByText('문제 2 / 7')).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: /우리 집 주소와 전화번호/ }));
+
+    await user.click(screen.getByRole('button', { name: /정답 제출/ }));
+    const dialog = await screen.findByRole('dialog', { name: '답을 제출할까요?' });
+    expect(within(dialog).getByText(/5개/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: /제출하기/ }));
+    expect(await screen.findByText(/제출했어요!/)).toBeInTheDocument();
+    expect(screen.getByText('제출한 답은 바꿀 수 없어요')).toBeInTheDocument();
   });
 });

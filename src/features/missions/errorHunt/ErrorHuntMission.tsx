@@ -1,5 +1,4 @@
 import { useRef, useState, type MouseEvent } from 'react';
-import { paths } from '../../../app/paths';
 import { useSettings } from '../../../app/SettingsContext';
 import { AssetImage } from '../../../components/AssetImage';
 import { Button } from '../../../components/Button';
@@ -35,7 +34,10 @@ export function ErrorHuntMission({
 }: ErrorHuntMissionProps) {
   const { team, mission, submission, roundNo } = view;
   const { playEffect } = useSettings();
-  const saved = submission?.answer.type === 'error_hunt' ? submission.answer : null;
+  const saved =
+    submission && submission.status !== 'draft' && submission.answer.type === 'error_hunt'
+      ? submission.answer
+      : null;
   const [found, setFound] = useState<string[]>(saved?.foundRegionIds ?? []);
   const [wrongTaps, setWrongTaps] = useState(saved?.wrongTaps ?? 0);
   const [misses, setMisses] = useState<MissMarker[]>([]);
@@ -89,15 +91,7 @@ export function ErrorHuntMission({
       roundNo={roundNo}
       event={event}
       phase={phase}
-      notice={
-        <MissionNotice
-          phase={phase}
-          event={event}
-          error={error}
-          teacherJudged={mission.teacherJudged}
-          cardsPath={paths.cards(eventId, team.id)}
-        />
-      }
+      notice={<MissionNotice phase={phase} event={event} view={view} error={error} />}
       actions={
         <>
           <div className="hunt-stats" aria-live="polite">
@@ -130,6 +124,10 @@ export function ErrorHuntMission({
       <p className="hunt-instruction">
         <Icon name="touch_app" />
         {config.instruction}
+      </p>
+      <p className="hunt-bonus">
+        <Icon name="bolt" />
+        {total}곳을 모두 찾고 제출하면 남은 시간만큼 보너스 점수! 틀리게 누르면 감점이에요.
       </p>
       <div
         className={`hunt-board${editable ? '' : ' hunt-board--locked'}`}

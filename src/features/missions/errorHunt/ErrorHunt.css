@@ -6,10 +6,20 @@
   font-weight: var(--font-weight-bold);
 }
 
+.hunt-bonus {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: calc(var(--space-2) * -1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
 .hunt-board {
   position: relative;
   align-self: center;
-  width: min(100%, calc((100dvh - 420px) * 16 / 9));
+  width: min(100%, calc((100dvh - 450px) * 16 / 9));
   min-width: min(100%, 560px);
   overflow: hidden;
   border: 4px solid var(--accent);

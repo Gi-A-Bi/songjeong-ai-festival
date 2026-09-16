@@ -2,10 +2,12 @@ import type {
   CardCounts,
   CardType,
   ClassInfo,
+  DrawingFile,
   Exchange,
   FestivalEvent,
   Grade,
   Mission,
+  MissionConfig,
   MissionResult,
   RoundNo,
   RoundStatus,
@@ -54,12 +56,25 @@ export interface TeamMissionView {
   answerRevealed: boolean;
 }
 
-/** 교사 미션 운영 화면의 참가 팀 한 줄 */
+/**
+ * 학생 미션 화면이 실시간으로 지켜보는 작은 상태 문서.
+ * 교사가 정답 공개, 순위 확정·수정, 재제출 허용을 하면 updatedAt이 바뀐다.
+ */
+export interface MissionLiveState {
+  answerRevealed: boolean;
+  finalized: boolean;
+  updatedAt: number;
+}
+
+/** 교사 미션 운영 화면의 참가 팀 한 줄. submission.score는 자동 점수까지 채운 값이다. */
 export interface MissionParticipant {
   team: Team;
   submission: Submission | null;
   result: MissionResult | null;
+  /** 회수되지 않은 뽑기권 수 */
   ticketCount: number;
+  /** 그중 이미 카드를 뽑은 수 */
+  claimedTicketCount: number;
 }
 
 export interface MissionProgress {
@@ -69,12 +84,29 @@ export interface MissionProgress {
   finalized: boolean;
 }
 
+/** 그림 미션 제출 때 함께 보내는 그림 파일 */
+export interface DrawingUpload {
+  promptId: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  bytes: Uint8Array;
+}
+
 export interface SaveSubmissionInput {
   eventId: string;
   missionId: string;
   teamId: string;
   answer: SubmissionAnswer;
   requestId: string;
+  /** 그림 미션일 때만 */
+  drawing?: DrawingUpload;
+}
+
+export interface ReopenSubmissionInput {
+  eventId: string;
+  missionId: string;
+  teamId: string;
 }
 
 export interface RankingEntryInput {
@@ -96,6 +128,16 @@ export interface FinalizeRankingOutcome {
   results: MissionResult[];
   ticketsByTeam: Record<string, number>;
   alreadyFinalized: boolean;
+}
+
+export interface ReviseRankingOutcome {
+  results: MissionResult[];
+  /** 수정 뒤 팀별 뽑기권 수 */
+  ticketsByTeam: Record<string, number>;
+  added: number;
+  revoked: number;
+  /** 회수한 뽑기권 중 이미 카드를 뽑았던 수 */
+  revokedClaimed: number;
 }
 
 export interface CreateExchangeInput {
@@ -149,7 +191,16 @@ export interface EventRepository {
 
   // 제출
   getTeamMissionView(eventId: string, teamId: string, missionId: string): Promise<TeamMissionView>;
+  subscribeMissionState(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+    onChange: (state: MissionLiveState) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe;
   listTeamSubmissions(eventId: string, teamId: string): Promise<Submission[]>;
+  /** 지금 진행 중인 라운드의 미션이거나 교사가 재제출을 허용했을 때만 받는다. */
   saveSubmission(input: SaveSubmissionInput): Promise<Submission>;
   getRoundProgress(eventId: string, grade: Grade, roundNo: RoundNo): Promise<MissionProgress[]>;
 
@@ -174,6 +225,19 @@ export interface EventRepository {
     roundNo: RoundNo,
   ): Promise<boolean>;
   finalizeRanking(input: FinalizeRankingInput): Promise<FinalizeRankingOutcome>;
+  /** 확정한 순위를 고치고 뽑기권 수를 맞춘다(모자라면 발급, 남으면 회수 표시). */
+  reviseRanking(input: FinalizeRankingInput): Promise<ReviseRankingOutcome>;
+  /** 순위 확정 전 제출을 되돌려 팀이 다시 낼 수 있게 한다. */
+  reopenSubmission(input: ReopenSubmissionInput): Promise<void>;
+  /** 미션 문제 같은 설정을 바꾼다. 미션 종류는 바꿀 수 없다. */
+  updateMissionConfig(eventId: string, missionId: string, config: MissionConfig): Promise<Mission>;
+  /** 교사가 열 때만 그림 파일을 읽는다(실시간 구독하지 않음). */
+  listDrawingFiles(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+  ): Promise<DrawingFile[]>;
 
   // 카드
   listTeamTickets(eventId: string, teamId: string): Promise<TicketView[]>;

@@ -6,6 +6,9 @@ import {
   emptyCardCounts,
   getMissingCardTypes,
   isCollectionComplete,
+  nextTicketIndexes,
+  planTicketAdjustment,
+  previewTicketChange,
   TicketAlreadyClaimedError,
 } from './cards';
 import type { CardType, DrawTicket } from './types';
@@ -18,6 +21,7 @@ function ticket(id: string, cardType: CardType, claimed: boolean, classId = 'c1'
     sourceResultId: 'r1',
     cardType,
     claimedAt: claimed ? 1 : null,
+    revokedAt: null,
     createdAt: 0,
   };
 }
@@ -62,5 +66,55 @@ describe('카드 종류 추첨', () => {
     expect(drawCardType(() => 0)).toBe('thinking');
     expect(drawCardType(() => 0.999999)).toBe('verification');
     expect(drawCardType(() => 0.4)).toBe('expression');
+  });
+});
+
+describe('순위 수정 때 뽑기권 맞추기', () => {
+  const tickets = [
+    { id: 'r1__1', claimedAt: 10, revokedAt: null },
+    { id: 'r1__2', claimedAt: null, revokedAt: null },
+    { id: 'r1__3', claimedAt: null, revokedAt: null },
+  ];
+
+  it('모자라면 새로 만들 수를 알려 주고 번호는 기존 다음부터 쓴다', () => {
+    expect(planTicketAdjustment(tickets.slice(0, 1), 3)).toEqual({
+      createCount: 2,
+      revokeIds: [],
+      revokedClaimed: 0,
+    });
+    expect(nextTicketIndexes(['r1__1', 'r1__4'], 2)).toEqual([5, 6]);
+  });
+
+  it('남으면 안 뽑은 뽑기권부터, 번호가 큰 것부터 회수한다', () => {
+    expect(planTicketAdjustment(tickets, 2)).toEqual({
+      createCount: 0,
+      revokeIds: ['r1__3'],
+      revokedClaimed: 0,
+    });
+    expect(planTicketAdjustment(tickets, 0)).toEqual({
+      createCount: 0,
+      revokeIds: ['r1__3', 'r1__2', 'r1__1'],
+      revokedClaimed: 1,
+    });
+  });
+
+  it('이미 회수한 뽑기권은 세지 않는다', () => {
+    const withRevoked = [...tickets, { id: 'r1__4', claimedAt: null, revokedAt: 5 }];
+    expect(planTicketAdjustment(withRevoked, 3).createCount).toBe(0);
+    expect(planTicketAdjustment(withRevoked, 3).revokeIds).toEqual([]);
+  });
+
+  it('회수한 카드는 학급 카드 수에서 빠진다', () => {
+    const counts = computeClassCardCounts(
+      'c1',
+      [{ ...ticket('1', 'thinking', true), revokedAt: 99 }, ticket('2', 'thinking', true)],
+      [],
+    );
+    expect(counts.thinking).toBe(1);
+  });
+
+  it('미리보기: 사용 수만으로 회수될 뽑은 카드 수를 계산한다', () => {
+    expect(previewTicketChange(3, 2, 1)).toEqual({ added: 0, revoked: 2, revokedClaimed: 1 });
+    expect(previewTicketChange(1, 1, 3)).toEqual({ added: 2, revoked: 0, revokedClaimed: 0 });
   });
 });

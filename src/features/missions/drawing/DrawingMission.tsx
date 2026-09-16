@@ -1,23 +1,42 @@
-import { useRef, useState } from 'react';
-import { paths } from '../../../app/paths';
+import { useEffect, useRef, useState } from 'react';
+import { AssetImage } from '../../../components/AssetImage';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog, Dialog } from '../../../components/Dialog';
 import { Icon } from '../../../components/Icon';
 import { MissionShell } from '../../../components/MissionShell';
 import { StatusBadge } from '../../../components/StatusBadge';
+import { RepositoryError } from '../../../data/errors';
+import { formatBytes } from '../../../domain/drawingFiles';
 import { canSubmitInPhase } from '../../../domain/missionPhase';
 import type { DrawingConfig } from '../../../domain/types';
 import { MissionNotice } from '../MissionNotice';
 import type { MissionScreenProps } from '../missionTypes';
 import { useMissionSubmit } from '../useMissionSubmit';
 import { DrawingBoard } from './DrawingBoard';
-import { exportCanvas, PEN_COLORS, PEN_WIDTHS, type DrawingTool, type Stroke } from './drawing';
+import {
+  compressDrawing,
+  PEN_COLORS,
+  PEN_WIDTHS,
+  type DrawingTool,
+  type EncodedDrawing,
+  type Stroke,
+} from './drawing';
 import '../Missions.css';
 import './Drawing.css';
 
 interface DrawingMissionProps extends MissionScreenProps {
   config: DrawingConfig;
 }
+
+interface PreparedDrawing extends EncodedDrawing {
+  url: string;
+}
+
+/**
+ * 제출한 그림 미리보기. 학생은 그림 파일을 다시 읽을 수 없어(교사만 읽기)
+ * 이 기기에서 방금 제출한 그림만 기억해 보여 준다.
+ */
+const submittedPreviews = new Map<string, string>();
 
 export function DrawingMission({
   eventId,
@@ -28,26 +47,82 @@ export function DrawingMission({
   config,
 }: DrawingMissionProps) {
   const { team, mission, submission, roundNo } = view;
-  const saved = submission?.answer.type === 'drawing' ? submission.answer : null;
+  const saved =
+    submission && submission.status !== 'draft' && submission.answer.type === 'drawing'
+      ? submission.answer
+      : null;
+  const previewKey = `${eventId}|${team.id}|${mission.id}`;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [tool, setTool] = useState<DrawingTool>('pen');
   const [color, setColor] = useState(PEN_COLORS[0].value);
   const [width, setWidth] = useState(PEN_WIDTHS[1].value);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [prepared, setPrepared] = useState<PreparedDrawing | null>(null);
+  const [exportError, setExportError] = useState<RepositoryError | null>(null);
   const { submit, isPending, error } = useMissionSubmit(eventId, team.id, mission.id, onSubmitted);
 
   const editable = canSubmitInPhase(phase) && saved === null;
 
-  const openPreview = () => {
-    if (canvasRef.current) setPreview(exportCanvas(canvasRef.current));
+  // 제출하지 않고 닫은 미리보기 주소는 메모리에서 정리한다.
+  useEffect(
+    () => () => {
+      if (prepared && submittedPreviews.get(previewKey) !== prepared.url) {
+        URL.revokeObjectURL(prepared.url);
+      }
+    },
+    [prepared, previewKey],
+  );
+
+  const openPreview = async () => {
+    if (!canvasRef.current || preparing) return;
+    setPreparing(true);
+    setExportError(null);
+    const result = await compressDrawing(canvasRef.current);
+    setPreparing(false);
+    if (!result.ok) {
+      setExportError(
+        new RepositoryError(
+          'invalid-input',
+          result.reason === 'too-large'
+            ? `그림 파일이 너무 커요(${formatBytes(result.byteSize ?? 0)}). 넓게 칠한 부분을 조금 줄이고 다시 눌러 주세요.`
+            : '이 기기에서 그림 파일을 만들지 못했어요. 선생님께 알려 주세요.',
+        ),
+      );
+      return;
+    }
+    setPrepared({ ...result.drawing, url: URL.createObjectURL(result.drawing.blob) });
   };
 
   const confirmSubmit = async () => {
-    await submit({ type: 'drawing', strokeCount: strokes.length, previewDataUrl: preview || null });
-    setPreview(null);
+    if (!prepared) return;
+    const bytes = new Uint8Array(await prepared.blob.arrayBuffer());
+    const mimeType = prepared.blob.type || 'image/webp';
+    // 제출이 끝나 화면이 바뀌기 전에 미리보기 주소를 남겨 둔다. 실패하면 지운다.
+    submittedPreviews.set(previewKey, prepared.url);
+    const ok = await submit(
+      {
+        type: 'drawing',
+        strokeCount: strokes.length,
+        mimeType,
+        byteSize: bytes.length,
+        width: prepared.width,
+        height: prepared.height,
+      },
+      {
+        promptId: config.promptId,
+        mimeType,
+        width: prepared.width,
+        height: prepared.height,
+        bytes,
+      },
+    );
+    if (!ok) submittedPreviews.delete(previewKey);
+    setPrepared(null);
   };
+
+  const submittedPreview = submittedPreviews.get(previewKey);
 
   return (
     <MissionShell
@@ -57,13 +132,7 @@ export function DrawingMission({
       event={event}
       phase={phase}
       notice={
-        <MissionNotice
-          phase={phase}
-          event={event}
-          error={error}
-          teacherJudged={mission.teacherJudged}
-          cardsPath={paths.cards(eventId, team.id)}
-        />
+        <MissionNotice phase={phase} event={event} view={view} error={error ?? exportError} />
       }
       actions={
         saved ? (
@@ -79,8 +148,10 @@ export function DrawingMission({
             <Button
               size="xl"
               icon="visibility"
-              onClick={openPreview}
+              onClick={() => void openPreview()}
               disabled={!editable || strokes.length === 0}
+              loading={preparing}
+              loadingLabel="그림 준비 중"
             >
               미리보기 후 제출
             </Button>
@@ -98,16 +169,16 @@ export function DrawingMission({
 
       {saved ? (
         <figure className="drawing-submitted">
-          {saved.previewDataUrl ? (
+          {submittedPreview ? (
             <img
-              src={saved.previewDataUrl}
+              src={submittedPreview}
               alt="우리 팀이 제출한 그림"
               className="drawing-submitted__image"
             />
           ) : (
-            <p className="muted">그림을 제출했어요. 미리보기는 이 기기에 저장되지 않았어요.</p>
+            <AssetImage asset="mascotCorrect" decorative className="waiting-panel__mascot" />
           )}
-          <figcaption>제출한 그림</figcaption>
+          <figcaption>그림 파일을 선생님께 보냈어요 ({formatBytes(saved.byteSize)})</figcaption>
         </figure>
       ) : (
         <div className="drawing-board">
@@ -216,17 +287,19 @@ export function DrawingMission({
       </ConfirmDialog>
 
       <Dialog
-        open={preview !== null}
+        open={prepared !== null}
         title="이 그림으로 제출할까요?"
         size="lg"
-        onClose={() => setPreview(null)}
+        onClose={() => {
+          if (!isPending) setPrepared(null);
+        }}
         footer={
           <>
             <Button
               variant="secondary"
               size="lg"
               icon="brush"
-              onClick={() => setPreview(null)}
+              onClick={() => setPrepared(null)}
               disabled={isPending}
             >
               더 그리기
@@ -236,17 +309,20 @@ export function DrawingMission({
               icon="send"
               onClick={() => void confirmSubmit()}
               loading={isPending}
-              loadingLabel="제출하는 중"
+              loadingLabel="보내는 중"
             >
               제출하기
             </Button>
           </>
         }
       >
-        {preview ? (
-          <img src={preview} alt="제출할 그림 미리보기" className="drawing-preview" />
+        {prepared ? (
+          <img src={prepared.url} alt="제출할 그림 미리보기" className="drawing-preview" />
         ) : null}
-        <p className="muted">한 번 제출하면 선생님이 허락할 때만 다시 그릴 수 있어요.</p>
+        <p className="muted">
+          그림 파일({prepared ? formatBytes(prepared.blob.size) : '-'})이 선생님 화면으로 가요. 한
+          번 제출하면 선생님이 허락할 때만 다시 그릴 수 있어요.
+        </p>
       </Dialog>
     </MissionShell>
   );

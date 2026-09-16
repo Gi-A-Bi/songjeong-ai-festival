@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useSettings } from '../../app/SettingsContext';
+import type { DrawingUpload } from '../../data/EventRepository';
 import { useRepository } from '../../data/RepositoryContext';
 import type { SubmissionAnswer } from '../../domain/types';
 import { useAction } from '../../hooks/useAction';
@@ -20,23 +21,24 @@ export function useMissionSubmit(
   const [requestId] = useState(createRequestId);
 
   const save = useCallback(
-    (answer: SubmissionAnswer) =>
-      repository.saveSubmission({ eventId, teamId, missionId, answer, requestId }),
+    (answer: SubmissionAnswer, drawing?: DrawingUpload) =>
+      repository.saveSubmission({ eventId, teamId, missionId, answer, requestId, drawing }),
     [repository, eventId, teamId, missionId, requestId],
   );
   const action = useAction(save);
   const { run } = action;
 
   const submit = useCallback(
-    async (answer: SubmissionAnswer) => {
-      const result = await run(answer);
-      if (!result) return;
+    async (answer: SubmissionAnswer, drawing?: DrawingUpload): Promise<boolean> => {
+      const result = await run(answer, drawing);
+      if (!result) return false;
       if (result.ok) {
         playEffect('success');
         onSubmitted();
-      } else {
-        playEffect('error');
+        return true;
       }
+      playEffect('error');
+      return false;
     },
     [run, playEffect, onSubmitted],
   );

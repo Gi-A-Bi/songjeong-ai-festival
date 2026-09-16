@@ -53,13 +53,20 @@ export interface Team {
   status: TeamStatus;
 }
 
-export interface GoldenBellConfig {
-  type: 'golden_bell';
-  questionNo: number;
+export interface GoldenBellQuestion {
+  /** 문제를 고쳐도 학생 답이 따라가도록 고정한 ID */
+  id: string;
   question: string;
   choices: string[];
+  /** 정답 보기 번호(0부터) */
   answerIndex: number;
   explanation: string;
+}
+
+/** 골든벨 문제 목록. 교사가 미션 운영 화면에서 등록한다. */
+export interface GoldenBellConfig {
+  type: 'golden_bell';
+  questions: GoldenBellQuestion[];
 }
 
 /** 정답 영역. 좌표와 반지름은 이미지 너비·높이에 대한 0~1 비율이다. */
@@ -115,7 +122,8 @@ export interface Mission {
 
 export interface GoldenBellAnswer {
   type: 'golden_bell';
-  choiceIndex: number;
+  /** 문제 ID → 고른 보기 번호(0부터) */
+  selections: Record<string, number>;
 }
 
 export interface ErrorHuntAnswer {
@@ -125,11 +133,14 @@ export interface ErrorHuntAnswer {
   remainingSeconds: number;
 }
 
+/** 그림 제출 요약. 그림 파일은 drawingSubmissions 문서에 따로 저장한다. */
 export interface DrawingAnswer {
   type: 'drawing';
   strokeCount: number;
-  /** mock 전용 미리보기. firebase 단계에서는 drawingSubmissions 문서로 분리한다. */
-  previewDataUrl: string | null;
+  mimeType: string;
+  byteSize: number;
+  width: number;
+  height: number;
 }
 
 export interface OzobotAnswer {
@@ -161,8 +172,23 @@ export interface Submission {
   status: SubmissionStatus;
   answer: SubmissionAnswer;
   score: number | null;
+  /** 교사가 제출을 되돌려 다시 낼 수 있게 한 상태(status는 draft) */
+  reopened: boolean;
   submittedAt: number | null;
   updatedAt: number;
+}
+
+/** 교사가 내려받는 그림 파일 */
+export interface DrawingFile {
+  teamId: string;
+  missionId: string;
+  promptId: string;
+  mimeType: string;
+  byteSize: number;
+  width: number;
+  height: number;
+  bytes: Uint8Array;
+  submittedAt: number | null;
 }
 
 export interface MissionResult {
@@ -184,6 +210,8 @@ export interface DrawTicket {
   sourceResultId: string;
   cardType: CardType;
   claimedAt: number | null;
+  /** 교사가 순위를 고쳐 회수한 뽑기권. 기록은 지우지 않고 표시만 한다. */
+  revokedAt: number | null;
   createdAt: number;
 }
 

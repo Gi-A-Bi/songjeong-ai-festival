@@ -1,5 +1,4 @@
 import { useId, useState, type ChangeEvent, type FormEvent } from 'react';
-import { paths } from '../../../app/paths';
 import { Button } from '../../../components/Button';
 import { FormField } from '../../../components/FormField';
 import { Icon } from '../../../components/Icon';
@@ -47,10 +46,17 @@ export function LibraryCheckMission({
   config,
 }: LibraryCheckMissionProps) {
   const { team, mission, submission, roundNo } = view;
-  const saved = submission?.answer.type === 'library_check' ? submission.answer : null;
+  const previous = submission?.answer.type === 'library_check' ? submission.answer : null;
+  const saved = submission && submission.status !== 'draft' ? previous : null;
+  // 재제출 허용이면 지난번 입력을 채워 두고 고칠 수 있게 한다.
   const [form, setForm] = useState<FormState>(() =>
-    saved
-      ? { ...saved, page: String(saved.page) }
+    previous
+      ? {
+          wrongPart: previous.wrongPart,
+          correction: previous.correction,
+          bookTitle: previous.bookTitle,
+          page: String(previous.page),
+        }
       : { wrongPart: '', correction: '', bookTitle: '', page: '' },
   );
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -92,15 +98,7 @@ export function LibraryCheckMission({
       roundNo={roundNo}
       event={event}
       phase={phase}
-      notice={
-        <MissionNotice
-          phase={phase}
-          event={event}
-          error={error}
-          teacherJudged={mission.teacherJudged}
-          cardsPath={paths.cards(eventId, team.id)}
-        />
-      }
+      notice={<MissionNotice phase={phase} event={event} view={view} error={error} />}
       actions={
         saved ? (
           <StatusBadge tone="info" icon="lock" size="lg">

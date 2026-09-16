@@ -1,3 +1,5 @@
+import { DRAWING_MAX_BYTES, DRAWING_TARGET_BYTES } from '../../../domain/drawingFiles';
+
 export const CANVAS_WIDTH = 960;
 export const CANVAS_HEIGHT = 540;
 
@@ -61,11 +63,76 @@ export function redrawCanvas(canvas: HTMLCanvasElement, strokes: readonly Stroke
   for (const stroke of strokes) drawStroke(context, stroke);
 }
 
-/** 제출용 미리보기. WebP를 지원하지 않는 브라우저는 PNG로 내보낸다. */
-export function exportCanvas(canvas: HTMLCanvasElement): string {
-  try {
-    return canvas.toDataURL('image/webp', 0.65);
-  } catch {
-    return '';
+export interface EncodedDrawing {
+  blob: Blob;
+  width: number;
+  height: number;
+}
+
+/** 캔버스를 배율·품질에 맞춰 이미지로 만든다. WebP를 못 만드는 브라우저는 PNG를 돌려준다. */
+export type EncodeDrawing = (
+  canvas: HTMLCanvasElement,
+  scale: number,
+  quality: number,
+) => Promise<EncodedDrawing | null>;
+
+export const encodeDrawing: EncodeDrawing = (canvas, scale, quality) => {
+  const width = Math.round(canvas.width * scale);
+  const height = Math.round(canvas.height * scale);
+  let source = canvas;
+  if (scale !== 1) {
+    source = document.createElement('canvas');
+    source.width = width;
+    source.height = height;
+    const context = source.getContext('2d');
+    if (!context) return Promise.resolve(null);
+    context.fillStyle = CANVAS_BACKGROUND;
+    context.fillRect(0, 0, width, height);
+    context.drawImage(canvas, 0, 0, width, height);
   }
+  return new Promise((resolve) => {
+    try {
+      source.toBlob(
+        (blob) => resolve(blob ? { blob, width, height } : null),
+        'image/webp',
+        quality,
+      );
+    } catch {
+      resolve(null);
+    }
+  });
+};
+
+/** 목표 크기(300KB) 안에 들 때까지 품질, 그다음 크기를 줄여 본다. */
+const COMPRESSION_STEPS: readonly { scale: number; quality: number }[] = [
+  { scale: 1, quality: 0.65 },
+  { scale: 1, quality: 0.55 },
+  { scale: 1, quality: 0.45 },
+  { scale: 1, quality: 0.35 },
+  { scale: 0.75, quality: 0.5 },
+  { scale: 0.5, quality: 0.5 },
+];
+
+export type CompressDrawingResult =
+  | { ok: true; drawing: EncodedDrawing }
+  | { ok: false; reason: 'too-large' | 'unsupported'; byteSize: number | null };
+
+/**
+ * 제출용 그림을 압축한다(명세 6.3).
+ * 300KB 이하가 나오면 바로 쓰고, 끝까지 넘으면 가장 작은 결과가 350KB 이하일 때만 쓴다.
+ */
+export async function compressDrawing(
+  canvas: HTMLCanvasElement,
+  encode: EncodeDrawing = encodeDrawing,
+): Promise<CompressDrawingResult> {
+  let smallest: EncodedDrawing | null = null;
+  for (const step of COMPRESSION_STEPS) {
+    const encoded = await encode(canvas, step.scale, step.quality);
+    if (!encoded) continue;
+    if (!smallest || encoded.blob.size < smallest.blob.size) smallest = encoded;
+    if (encoded.blob.size <= DRAWING_TARGET_BYTES) return { ok: true, drawing: encoded };
+  }
+  if (!smallest) return { ok: false, reason: 'unsupported', byteSize: null };
+  if (smallest.blob.size <= DRAWING_MAX_BYTES) return { ok: true, drawing: smallest };
+  return { ok: false, reason: 'too-large', byteSize: smallest.blob.size };
 }
