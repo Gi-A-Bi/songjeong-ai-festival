@@ -94,45 +94,81 @@ service cloud.firestore {
 
       // 제출물: 미션·팀별 고정 ID라 다시 보내도 문서가 늘지 않는다.
       match /submissions/{submissionId} {
+        function incoming() {
+          return request.resource.data;
+        }
         function isOwnSubmission() {
-          return isTeamMember(eventId, request.resource.data.teamId);
+          return isTeamMember(eventId, incoming().teamId);
+        }
+        function idMatches() {
+          return submissionId == incoming().missionId + '__' + incoming().teamId;
         }
         function scoreUntouched() {
-          return request.resource.data.score == null;
+          return incoming().score == null;
         }
         function statusAllowed() {
-          return request.resource.data.status in ['draft', 'submitted'];
+          return incoming().status in ['draft', 'submitted'];
         }
         function rankingOpen() {
-          return !exists(/databases/$(database)/documents/events/$(eventId)/results/$(request.resource.data.missionId + '__g' + string(request.resource.data.grade) + '__r' + string(request.resource.data.roundNo) + '__' + request.resource.data.teamId));
+          return !exists(/databases/$(database)/documents/events/$(eventId)/results/$(incoming().missionId + '__g' + string(incoming().grade) + '__r' + string(incoming().roundNo) + '__' + incoming().teamId));
+        }
+        // 학년·학급·라운드는 팀과 미션 문서로 다시 계산해 학생이 바꿔 넣지 못하게 한다.
+        function matchesTeamAndRound() {
+          let team = get(/databases/$(database)/documents/events/$(eventId)/teams/$(incoming().teamId)).data;
+          let mission = get(/databases/$(database)/documents/events/$(eventId)/missions/$(incoming().missionId)).data;
+          return incoming().grade == team.grade
+            && incoming().classId == team.classId
+            && incoming().roundNo == ((mission.no - team.teamNo) % 5 + 5) % 5 + 1;
+        }
+        // 지금 진행 중인 라운드의 미션일 때만 받는다.
+        function roundOpen() {
+          let event = get(/databases/$(database)/documents/events/$(eventId)).data;
+          return event.status == 'active'
+            && event.activeGrade == incoming().grade
+            && event.activeRound == incoming().roundNo;
+        }
+        // 교사가 제출을 되돌려 재제출을 허용한 경우에는 라운드가 끝났어도 받는다.
+        function reopenedByTeacher() {
+          return resource.data.status == 'draft' && resource.data.get('reopened', false) == true;
         }
 
         allow read: if isSignedIn();
         allow create: if isTeacher()
-          || (isOwnSubmission() && statusAllowed() && scoreUntouched() && rankingOpen());
+          || (isOwnSubmission() && idMatches() && statusAllowed() && scoreUntouched()
+            && matchesTeamAndRound() && rankingOpen() && roundOpen());
         allow update: if isTeacher()
           || (isOwnSubmission()
+            && idMatches()
             && unchanged('teamId')
             && unchanged('missionId')
             && statusAllowed()
             && scoreUntouched()
-            && resource.data.status != 'verified'
-            && rankingOpen());
+            && resource.data.status == 'draft'
+            && matchesTeamAndRound()
+            && rankingOpen()
+            && (roundOpen() || reopenedByTeacher()));
         allow delete: if isTeacher();
       }
 
       // 그림 제출: 용량 제한을 규칙에서도 검사한다(문서 1MiB 한도 보호).
+      // 교사만 읽고, 학생은 아직 제출하지 않았거나 재제출이 허용된 동안에만 쓴다.
       match /drawingSubmissions/{teamId} {
         function drawingValid() {
-          return request.resource.data.mimeType == 'image/webp'
+          return request.resource.data.teamId == teamId
+            && request.resource.data.missionId is string
+            && request.resource.data.mimeType in ['image/webp', 'image/png']
             && request.resource.data.byteSize is int
             && request.resource.data.byteSize <= 358400
             && request.resource.data.imageBytes.size() <= 358400;
         }
+        function submissionOpen() {
+          let path = /databases/$(database)/documents/events/$(eventId)/submissions/$(request.resource.data.missionId + '__' + teamId);
+          return !exists(path) || get(path).data.status == 'draft';
+        }
 
         allow read: if isTeacher();
         allow create, update: if isTeacher()
-          || (isTeamMember(eventId, teamId) && drawingValid());
+          || (isTeamMember(eventId, teamId) && drawingValid() && submissionOpen());
         allow delete: if isAdmin();
       }
 
@@ -143,12 +179,15 @@ service cloud.firestore {
       }
 
       // 뽑기권: 학생은 자기 팀 것을 읽고, 사용 표시(claimedAt)만 할 수 있다.
+      // 교사가 순위를 고쳐 회수한 뽑기권(revokedAt)은 쓸 수 없다.
       match /drawTickets/{ticketId} {
         allow read: if isSignedIn();
         allow create, delete: if isTeacher();
         allow update: if isTeacher()
           || (isTeamMember(eventId, resource.data.teamId)
             && resource.data.claimedAt == null
+            && resource.data.get('revokedAt', null) == null
+            && request.resource.data.get('revokedAt', null) == null
             && request.resource.data.claimedAt == request.time
             && unchanged('teamId')
             && unchanged('classId')

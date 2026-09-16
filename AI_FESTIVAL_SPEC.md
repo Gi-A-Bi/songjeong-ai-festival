@@ -101,7 +101,8 @@
 - 제출 현황 확인
 - 수동 채점 또는 순위 확정
 - 순위에 따른 카드 뽑기권 지급
-- 오류 제출 취소와 재제출 허용
+- 오류 제출 취소와 재제출 허용(순위 확정 전. 허용하면 라운드가 끝났어도 그 팀은 다시 제출 가능)
+- 확정한 순위 수정(뽑기권 수를 새 순위에 맞춰 추가 발급하거나 회수 표시)
 
 ### 5.3 총괄 관리자
 
@@ -123,17 +124,18 @@
 
 학생 화면:
 
-- 문제 번호, 질문, 보기 또는 단답 입력
+- 문제 번호 이동 버튼, 질문, 보기(객관식)
 - 8분 전체 타이머
-- 답 제출 후 수정 가능 여부 표시
+- 모든 문제를 풀고 한 번에 제출(안 푼 문제가 있으면 확인 창에서 알림)
+- 답 제출 후 수정 불가 표시
 - 제출 완료 상태
-- 교사가 공개한 경우에만 정답과 해설 표시
+- 교사가 공개한 경우에만 문제별 정답과 해설, 맞힌 수 표시
 
 교사 화면:
 
-- 문제 열기
-- 답변 접수 시작·종료
-- 정답 공개
+- 문제 등록: 문제, 보기 2~4개, 정답, 해설을 등록·수정·순서 변경·삭제(권장 7문항)
+- 답변 접수는 라운드 시작·종료로 제어
+- 정답 공개(학생 화면에 실시간 반영)
 - 팀별 점수와 제출 시간 확인
 - 동점일 경우 교사가 순위 조정
 - 최종 순위 확정
@@ -141,8 +143,9 @@
 권장 기본 규칙:
 
 - 객관식 7문항
-- 정답 100점, 오답 0점
-- 총점 우선, 동점이면 마지막 정답 제출 시각이 빠른 팀 우선
+- 맞힌 문제마다 100점, 오답·안 푼 문제 0점
+- 총점 우선, 동점이면 제출 시각이 빠른 팀 우선
+- 점수는 지금 등록된 문제 기준으로 계산하므로, 행사 중 문제를 고치면 이미 제출한 팀 점수도 새 기준으로 다시 계산됨
 - 교사는 언제든 순위를 수동 수정할 수 있음
 
 ### 6.2 AI 틀린그림 찾기
@@ -165,9 +168,11 @@
 점수 기본값:
 
     기본점수 = 찾은 정답 수 × 100
-    시간보너스 = 남은 초 × 2
+    시간보너스 = 모든 정답을 찾았을 때만 남은 초 × 2 (하나라도 못 찾으면 0)
     오답감점 = 오답 수 × 20
     최종점수 = max(0, 기본점수 + 시간보너스 - 오답감점)
+
+시간보너스를 항상 주면 하나도 찾지 않고 바로 제출하는 팀이 모두 찾은 팀보다 높은 점수를 받게 되어(8분 라운드에서 최대 960점), 모두 찾았을 때만 주도록 확정했다.
 
 교사는 자동 계산 점수를 확인한 뒤 순위를 확정한다.
 
@@ -185,17 +190,20 @@
 채점 방법:
 
 - 프로그램 안에 생성형 AI 채점 API를 넣지 않는다.
-- 교사는 제출 이미지를 한꺼번에 내려받는다.
-- 교사가 별도의 생성형 AI 서비스에 공통 설명과 제출 이미지들을 첨부한다.
-- “설명 조건과 가장 가까운 순서”로 평가하도록 요청한다.
+- 교사는 미션 운영 화면에서 제출 그림을 불러와 팀별로 또는 ZIP 한 파일로 한꺼번에 내려받는다.
+- 파일 이름은 `4학년-2반-3팀_2라운드.webp` 형식으로 팀 정보를 담는다.
+- 같은 화면에 그림 설명과 파일 이름 목록으로 만든 “AI 평가 요청문”이 자동으로 만들어지고, 복사 버튼으로 복사한다.
+- 요청문은 설명에서 조건을 뽑고, 파일마다 조건 충족(○/△/×)과 100점 만점 설명 일치도를 매겨 순위를 정리하도록 요청한다. 그림 솜씨는 평가에서 뺀다.
+- 교사가 별도의 생성형 AI 서비스에 요청문을 붙여 넣고 그림 파일들을 첨부한다.
 - AI 평가 결과는 참고자료로 사용하고, 최종 순위는 교사가 입력한다.
 
 그림 저장:
 
 - Firebase Cloud Storage는 사용하지 않는다.
 - 브라우저에서 최대 960×540 크기의 WebP로 압축한다.
-- 목표 품질은 0.65, 최대 크기는 300KB다.
-- 압축된 바이트를 Firestore의 별도 제출 문서에 임시 저장한다.
+- 목표 품질은 0.65, 최대 크기는 300KB다. 넘으면 품질을 0.55→0.45→0.35로, 그래도 넘으면 크기를 75%→50%로 줄여 다시 압축한다.
+- WebP를 만들지 못하는 브라우저는 PNG로 저장한다.
+- 압축된 바이트를 Firestore의 별도 제출 문서에 임시 저장한다. 제출 버튼을 누르면 그림 파일과 제출 기록을 함께 보낸다.
 - 교사용 화면은 제출 목록에서 요청할 때만 이미지 데이터를 읽는다.
 - 행사 종료 후 관리자가 그림 제출 데이터만 일괄 삭제한다.
 
@@ -274,6 +282,7 @@
 
 - 중복 획득 가능
 - 카드 뽑기권은 교사가 순위를 확정할 때 생성
+- 확정한 순위를 고치면 새 순위에 맞춰 모자란 뽑기권은 새로 만들고, 남는 뽑기권은 지우지 않고 회수 표시(revokedAt)한다. 안 뽑은 뽑기권부터 회수하며, 이미 뽑은 카드를 회수하면 팀·학급 카드함에서 빠진다
 - 카드 종류는 뽑기권 생성 시 무작위로 미리 정해짐
 - 학생이 카드를 누르면 뒤집기 애니메이션 후 공개
 - 한 뽑기권은 한 번만 사용할 수 있음
@@ -579,6 +588,8 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
     enabled: boolean
     config: map
 
+골든벨 config는 `{ type, questions: [{ id, question, choices, answerIndex, explanation }] }`이다. 예전 한 문제 형식(question, choices, answerIndex)은 읽을 때 `q1` 문제 하나로 바꾼다.
+
 #### events/{eventId}/rounds/{roundId}
 
     grade: number
@@ -593,9 +604,10 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
     grade: number
     roundNo: number
     answerRevealed: boolean
+    finalized: boolean
     updatedAt: timestamp
 
-골든벨 정답 공개처럼 미션·학년·라운드별 진행 상태를 담는 작은 문서다.
+골든벨 정답 공개, 순위 확정·수정, 재제출 허용처럼 미션·학년·라운드별 진행 상태를 담는 작은 문서다. 학생 미션 화면은 이 문서만 실시간 구독하고, 바뀌면 화면을 다시 읽는다.
 
 #### events/{eventId}/submissions/{submissionId}
 
@@ -609,6 +621,7 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
     status: "draft" | "submitted" | "verified"
     answer: map
     score: number | null
+    reopened: boolean
     requestId: string
     submittedAt: timestamp | null
     updatedAt: timestamp
@@ -618,8 +631,9 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
 #### events/{eventId}/drawingSubmissions/{teamId}
 
     teamId: string
+    missionId: string
     promptId: string
-    mimeType: "image/webp"
+    mimeType: "image/webp" | "image/png"
     byteSize: number
     width: number
     height: number
@@ -638,6 +652,7 @@ imageBytes 필드는 인덱스에서 제외한다.
     rank: number
     finalizedBy: string
     finalizedAt: timestamp
+    revisedAt: timestamp | null
 
 #### events/{eventId}/drawTickets/{ticketId}
 
@@ -646,6 +661,7 @@ imageBytes 필드는 인덱스에서 제외한다.
     sourceResultId: string
     cardType: "thinking" | "observation" | "expression" | "command" | "verification"
     claimedAt: timestamp | null
+    revokedAt: timestamp | null
     createdAt: timestamp
 
 #### events/{eventId}/exchanges/{exchangeId}
@@ -700,6 +716,8 @@ imageBytes 필드는 인덱스에서 제외한다.
 - 카드 교환은 Firestore 트랜잭션 사용
 - 카드 뽑기권 사용은 claimedAt이 null일 때만 성공
 - 동일 제출 중복 방지를 위해 미션·팀별 고정 문서 ID 사용
+- 학생 제출은 그 미션이 지금 진행 중인 학년·라운드일 때만 받는다(보안 규칙이 팀·미션 문서로 라운드를 다시 계산해 확인). 교사가 재제출을 허용한 제출은 예외
+- 자동 채점 점수는 학생이 쓰지 않고, 교사 화면에서 읽을 때 지금 문제·정답 기준으로 계산
 - 교사 순위 확정 버튼은 중복 클릭돼도 같은 결과가 나오도록 설계
 - 쓰기 요청에는 requestId를 포함
 - 서버 시각을 기준으로 순서 기록

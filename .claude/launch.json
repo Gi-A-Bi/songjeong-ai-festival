@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5173", "--strictPort"],
       "port": 5173
+    },
+    {
+      "name": "festival-dev-mock",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set VITE_DATA_MODE=mock&& npm run dev -- --port 5174 --strictPort"],
+      "port": 5174
     }
   ]
 }

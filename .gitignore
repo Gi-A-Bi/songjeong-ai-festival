@@ -7,8 +7,9 @@ coverage
 .env.*
 !.env.example
 
-# Firebase 로컬 캐시와 비밀 파일
+# Firebase 로컬 캐시와 실제 프로젝트 설정
 .firebase
+.firebaserc
 *-debug.log
 serviceAccount*.json
 *service-account*.json

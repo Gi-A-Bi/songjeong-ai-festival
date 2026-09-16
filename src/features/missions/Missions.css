@@ -59,6 +59,61 @@
 }
 
 /* AI 골든벨 */
+.gb-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.gb-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 56px;
+  min-height: 56px;
+  padding: 0 var(--space-2);
+  border: 3px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+}
+
+.gb-step--answered {
+  border-color: var(--color-accent-blue);
+  background: var(--color-accent-blue-soft);
+}
+
+.gb-step--correct {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.gb-step--wrong {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.gb-step[aria-current='step'] {
+  box-shadow:
+    0 0 0 3px var(--color-surface),
+    0 0 0 6px var(--color-text);
+}
+
+.gb-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.gb-pager {
+  display: flex;
+  gap: var(--space-2);
+}
+
 .gb-question {
   padding: var(--space-5) var(--space-6);
   border-radius: var(--radius-xl);

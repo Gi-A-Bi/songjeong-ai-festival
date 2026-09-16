@@ -25,3 +25,11 @@ export function rankByScore<T extends RankEntry>(entries: readonly T[]): (T & { 
   });
   return sorted.map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
+
+/** 순위 확정·수정 입력 한 줄을 검사한다. 문제가 없으면 null */
+export function getRankingEntryError(entry: { rank: number; score: number }): string | null {
+  if (!Number.isInteger(entry.rank) || entry.rank < 1)
+    return '순위는 1 이상의 정수로 입력해 주세요.';
+  if (!Number.isFinite(entry.score) || entry.score < 0) return '점수는 0 이상으로 입력해 주세요.';
+  return null;
+}

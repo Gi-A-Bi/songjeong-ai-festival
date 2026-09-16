@@ -4,6 +4,7 @@ import { DEFAULT_EVENT_ID } from '../src/config';
 import { FirestoreEventRepository } from '../src/data/firebase/FirestoreEventRepository';
 import { getFirebase } from '../src/data/firebase/firebaseApp';
 import { isRepositoryError } from '../src/data/errors';
+import type { MissionLiveState } from '../src/data/EventRepository';
 import type { FestivalEvent } from '../src/domain/types';
 
 const PROJECT_ID = 'demo-songjeong';
@@ -132,7 +133,7 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
       eventId: DEFAULT_EVENT_ID,
       missionId: 'golden-bell',
       teamId: TEAM_ID,
-      answer: { type: 'golden_bell', choiceIndex: 1 },
+      answer: { type: 'golden_bell', selections: { q1: 1 } },
       requestId: 'submit-1',
     });
     expect(saved.status).toBe('submitted');
@@ -143,7 +144,7 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
       eventId: DEFAULT_EVENT_ID,
       missionId: 'golden-bell',
       teamId: TEAM_ID,
-      answer: { type: 'golden_bell', choiceIndex: 1 },
+      answer: { type: 'golden_bell', selections: { q1: 1 } },
       requestId: 'submit-1',
     });
     expect(retry.id).toBe(saved.id);
@@ -152,7 +153,7 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
         eventId: DEFAULT_EVENT_ID,
         missionId: 'golden-bell',
         teamId: TEAM_ID,
-        answer: { type: 'golden_bell', choiceIndex: 2 },
+        answer: { type: 'golden_bell', selections: { q1: 2 } },
         requestId: 'submit-2',
       }),
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
@@ -284,5 +285,225 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
       (to?.counts[cardType] ?? 0) + 1,
     );
     expect(await repository.listExchanges(DEFAULT_EVENT_ID, 4)).toHaveLength(1);
+  });
+
+  it('지금 라운드가 아닌 미션은 제출할 수 없다', async () => {
+    await signInAsTeacher();
+    await repository.setupEvent(DEFAULT_EVENT_ID);
+    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
+    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+
+    await signInAsStudent();
+    await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
+    // 1팀의 오류찾기(5번 미션)는 5라운드 미션이다.
+    await expect(
+      repository.saveSubmission({
+        eventId: DEFAULT_EVENT_ID,
+        missionId: 'library-check',
+        teamId: TEAM_ID,
+        answer: {
+          type: 'library_check',
+          wrongPart: '다리 8개',
+          correction: '다리 6개',
+          bookTitle: '곤충 백과',
+          page: 12,
+        },
+        requestId: 'early-1',
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+  });
+
+  it('교사 화면은 자동 채점 점수를 계산해 보여 준다', async () => {
+    await signInAsTeacher();
+    await repository.setupEvent(DEFAULT_EVENT_ID);
+    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
+    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+
+    await signInAsStudent();
+    await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
+    await repository.saveSubmission({
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      teamId: TEAM_ID,
+      // 샘플 1·2번 문제는 정답, 3번은 오답
+      answer: { type: 'golden_bell', selections: { q1: 1, q2: 2, q3: 3 } },
+      requestId: 'score-1',
+    });
+
+    await signInAsTeacher();
+    const participants = await repository.listMissionParticipants(
+      DEFAULT_EVENT_ID,
+      'golden-bell',
+      4,
+      1,
+    );
+    const row = participants.find((participant) => participant.team.id === TEAM_ID);
+    expect(row?.submission?.score).toBe(200);
+  });
+
+  it('교사가 재제출을 허용하면 라운드가 끝난 뒤에도 다시 제출하고, 학생 화면에 알림이 간다', async () => {
+    await signInAsTeacher();
+    await repository.setupEvent(DEFAULT_EVENT_ID);
+    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
+    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+
+    await signInAsStudent();
+    await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
+    const input = {
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      teamId: TEAM_ID,
+      answer: { type: 'golden_bell' as const, selections: { q1: 0 } },
+      requestId: 'first',
+    };
+    await repository.saveSubmission(input);
+
+    await signInAsTeacher();
+    const states: MissionLiveState[] = [];
+    const stop = repository.subscribeMissionState(
+      DEFAULT_EVENT_ID,
+      'golden-bell',
+      4,
+      1,
+      (state) => states.push(state),
+      () => undefined,
+    );
+    await vi.waitFor(() => expect(states.length).toBeGreaterThan(0));
+    await repository.controlRound(DEFAULT_EVENT_ID, 'end');
+    await repository.reopenSubmission({
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      teamId: TEAM_ID,
+    });
+    await vi.waitFor(() => expect(states[states.length - 1].updatedAt).toBeGreaterThan(0));
+    stop();
+
+    await signInAsStudent();
+    await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
+    const view = await repository.getTeamMissionView(DEFAULT_EVENT_ID, TEAM_ID, 'golden-bell');
+    expect(view.submission?.status).toBe('draft');
+    expect(view.submission?.reopened).toBe(true);
+
+    // 라운드가 끝났어도 재제출은 받는다.
+    const again = await repository.saveSubmission({
+      ...input,
+      answer: { type: 'golden_bell', selections: { q1: 1 } },
+      requestId: 'second',
+    });
+    expect(again.status).toBe('submitted');
+    expect(again.score).toBe(100);
+  });
+
+  it('확정한 순위를 고치면 뽑기권이 모자란 만큼 발급되고 남는 만큼 회수된다', async () => {
+    await signInAsTeacher();
+    await repository.setupEvent(DEFAULT_EVENT_ID);
+    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
+    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+    const participants = await repository.listMissionParticipants(
+      DEFAULT_EVENT_ID,
+      'golden-bell',
+      4,
+      1,
+    );
+    const base = {
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      grade: 4 as const,
+      roundNo: 1 as const,
+    };
+    await repository.finalizeRanking({
+      ...base,
+      requestId: 'finalize-1',
+      entries: participants.map((participant, index) => ({
+        teamId: participant.team.id,
+        score: 500 - index * 100,
+        rank: index + 1,
+      })),
+    });
+
+    const outcome = await repository.reviseRanking({
+      ...base,
+      requestId: 'revise-1',
+      entries: participants.map((participant, index) => ({
+        teamId: participant.team.id,
+        score: 500 - index * 100,
+        // 1위와 2위를 바꾼다.
+        rank: index === 0 ? 2 : index === 1 ? 1 : index + 1,
+      })),
+    });
+    expect(outcome.added).toBe(1);
+    expect(outcome.revoked).toBe(1);
+
+    const after = await repository.listMissionParticipants(DEFAULT_EVENT_ID, 'golden-bell', 4, 1);
+    expect(after[0].ticketCount).toBe(2);
+    expect(after[1].ticketCount).toBe(3);
+    expect(after[0].result?.rank).toBe(2);
+  });
+
+  it('그림 파일은 제출과 함께 저장되고 교사가 불러올 수 있다', async () => {
+    await signInAsTeacher();
+    await repository.setupEvent(DEFAULT_EVENT_ID);
+    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
+    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+
+    // 3팀은 1라운드에 그리기 미션을 한다.
+    const drawingTeam = 'g4-c1-t3';
+    const bytes = new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4]);
+    await signInAsStudent();
+    await repository.joinTeam(DEFAULT_EVENT_ID, drawingTeam);
+    await repository.saveSubmission({
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'drawing',
+      teamId: drawingTeam,
+      answer: {
+        type: 'drawing',
+        strokeCount: 3,
+        mimeType: 'image/webp',
+        byteSize: bytes.length,
+        width: 960,
+        height: 540,
+      },
+      requestId: 'drawing-1',
+      drawing: {
+        promptId: 'draw-sample-1',
+        mimeType: 'image/webp',
+        width: 960,
+        height: 540,
+        bytes,
+      },
+    });
+
+    await signInAsTeacher();
+    const files = await repository.listDrawingFiles(DEFAULT_EVENT_ID, 'drawing', 4, 1);
+    expect(files).toHaveLength(1);
+    expect(files[0].teamId).toBe(drawingTeam);
+    expect(Array.from(files[0].bytes)).toEqual(Array.from(bytes));
+  });
+
+  it('교사는 골든벨 문제를 등록하고, 잘못된 문제는 저장하지 않는다', async () => {
+    await signInAsTeacher();
+    await repository.setupEvent(DEFAULT_EVENT_ID);
+    const questions = [
+      {
+        id: 'new-1',
+        question: 'AI는 틀릴 수 있을까요?',
+        choices: ['예', '아니요'],
+        answerIndex: 0,
+        explanation: 'AI도 틀릴 수 있어요.',
+      },
+    ];
+    await repository.updateMissionConfig(DEFAULT_EVENT_ID, 'golden-bell', {
+      type: 'golden_bell',
+      questions,
+    });
+    const mission = await repository.getMission(DEFAULT_EVENT_ID, 'golden-bell');
+    expect(mission.config).toEqual({ type: 'golden_bell', questions });
+
+    await expect(
+      repository.updateMissionConfig(DEFAULT_EVENT_ID, 'golden-bell', {
+        type: 'golden_bell',
+        questions: [],
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
   });
 });

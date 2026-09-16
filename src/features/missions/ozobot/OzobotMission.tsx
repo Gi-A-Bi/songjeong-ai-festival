@@ -1,4 +1,3 @@
-import { paths } from '../../../app/paths';
 import { AssetImage } from '../../../components/AssetImage';
 import { Button } from '../../../components/Button';
 import { Icon } from '../../../components/Icon';
@@ -35,15 +34,7 @@ export function OzobotMission({
       roundNo={roundNo}
       event={event}
       phase={phase}
-      notice={
-        <MissionNotice
-          phase={phase}
-          event={event}
-          error={error}
-          teacherJudged={mission.teacherJudged}
-          cardsPath={paths.cards(eventId, team.id)}
-        />
-      }
+      notice={<MissionNotice phase={phase} event={event} view={view} error={error} />}
       actions={
         ready ? (
           <StatusBadge tone="info" icon="pending" size="lg">

@@ -14,6 +14,7 @@ import celebration from '@material-symbols/svg-400/rounded/celebration.svg?raw';
 import check from '@material-symbols/svg-400/rounded/check.svg?raw';
 import checkCircle from '@material-symbols/svg-400/rounded/check_circle.svg?raw';
 import close from '@material-symbols/svg-400/rounded/close.svg?raw';
+import contentCopy from '@material-symbols/svg-400/rounded/content_copy.svg?raw';
 import dashboard from '@material-symbols/svg-400/rounded/dashboard.svg?raw';
 import deleteIcon from '@material-symbols/svg-400/rounded/delete.svg?raw';
 import directionsWalk from '@material-symbols/svg-400/rounded/directions_walk.svg?raw';
@@ -21,6 +22,7 @@ import download from '@material-symbols/svg-400/rounded/download.svg?raw';
 import edit from '@material-symbols/svg-400/rounded/edit.svg?raw';
 import error from '@material-symbols/svg-400/rounded/error.svg?raw';
 import flag from '@material-symbols/svg-400/rounded/flag.svg?raw';
+import folderZip from '@material-symbols/svg-400/rounded/folder_zip.svg?raw';
 import formatListNumbered from '@material-symbols/svg-400/rounded/format_list_numbered.svg?raw';
 import fullscreen from '@material-symbols/svg-400/rounded/fullscreen.svg?raw';
 import fullscreenExit from '@material-symbols/svg-400/rounded/fullscreen_exit.svg?raw';
@@ -45,9 +47,11 @@ import pending from '@material-symbols/svg-400/rounded/pending.svg?raw';
 import playArrow from '@material-symbols/svg-400/rounded/play_arrow.svg?raw';
 import playingCards from '@material-symbols/svg-400/rounded/playing_cards.svg?raw';
 import qrCodeScanner from '@material-symbols/svg-400/rounded/qr_code_scanner.svg?raw';
+import quiz from '@material-symbols/svg-400/rounded/quiz.svg?raw';
 import refresh from '@material-symbols/svg-400/rounded/refresh.svg?raw';
 import restartAlt from '@material-symbols/svg-400/rounded/restart_alt.svg?raw';
 import rocketLaunch from '@material-symbols/svg-400/rounded/rocket_launch.svg?raw';
+import save from '@material-symbols/svg-400/rounded/save.svg?raw';
 import schedule from '@material-symbols/svg-400/rounded/schedule.svg?raw';
 import school from '@material-symbols/svg-400/rounded/school.svg?raw';
 import search from '@material-symbols/svg-400/rounded/search.svg?raw';
@@ -83,6 +87,7 @@ const RAW_ICONS = {
   check,
   check_circle: checkCircle,
   close,
+  content_copy: contentCopy,
   dashboard,
   delete: deleteIcon,
   directions_walk: directionsWalk,
@@ -90,6 +95,7 @@ const RAW_ICONS = {
   edit,
   error,
   flag,
+  folder_zip: folderZip,
   format_list_numbered: formatListNumbered,
   fullscreen,
   fullscreen_exit: fullscreenExit,
@@ -114,9 +120,11 @@ const RAW_ICONS = {
   play_arrow: playArrow,
   playing_cards: playingCards,
   qr_code_scanner: qrCodeScanner,
+  quiz,
   refresh,
   restart_alt: restartAlt,
   rocket_launch: rocketLaunch,
+  save,
   schedule,
   school,
   search,

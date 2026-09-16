@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useParams } from 'react-router';
 import { paths } from '../../app/paths';
 import { AppHeader } from '../../components/AppHeader';
@@ -6,6 +6,7 @@ import { ErrorView, LoadingView } from '../../components/StateViews';
 import { useRepository } from '../../data/RepositoryContext';
 import { getMissionPhase } from '../../domain/missionPhase';
 import { useAsyncData } from '../../hooks/useAsyncData';
+import { useMissionLiveState } from '../../hooks/useMissionLiveState';
 import { useTeamContext } from '../tour/teamContext';
 import { DrawingMission } from './drawing/DrawingMission';
 import { ErrorHuntMission } from './errorHunt/ErrorHuntMission';
@@ -23,6 +24,20 @@ export function MissionPage() {
     [repository, eventId, team.id, missionId],
   );
   const view = useAsyncData(load);
+  const loaded = view.status === 'success' ? view.data : null;
+  const liveRevision = useMissionLiveState(
+    eventId,
+    loaded ? { missionId: loaded.mission.id, grade: team.grade, roundNo: loaded.roundNo } : null,
+  );
+
+  // 라운드 시작·종료나 교사의 정답 공개·순위 확정·재제출 허용이 생기면 조용히 다시 읽는다.
+  // 다시 읽는 동안에도 화면을 유지하므로 그리던 그림이나 입력한 답은 사라지지 않는다.
+  const refreshKey = `${event.status}|${event.activeGrade}|${event.activeRound}|${liveRevision}`;
+  const [seenRefreshKey, setSeenRefreshKey] = useState(refreshKey);
+  if (seenRefreshKey !== refreshKey) {
+    setSeenRefreshKey(refreshKey);
+    if (loaded) view.reload();
+  }
 
   return (
     <>
@@ -32,12 +47,15 @@ export function MissionPage() {
         {view.status === 'error' ? <ErrorView error={view.error} onRetry={view.reload} /> : null}
         {view.status === 'success' ? (
           <MissionScreen
+            // 제출 상태가 바뀌면(제출 완료, 재제출 허용) 화면 입력값을 새 상태에서 다시 시작한다.
+            key={`${view.data.submission?.status ?? 'none'}-${view.data.submission?.updatedAt ?? 0}`}
             eventId={eventId}
             view={view.data}
             event={event}
             onSubmitted={view.reload}
             phase={getMissionPhase({
               event,
+              grade: team.grade,
               missionRound: view.data.roundNo,
               roundStatus: view.data.roundStatus,
               submission: view.data.submission,

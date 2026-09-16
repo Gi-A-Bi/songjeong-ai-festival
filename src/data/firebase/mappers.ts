@@ -1,7 +1,8 @@
-import { Timestamp, type DocumentData, type DocumentSnapshot } from 'firebase/firestore';
+import { Bytes, Timestamp, type DocumentData, type DocumentSnapshot } from 'firebase/firestore';
 import { RepositoryError } from '../errors';
 import type {
   ClassInfo,
+  DrawingFile,
   DrawTicket,
   Exchange,
   FestivalEvent,
@@ -83,8 +84,76 @@ export function mapMission(snapshot: DocumentSnapshot<DocumentData>): Mission {
     summary: String(data.summary ?? ''),
     teacherJudged: data.teacherJudged === true,
     enabled: data.enabled !== false,
-    config: data.config as MissionConfig,
+    config: normalizeMissionConfig(data.config),
   };
+}
+
+/** 예전 한 문제 골든벨을 옮길 때 쓰는 문제 ID */
+export const LEGACY_GOLDEN_BELL_QUESTION_ID = 'q1';
+
+/**
+ * 예전 형식으로 저장된 설정을 지금 형식으로 바꾼다.
+ * 골든벨은 처음에 문제 하나(question, choices, answerIndex)만 저장했다.
+ */
+export function normalizeMissionConfig(raw: unknown): MissionConfig {
+  const config = (raw ?? {}) as Record<string, unknown>;
+  if (config.type === 'golden_bell' && !Array.isArray(config.questions)) {
+    const hasLegacyQuestion = typeof config.question === 'string' && Array.isArray(config.choices);
+    return {
+      type: 'golden_bell',
+      questions: hasLegacyQuestion
+        ? [
+            {
+              id: LEGACY_GOLDEN_BELL_QUESTION_ID,
+              question: String(config.question),
+              choices: (config.choices as unknown[]).map(String),
+              answerIndex: Number(config.answerIndex ?? 0),
+              explanation: String(config.explanation ?? ''),
+            },
+          ]
+        : [],
+    };
+  }
+  return config as unknown as MissionConfig;
+}
+
+/** 예전 형식 답안을 지금 형식으로 바꾼다. */
+export function normalizeAnswer(raw: unknown): SubmissionAnswer {
+  const answer = (raw ?? {}) as Record<string, unknown>;
+  if (answer.type === 'golden_bell' && typeof answer.selections !== 'object') {
+    return {
+      type: 'golden_bell',
+      selections:
+        typeof answer.choiceIndex === 'number'
+          ? { [LEGACY_GOLDEN_BELL_QUESTION_ID]: answer.choiceIndex }
+          : {},
+    };
+  }
+  if (answer.type === 'drawing' && typeof answer.byteSize !== 'number') {
+    return {
+      type: 'drawing',
+      strokeCount: Number(answer.strokeCount ?? 0),
+      mimeType: 'image/webp',
+      byteSize: 0,
+      width: 0,
+      height: 0,
+    };
+  }
+  return answer as unknown as SubmissionAnswer;
+}
+
+/**
+ * 학생이 만든 완전한 제출 문서인지.
+ * 예전 순위 확정 코드가 제출하지 않은 팀에도 점수만 있는 빈 문서를 만든 적이 있어 걸러 낸다.
+ */
+export function isCompleteSubmission(data: DocumentData | undefined): data is DocumentData {
+  return (
+    data !== undefined &&
+    typeof data.teamId === 'string' &&
+    typeof data.missionId === 'string' &&
+    typeof data.answer === 'object' &&
+    data.answer !== null
+  );
 }
 
 export function mapSubmission(snapshot: DocumentSnapshot<DocumentData>): Submission {
@@ -97,8 +166,9 @@ export function mapSubmission(snapshot: DocumentSnapshot<DocumentData>): Submiss
     grade: data.grade as Grade,
     roundNo: data.roundNo as RoundNo,
     status: data.status ?? 'draft',
-    answer: data.answer as SubmissionAnswer,
+    answer: normalizeAnswer(data.answer),
     score: typeof data.score === 'number' ? data.score : null,
+    reopened: data.reopened === true,
     submittedAt: toMillis(data.submittedAt),
     updatedAt: toMillis(data.updatedAt) ?? 0,
   };
@@ -128,7 +198,25 @@ export function mapTicket(snapshot: DocumentSnapshot<DocumentData>): DrawTicket 
     sourceResultId: String(data.sourceResultId ?? ''),
     cardType: data.cardType,
     claimedAt: toMillis(data.claimedAt),
+    revokedAt: toMillis(data.revokedAt),
     createdAt: toMillis(data.createdAt) ?? 0,
+  };
+}
+
+export function mapDrawingFile(snapshot: DocumentSnapshot<DocumentData>): DrawingFile {
+  const data = requireData(snapshot, '그림');
+  const bytes =
+    data.imageBytes instanceof Bytes ? data.imageBytes.toUint8Array() : new Uint8Array();
+  return {
+    teamId: String(data.teamId ?? snapshot.id),
+    missionId: String(data.missionId ?? ''),
+    promptId: String(data.promptId ?? ''),
+    mimeType: String(data.mimeType ?? 'image/webp'),
+    byteSize: typeof data.byteSize === 'number' ? data.byteSize : bytes.length,
+    width: Number(data.width ?? 0),
+    height: Number(data.height ?? 0),
+    bytes,
+    submittedAt: toMillis(data.submittedAt),
   };
 }
 

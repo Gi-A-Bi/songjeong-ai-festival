@@ -44,8 +44,35 @@ describe('자동 순위', () => {
 });
 
 describe('틀린그림 찾기 점수', () => {
-  it('찾은 수×100 + 남은 초×2 − 오답×20, 최저 0점', () => {
-    expect(calculateErrorHuntScore(3, 60, 2)).toBe(300 + 120 - 40);
-    expect(calculateErrorHuntScore(0, 0, 5)).toBe(0);
+  it('찾은 수×100 − 오답×20, 최저 0점', () => {
+    expect(
+      calculateErrorHuntScore({ found: 3, total: 4, remainingSeconds: 60, wrongTaps: 2 }),
+    ).toBe(300 - 40);
+    expect(calculateErrorHuntScore({ found: 0, total: 4, remainingSeconds: 0, wrongTaps: 5 })).toBe(
+      0,
+    );
+  });
+
+  it('남은 초×2 시간 보너스는 모두 찾았을 때만 준다', () => {
+    expect(
+      calculateErrorHuntScore({ found: 4, total: 4, remainingSeconds: 60, wrongTaps: 2 }),
+    ).toBe(400 + 120 - 40);
+  });
+
+  it('하나도 찾지 않고 바로 제출하면 모두 찾은 팀보다 점수가 낮다', () => {
+    const instant = calculateErrorHuntScore({
+      found: 0,
+      total: 4,
+      remainingSeconds: 470,
+      wrongTaps: 0,
+    });
+    const allFound = calculateErrorHuntScore({
+      found: 4,
+      total: 4,
+      remainingSeconds: 240,
+      wrongTaps: 0,
+    });
+    expect(instant).toBe(0);
+    expect(allFound).toBeGreaterThan(instant);
   });
 });

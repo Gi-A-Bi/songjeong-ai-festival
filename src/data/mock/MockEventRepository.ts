@@ -3,21 +3,28 @@ import {
   computeClassCardCounts,
   countClaimedCards,
   drawCardType,
+  isActiveTicket,
+  nextTicketIndexes,
+  planTicketAdjustment,
   TicketAlreadyClaimedError,
 } from '../../domain/cards';
 import { EXCHANGE_ERROR_MESSAGES, validateExchange } from '../../domain/exchange';
-import { getTicketCountForRank } from '../../domain/rewards';
+import { getGoldenBellConfigError } from '../../domain/goldenBell';
+import { getSubmissionBlocker } from '../../domain/missionPhase';
+import { getRankingEntryError, getTicketCountForRank } from '../../domain/rewards';
 import { getRoundForMission, getTeamNoForMission, ROUND_NUMBERS } from '../../domain/rotation';
-import { calculateAutoScore } from '../../domain/scoring';
+import { resolveSubmissionScore } from '../../domain/scoring';
 import type {
   CardCounts,
   CardType,
   ClassInfo,
+  DrawingFile,
   DrawTicket,
   Exchange,
   FestivalEvent,
   Grade,
   Mission,
+  MissionConfig,
   MissionResult,
   RoundNo,
   RoundStatus,
@@ -34,8 +41,11 @@ import type {
   EventSetupSummary,
   FinalizeRankingInput,
   FinalizeRankingOutcome,
+  MissionLiveState,
   MissionParticipant,
   MissionProgress,
+  ReopenSubmissionInput,
+  ReviseRankingOutcome,
   RoundControlAction,
   SaveSubmissionInput,
   TeamCardSummary,
@@ -58,6 +68,10 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function cloneDrawing(file: DrawingFile): DrawingFile {
+  return { ...file, bytes: new Uint8Array(file.bytes) };
+}
+
 /**
  * 메모리 안에서만 동작하는 저장소. 새로고침하면 샘플 상태로 돌아간다.
  * 반환값은 복사본이라 화면에서 바꿔도 저장소 상태가 변하지 않는다.
@@ -70,6 +84,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   private readonly now: () => number;
   private readonly random: () => number;
   private readonly eventListeners = new Set<(event: FestivalEvent) => void>();
+  private readonly missionStateListeners = new Map<string, Set<() => void>>();
   private shouldFailNext = false;
   private teacher: TeacherProfile | null = null;
 
@@ -90,6 +105,7 @@ export class MockEventRepository implements EventRepository, DevTools {
     this.state = createSeedState(this.now());
     this.shouldFailNext = false;
     this.notifyEvent();
+    for (const key of this.missionStateListeners.keys()) this.notifyMissionState(key);
   }
 
   // ---- 행사 준비 ----
@@ -241,6 +257,26 @@ export class MockEventRepository implements EventRepository, DevTools {
     return clone(this.findMission(missionId));
   }
 
+  async updateMissionConfig(
+    eventId: string,
+    missionId: string,
+    config: MissionConfig,
+  ): Promise<Mission> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    const mission = this.findMission(missionId);
+    if (config.type !== mission.type) {
+      throw new RepositoryError('invalid-input', '미션 종류와 설정 형식이 달라요.');
+    }
+    if (config.type === 'golden_bell') {
+      const error = getGoldenBellConfigError(config.questions);
+      if (error) throw new RepositoryError('invalid-input', error);
+    }
+    mission.config = clone(config);
+    return clone(mission);
+  }
+
   async listClasses(eventId: string, grade: Grade): Promise<ClassInfo[]> {
     await this.request();
     this.assertEvent(eventId);
@@ -280,6 +316,7 @@ export class MockEventRepository implements EventRepository, DevTools {
     const team = this.findTeam(teamId);
     const mission = this.findMission(missionId);
     const roundNo = getRoundForMission(team.teamNo, mission.no);
+    const key = resultKey(mission.id, team.grade, roundNo);
     return clone({
       team,
       mission,
@@ -287,9 +324,39 @@ export class MockEventRepository implements EventRepository, DevTools {
       roundStatus: this.roundStatusOf(team.grade, roundNo),
       submission: this.state.submissions[submissionId(mission.id, team.id)] ?? null,
       finalized: this.isFinalized(mission.id, team.grade, roundNo),
-      answerRevealed:
-        this.state.revealedAnswers[resultKey(mission.id, team.grade, roundNo)] ?? false,
+      answerRevealed: this.state.missionStates[key]?.answerRevealed ?? false,
     });
+  }
+
+  subscribeMissionState(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+    onChange: (state: MissionLiveState) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe {
+    let active = true;
+    const key = resultKey(missionId, grade, roundNo);
+    const listener = () => {
+      if (active) onChange(this.missionLiveState(missionId, grade, roundNo));
+    };
+    const timer = setTimeout(() => {
+      if (!active) return;
+      if (eventId !== this.state.event.id) {
+        onError(new RepositoryError('not-found'));
+        return;
+      }
+      const listeners = this.missionStateListeners.get(key) ?? new Set();
+      listeners.add(listener);
+      this.missionStateListeners.set(key, listeners);
+      listener();
+    }, this.latencyMs);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      this.missionStateListeners.get(key)?.delete(listener);
+    };
   }
 
   async listTeamSubmissions(eventId: string, teamId: string): Promise<Submission[]> {
@@ -307,6 +374,9 @@ export class MockEventRepository implements EventRepository, DevTools {
     if (input.answer.type !== mission.type) {
       throw new RepositoryError('invalid-input', '미션 종류와 답안 형식이 달라요.');
     }
+    if ((mission.type === 'drawing') !== (input.drawing !== undefined)) {
+      throw new RepositoryError('invalid-input', '그림 파일이 없어요. 다시 제출해 주세요.');
+    }
 
     const id = submissionId(mission.id, team.id);
     const existing = this.state.submissions[id];
@@ -323,14 +393,28 @@ export class MockEventRepository implements EventRepository, DevTools {
     if (this.isFinalized(mission.id, team.grade, roundNo)) {
       throw new RepositoryError('not-allowed', '순위가 이미 확정되어 제출할 수 없어요.');
     }
-    if (this.state.event.status !== 'active') {
-      throw new RepositoryError(
-        'not-allowed',
-        '지금은 제출할 수 없어요. 선생님이 라운드를 시작하면 다시 눌러 주세요.',
-      );
-    }
+    const blocker = getSubmissionBlocker({
+      event: this.state.event,
+      grade: team.grade,
+      roundNo,
+      reopened: existing?.status === 'draft' && existing.reopened,
+    });
+    if (blocker) throw new RepositoryError('not-allowed', blocker);
 
     const now = this.now();
+    if (input.drawing) {
+      this.state.drawings[team.id] = {
+        teamId: team.id,
+        missionId: mission.id,
+        promptId: input.drawing.promptId,
+        mimeType: input.drawing.mimeType,
+        byteSize: input.drawing.bytes.length,
+        width: input.drawing.width,
+        height: input.drawing.height,
+        bytes: new Uint8Array(input.drawing.bytes),
+        submittedAt: now,
+      };
+    }
     const submission: Submission = {
       id,
       teamId: team.id,
@@ -340,7 +424,8 @@ export class MockEventRepository implements EventRepository, DevTools {
       roundNo,
       status: 'submitted',
       answer: clone(input.answer),
-      score: calculateAutoScore(mission.config, input.answer),
+      score: null,
+      reopened: false,
       submittedAt: now,
       updatedAt: now,
     };
@@ -394,13 +479,14 @@ export class MockEventRepository implements EventRepository, DevTools {
         const team = this.findTeam(toTeamId(grade, classInfo.classNo, teamNo));
         const result =
           this.state.results.find((item) => item.id === resultId(key, team.id)) ?? null;
+        const stored = this.state.submissions[submissionId(mission.id, team.id)] ?? null;
+        const tickets = result ? this.activeTicketsOf(result.id) : [];
         return {
           team,
-          submission: this.state.submissions[submissionId(mission.id, team.id)] ?? null,
+          submission: stored ? { ...stored, score: resolveSubmissionScore(stored, mission) } : null,
           result,
-          ticketCount: result
-            ? this.state.tickets.filter((ticket) => ticket.sourceResultId === result.id).length
-            : 0,
+          ticketCount: tickets.length,
+          claimedTicketCount: tickets.filter((ticket) => ticket.claimedAt !== null).length,
         };
       }),
     );
@@ -417,7 +503,7 @@ export class MockEventRepository implements EventRepository, DevTools {
     this.assertEvent(eventId);
     this.requireTeacher();
     const mission = this.findMission(missionId);
-    this.state.revealedAnswers[resultKey(mission.id, grade, roundNo)] = revealed;
+    this.touchMissionState(mission.id, grade, roundNo, { answerRevealed: revealed });
   }
 
   async isAnswerRevealed(
@@ -428,7 +514,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   ): Promise<boolean> {
     await this.request();
     this.assertEvent(eventId);
-    return this.state.revealedAnswers[resultKey(missionId, grade, roundNo)] ?? false;
+    return this.state.missionStates[resultKey(missionId, grade, roundNo)]?.answerRevealed ?? false;
   }
 
   async finalizeRanking(input: FinalizeRankingInput): Promise<FinalizeRankingOutcome> {
@@ -448,27 +534,7 @@ export class MockEventRepository implements EventRepository, DevTools {
       });
     }
 
-    if (input.entries.length === 0) {
-      throw new RepositoryError('invalid-input', '순위를 확정할 팀이 없어요.');
-    }
-    const teamNo = getTeamNoForMission(mission.no, input.roundNo);
-    const seen = new Set<string>();
-    for (const entry of input.entries) {
-      const team = this.state.teams.find((item) => item.id === entry.teamId);
-      if (!team || team.grade !== input.grade || team.teamNo !== teamNo) {
-        throw new RepositoryError('invalid-input', '이 미션에 참가하지 않은 팀이 들어 있어요.');
-      }
-      if (seen.has(team.id)) {
-        throw new RepositoryError('invalid-input', '같은 팀이 두 번 들어 있어요.');
-      }
-      seen.add(team.id);
-      if (!Number.isInteger(entry.rank) || entry.rank < 1) {
-        throw new RepositoryError('invalid-input', '순위는 1 이상의 정수로 입력해 주세요.');
-      }
-      if (!Number.isFinite(entry.score) || entry.score < 0) {
-        throw new RepositoryError('invalid-input', '점수는 0 이상으로 입력해 주세요.');
-      }
-    }
+    this.validateRankingEntries(input, mission);
 
     const now = this.now();
     const results: MissionResult[] = input.entries.map((entry) => ({
@@ -487,30 +553,126 @@ export class MockEventRepository implements EventRepository, DevTools {
       const team = this.findTeam(result.teamId);
       const count = getTicketCountForRank(result.rank);
       for (let index = 1; index <= count; index += 1) {
-        this.state.tickets.push({
-          id: `${result.id}__${index}`,
-          teamId: team.id,
-          classId: team.classId,
-          sourceResultId: result.id,
-          cardType: drawCardType(this.random),
-          claimedAt: null,
-          createdAt: now,
-        });
+        this.state.tickets.push(this.newTicket(result.id, index, team, now));
       }
-      const submission = this.state.submissions[submissionId(mission.id, team.id)];
-      if (submission) {
-        this.state.submissions[submission.id] = {
-          ...submission,
-          score: result.score,
-          status: 'verified',
-          updatedAt: now,
-        };
-      }
+      this.markVerified(mission.id, team.id, result.score, now);
     }
     this.state.results.push(...results);
     this.state.processedRequests[input.requestId] = key;
+    this.touchMissionState(mission.id, input.grade, input.roundNo, {});
 
     return clone({ results, ticketsByTeam: this.ticketsByTeam(results), alreadyFinalized: false });
+  }
+
+  async reviseRanking(input: FinalizeRankingInput): Promise<ReviseRankingOutcome> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    const teacher = this.requireTeacher();
+    const mission = this.findMission(input.missionId);
+    const key = resultKey(mission.id, input.grade, input.roundNo);
+    if (!this.isFinalized(mission.id, input.grade, input.roundNo)) {
+      throw new RepositoryError(
+        'not-allowed',
+        '아직 확정하지 않은 순위예요. 먼저 순위를 확정해 주세요.',
+      );
+    }
+    this.validateRankingEntries(input, mission);
+
+    const now = this.now();
+    let added = 0;
+    let revoked = 0;
+    let revokedClaimed = 0;
+    const results: MissionResult[] = [];
+    for (const entry of input.entries) {
+      const team = this.findTeam(entry.teamId);
+      const id = resultId(key, team.id);
+      const index = this.state.results.findIndex((item) => item.id === id);
+      const result: MissionResult = {
+        id,
+        missionId: mission.id,
+        grade: input.grade,
+        roundNo: input.roundNo,
+        teamId: team.id,
+        score: entry.score,
+        rank: entry.rank,
+        finalizedBy: teacher.uid,
+        finalizedAt: index === -1 ? now : this.state.results[index].finalizedAt,
+      };
+      if (index === -1) this.state.results.push(result);
+      else this.state.results[index] = result;
+      results.push(result);
+
+      const tickets = this.state.tickets.filter((ticket) => ticket.sourceResultId === id);
+      const plan = planTicketAdjustment(tickets, getTicketCountForRank(entry.rank));
+      const indexes = nextTicketIndexes(
+        tickets.map((ticket) => ticket.id),
+        plan.createCount,
+      );
+      for (const ticketNo of indexes)
+        this.state.tickets.push(this.newTicket(id, ticketNo, team, now));
+      const revokeIds = new Set(plan.revokeIds);
+      this.state.tickets = this.state.tickets.map((ticket) =>
+        revokeIds.has(ticket.id) ? { ...ticket, revokedAt: now } : ticket,
+      );
+      added += plan.createCount;
+      revoked += plan.revokeIds.length;
+      revokedClaimed += plan.revokedClaimed;
+      this.markVerified(mission.id, team.id, entry.score, now);
+    }
+    this.state.processedRequests[input.requestId] = key;
+    this.touchMissionState(mission.id, input.grade, input.roundNo, {});
+
+    return clone({
+      results,
+      ticketsByTeam: this.ticketsByTeam(results),
+      added,
+      revoked,
+      revokedClaimed,
+    });
+  }
+
+  async reopenSubmission(input: ReopenSubmissionInput): Promise<void> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    this.requireTeacher();
+    const mission = this.findMission(input.missionId);
+    const team = this.findTeam(input.teamId);
+    const id = submissionId(mission.id, team.id);
+    const existing = this.state.submissions[id];
+    if (!existing || existing.status === 'draft') {
+      throw new RepositoryError('not-allowed', '되돌릴 제출이 없어요.');
+    }
+    if (this.isFinalized(mission.id, existing.grade, existing.roundNo)) {
+      throw new RepositoryError(
+        'not-allowed',
+        '순위를 확정한 뒤에는 제출을 되돌릴 수 없어요. 순위 수정으로 바꿔 주세요.',
+      );
+    }
+    this.state.submissions[id] = {
+      ...existing,
+      status: 'draft',
+      reopened: true,
+      score: null,
+      updatedAt: this.now(),
+    };
+    this.touchMissionState(mission.id, existing.grade, existing.roundNo, {});
+  }
+
+  async listDrawingFiles(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+  ): Promise<DrawingFile[]> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    const mission = this.findMission(missionId);
+    const teamNo = getTeamNoForMission(mission.no, roundNo);
+    return this.classesOf(grade).flatMap((classInfo) => {
+      const file = this.state.drawings[toTeamId(grade, classInfo.classNo, teamNo)];
+      return file && file.missionId === mission.id ? [cloneDrawing(file)] : [];
+    });
   }
 
   // ---- 카드 ----
@@ -520,7 +682,7 @@ export class MockEventRepository implements EventRepository, DevTools {
     this.assertEvent(eventId);
     const team = this.findTeam(teamId);
     return this.state.tickets
-      .filter((ticket) => ticket.teamId === team.id)
+      .filter((ticket) => ticket.teamId === team.id && isActiveTicket(ticket))
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
       .map((ticket) => ({
         id: ticket.id,
@@ -536,7 +698,9 @@ export class MockEventRepository implements EventRepository, DevTools {
     const index = this.state.tickets.findIndex(
       (ticket) => ticket.id === ticketId && ticket.teamId === teamId,
     );
-    if (index === -1) throw new RepositoryError('not-found', '뽑기권을 찾을 수 없어요.');
+    if (index === -1 || !isActiveTicket(this.state.tickets[index])) {
+      throw new RepositoryError('not-found', '뽑기권을 찾을 수 없어요.');
+    }
     try {
       const claimed = applyTicketClaim(this.state.tickets[index], this.now());
       this.state.tickets[index] = claimed;
@@ -679,6 +843,86 @@ export class MockEventRepository implements EventRepository, DevTools {
     for (const listener of this.eventListeners) listener(this.state.event);
   }
 
+  private missionLiveState(missionId: string, grade: Grade, roundNo: RoundNo): MissionLiveState {
+    const stored = this.state.missionStates[resultKey(missionId, grade, roundNo)];
+    return {
+      answerRevealed: stored?.answerRevealed ?? false,
+      finalized: this.isFinalized(missionId, grade, roundNo),
+      updatedAt: stored?.updatedAt ?? 0,
+    };
+  }
+
+  /** 학생 화면이 구독하는 미션 상태를 바꾸고 알린다. */
+  private touchMissionState(
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+    patch: { answerRevealed?: boolean },
+  ): void {
+    const key = resultKey(missionId, grade, roundNo);
+    const previous = this.state.missionStates[key];
+    this.state.missionStates[key] = {
+      answerRevealed: patch.answerRevealed ?? previous?.answerRevealed ?? false,
+      updatedAt: Math.max(this.now(), (previous?.updatedAt ?? 0) + 1),
+    };
+    this.notifyMissionState(key);
+  }
+
+  private notifyMissionState(key: string): void {
+    for (const listener of this.missionStateListeners.get(key) ?? []) listener();
+  }
+
+  private validateRankingEntries(input: FinalizeRankingInput, mission: Mission): void {
+    if (input.entries.length === 0) {
+      throw new RepositoryError('invalid-input', '순위를 확정할 팀이 없어요.');
+    }
+    const teamNo = getTeamNoForMission(mission.no, input.roundNo);
+    const seen = new Set<string>();
+    for (const entry of input.entries) {
+      const team = this.state.teams.find((item) => item.id === entry.teamId);
+      if (!team || team.grade !== input.grade || team.teamNo !== teamNo) {
+        throw new RepositoryError('invalid-input', '이 미션에 참가하지 않은 팀이 들어 있어요.');
+      }
+      if (seen.has(team.id)) {
+        throw new RepositoryError('invalid-input', '같은 팀이 두 번 들어 있어요.');
+      }
+      seen.add(team.id);
+      const error = getRankingEntryError(entry);
+      if (error) throw new RepositoryError('invalid-input', error);
+    }
+  }
+
+  private newTicket(sourceResultId: string, index: number, team: Team, now: number): DrawTicket {
+    return {
+      id: `${sourceResultId}__${index}`,
+      teamId: team.id,
+      classId: team.classId,
+      sourceResultId,
+      cardType: drawCardType(this.random),
+      claimedAt: null,
+      revokedAt: null,
+      createdAt: now,
+    };
+  }
+
+  /** 제출한 팀만 확인 상태로 바꾼다. 제출하지 않은 팀의 빈 제출 문서는 만들지 않는다. */
+  private markVerified(missionId: string, teamId: string, score: number, now: number): void {
+    const submission = this.state.submissions[submissionId(missionId, teamId)];
+    if (!submission || submission.status === 'draft') return;
+    this.state.submissions[submission.id] = {
+      ...submission,
+      score,
+      status: 'verified',
+      updatedAt: now,
+    };
+  }
+
+  private activeTicketsOf(sourceResultId: string): DrawTicket[] {
+    return this.state.tickets.filter(
+      (ticket) => ticket.sourceResultId === sourceResultId && isActiveTicket(ticket),
+    );
+  }
+
   private findMission(missionId: string): Mission {
     const mission = this.state.missions.find((item) => item.id === missionId);
     if (!mission) throw new RepositoryError('not-found', '미션을 찾을 수 없어요.');
@@ -720,9 +964,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   private ticketsByTeam(results: readonly MissionResult[]): Record<string, number> {
     const counts: Record<string, number> = {};
     for (const result of results) {
-      counts[result.teamId] = this.state.tickets.filter(
-        (ticket) => ticket.sourceResultId === result.id,
-      ).length;
+      counts[result.teamId] = this.activeTicketsOf(result.id).length;
     }
     return counts;
   }
