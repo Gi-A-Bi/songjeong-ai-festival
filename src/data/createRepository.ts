@@ -1,4 +1,5 @@
 import type { DataMode } from './EventRepository';
+import { FirestoreEventRepository } from './firebase/FirestoreEventRepository';
 import { MockEventRepository } from './mock/MockEventRepository';
 import type { RepositoryContextValue } from './RepositoryContext';
 
@@ -14,9 +15,8 @@ export function createRepository(
   mode: DataMode = resolveDataMode(import.meta.env.VITE_DATA_MODE),
 ): RepositoryContextValue {
   if (mode === 'firebase') {
-    throw new Error(
-      'firebase 데이터 모드는 2단계에서 추가됩니다. .env의 VITE_DATA_MODE를 비우거나 mock으로 설정하세요.',
-    );
+    // 개발 도구(샘플 초기화, 실패 흉내)는 mock에서만 제공한다.
+    return { repository: new FirestoreEventRepository(), devTools: null };
   }
   const repository = new MockEventRepository({ latencyMs: 300 });
   return { repository, devTools: repository };

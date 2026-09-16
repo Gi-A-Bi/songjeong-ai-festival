@@ -1,9 +1,11 @@
+import { useCallback } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router';
 import { paths } from '../../app/paths';
 import { AppHeader } from '../../components/AppHeader';
 import { Icon } from '../../components/Icon';
 import { ErrorView, LoadingView } from '../../components/StateViews';
 import { useRepository } from '../../data/RepositoryContext';
+import { useAsyncData } from '../../hooks/useAsyncData';
 import { useLiveEvent } from '../../hooks/useLiveEvent';
 import type { TeacherContextValue } from './teacherContext';
 import './Teacher.css';
@@ -15,9 +17,33 @@ export function TeacherLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const event = useLiveEvent(eventId);
-  const teacher = repository.getCurrentTeacher();
+  const loadTeacher = useCallback(() => repository.restoreTeacher(), [repository]);
+  const teacher = useAsyncData(loadTeacher);
 
-  if (!teacher) {
+  if (teacher.status === 'loading') {
+    return (
+      <>
+        <AppHeader variant="teacher" />
+        <main className="page teacher-page">
+          <LoadingView label="로그인 상태를 확인하고 있어요" />
+        </main>
+      </>
+    );
+  }
+
+  if (teacher.status === 'error') {
+    return (
+      <>
+        <AppHeader variant="teacher" backTo={paths.start()} />
+        <main className="page teacher-page">
+          <ErrorView error={teacher.error} onRetry={teacher.reload} />
+        </main>
+      </>
+    );
+  }
+
+  const profile = teacher.data;
+  if (!profile) {
     return (
       <Navigate
         to={`${paths.teacherLogin()}?next=${encodeURIComponent(location.pathname)}`}
@@ -50,12 +76,14 @@ export function TeacherLayout() {
 
   return (
     <>
-      <AppHeader variant="teacher" subtitle={teacher.displayName} nav={nav} />
+      <AppHeader variant="teacher" subtitle={profile.displayName} nav={nav} />
       <main className="page teacher-page">
         {event.status === 'loading' ? <LoadingView label="행사 상태를 불러오고 있어요" /> : null}
         {event.status === 'error' ? <ErrorView error={event.error} onRetry={event.retry} /> : null}
         {event.status === 'success' ? (
-          <Outlet context={{ eventId, event: event.data, teacher } satisfies TeacherContextValue} />
+          <Outlet
+            context={{ eventId, event: event.data, teacher: profile } satisfies TeacherContextValue}
+          />
         ) : null}
       </main>
     </>

@@ -173,6 +173,8 @@ export interface EventRepository {
 
   // 교사 인증
   getCurrentTeacher(): TeacherProfile | null;
+  /** 새로고침 뒤 남아 있는 로그인으로 교사 자격을 다시 확인한다. */
+  restoreTeacher(): Promise<TeacherProfile | null>;
   signInTeacher(): Promise<TeacherProfile>;
   signOutTeacher(): Promise<void>;
 }

@@ -611,6 +611,11 @@ export class MockEventRepository implements EventRepository, DevTools {
     return this.teacher ? { ...this.teacher } : null;
   }
 
+  /** mock은 메모리에만 로그인 상태를 두므로 새로고침하면 다시 로그인해야 한다. */
+  async restoreTeacher(): Promise<TeacherProfile | null> {
+    return this.getCurrentTeacher();
+  }
+
   async signInTeacher(): Promise<TeacherProfile> {
     await this.request();
     this.teacher = { ...DEV_TEACHER };

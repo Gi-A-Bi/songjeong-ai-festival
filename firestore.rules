@@ -71,6 +71,12 @@ service cloud.firestore {
         allow write: if isTeacher();
       }
 
+      // 미션별 진행 상태(정답 공개 여부 등)
+      match /missionStates/{stateId} {
+        allow read: if isSignedIn();
+        allow write: if isTeacher();
+      }
+
       // 팀 세션: 한 기기(uid)는 한 팀에만 묶인다. 잠금 해제는 교사만.
       match /sessions/{uid} {
         allow get: if isSignedIn() && (request.auth.uid == uid || isTeacher());
