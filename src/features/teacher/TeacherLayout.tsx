@@ -4,7 +4,9 @@ import { paths } from '../../app/paths';
 import { AppHeader } from '../../components/AppHeader';
 import { Icon } from '../../components/Icon';
 import { ErrorView, LoadingView } from '../../components/StateViews';
+import { isRepositoryError } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
+import { EventSetupPrompt } from './EventSetupPrompt';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { useLiveEvent } from '../../hooks/useLiveEvent';
 import type { TeacherContextValue } from './teacherContext';
@@ -85,7 +87,18 @@ export function TeacherLayout() {
       <AppHeader variant="teacher" subtitle={profile.displayName} nav={nav} />
       <main className="page teacher-page">
         {event.status === 'loading' ? <LoadingView label="행사 상태를 불러오고 있어요" /> : null}
-        {event.status === 'error' ? <ErrorView error={event.error} onRetry={event.retry} /> : null}
+        {event.status === 'error' ? (
+          // 행사 문서가 아직 없으면 오류 대신 준비 화면을 보여 준다.
+          isRepositoryError(event.error, 'not-found') ? (
+            <EventSetupPrompt
+              eventId={eventId}
+              canSetup={profile.role === 'admin'}
+              onCreated={event.retry}
+            />
+          ) : (
+            <ErrorView error={event.error} onRetry={event.retry} />
+          )
+        ) : null}
         {event.status === 'success' ? (
           <Outlet
             context={{ eventId, event: event.data, teacher: profile } satisfies TeacherContextValue}
