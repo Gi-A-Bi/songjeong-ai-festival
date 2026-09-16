@@ -109,12 +109,24 @@ export interface CreateExchangeInput {
 
 export type RoundControlAction = 'start' | 'pause' | 'end';
 
+export interface EventSetupSummary {
+  /** 이번 호출로 새로 만들었으면 true, 이미 있으면 false */
+  created: boolean;
+  classes: number;
+  teams: number;
+  missions: number;
+}
+
 /**
  * 화면과 데이터 저장소 사이의 경계.
  * 1단계는 MockEventRepository, 2단계부터 FirestoreEventRepository가 구현한다.
  */
 export interface EventRepository {
   readonly mode: DataMode;
+
+  // 행사 준비
+  /** 행사·학급·팀·미션 기본 구조를 만든다. 이미 있으면 덮어쓰지 않는다. */
+  setupEvent(eventId: string): Promise<EventSetupSummary>;
 
   // 행사 상태
   getEvent(eventId: string): Promise<FestivalEvent>;

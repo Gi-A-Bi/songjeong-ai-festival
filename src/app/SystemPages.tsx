@@ -1,4 +1,5 @@
-import { useRouteError } from 'react-router';
+import { Navigate, useParams, useRouteError } from 'react-router';
+import { paths } from './paths';
 import { AppHeader } from '../components/AppHeader';
 import { ButtonLink } from '../components/Button';
 import { EmptyView, ErrorView } from '../components/StateViews';
@@ -21,6 +22,12 @@ export function NotFoundPage() {
       </main>
     </>
   );
+}
+
+/** 명세의 /admin/:eventId 주소를 교사 화면 안의 행사 설정으로 보낸다. */
+export function AdminRedirect() {
+  const { eventId = '' } = useParams();
+  return <Navigate to={paths.admin(eventId)} replace />;
 }
 
 export function RouteErrorPage() {

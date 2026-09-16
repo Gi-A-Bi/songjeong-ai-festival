@@ -14,8 +14,8 @@ const container = document.getElementById('root');
 if (!container) throw new Error('#root 요소가 없습니다.');
 const root = createRoot(container);
 
-try {
-  const repositoryValue = createRepository();
+async function start() {
+  const repositoryValue = await createRepository();
   const router = createBrowserRouter(appRoutes, { basename: import.meta.env.BASE_URL });
   root.render(
     <StrictMode>
@@ -24,10 +24,12 @@ try {
       </AppProviders>
     </StrictMode>,
   );
-} catch (error) {
+}
+
+void start().catch((error: unknown) => {
   root.render(
     <StrictMode>
       <StartupErrorPage error={error} />
     </StrictMode>,
   );
-}
+});

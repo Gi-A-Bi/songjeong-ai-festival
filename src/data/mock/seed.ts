@@ -201,6 +201,63 @@ const DEMO_CLASS_CARDS: Record<string, CardType[]> = {
 };
 const DEMO_STARTING_CARDS: CardType[] = ['command', 'expression'];
 
+export interface SampleEventStructure {
+  event: FestivalEvent;
+  classes: ClassInfo[];
+  teams: Team[];
+  missions: Mission[];
+}
+
+/**
+ * 행사 기본 구조(행사 문서, 학급, 팀, 미션)를 만든다.
+ * mock 샘플 상태와 Firestore 초기 생성이 같은 구조를 쓰도록 여기서 한 번만 정의한다.
+ */
+export function buildSampleEvent(eventId: string, now: number): SampleEventStructure {
+  const classes: ClassInfo[] = [];
+  const teams: Team[] = [];
+  for (const grade of GRADES) {
+    for (let classNo = 1; classNo <= GRADE_CLASS_COUNTS[grade]; classNo += 1) {
+      const classId = toClassId(grade, classNo);
+      classes.push({
+        id: classId,
+        grade,
+        classNo,
+        displayName: `${grade}학년 ${classNo}반`,
+        status: 'ready',
+      });
+      for (const teamNo of TEAM_NUMBERS) {
+        teams.push({
+          id: toTeamId(grade, classNo, teamNo),
+          classId,
+          grade,
+          classNo,
+          teamNo,
+          displayName: `${grade}학년 ${classNo}반 ${teamNo}팀`,
+          status: 'ready',
+        });
+      }
+    }
+  }
+  return {
+    event: {
+      id: eventId,
+      title: '2026 송정 AI 페스티벌',
+      schoolName: '서울송정초등학교',
+      status: 'ready',
+      activeGrade: null,
+      activeRound: 0,
+      roundEndsAt: null,
+      pausedRemainingMs: null,
+      roundDurationMs: 8 * MINUTE,
+      moveDurationMs: 2 * MINUTE,
+      updatedAt: now,
+    },
+    classes,
+    teams,
+    missions: createSampleMissions(),
+  };
+}
+
 export function createSeedState(now: number): MockState {
   const random = createSeededRandom(2026);
   const missions = createSampleMissions();

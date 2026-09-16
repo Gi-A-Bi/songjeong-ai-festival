@@ -26,6 +26,40 @@ npm run format        # Prettier 정리
 
 `main`(또는 `master`)에 push하면 GitHub Actions가 검사와 빌드를 하고 GitHub Pages에 배포합니다. 배포 주소는 저장소의 Actions 탭과 Settings → Pages에서 확인할 수 있습니다.
 
+## Firebase 연결 (2단계)
+
+보안 규칙과 Firestore 저장소 구현은 끝났습니다. 실제 프로젝트에 연결하는 순서는 다음과 같습니다.
+
+1. Firebase 콘솔에서 프로젝트를 만듭니다. 결제 정보는 등록하지 않습니다(무료 Spark 요금제).
+2. Firestore(위치 asia-northeast3)와 Authentication(익명, Google)을 사용 설정합니다.
+3. 웹 앱을 추가해 설정값을 받아 `.env` 파일에 채웁니다. `.env.example`을 복사해 쓰면 됩니다.
+4. `VITE_DATA_MODE=firebase`로 두고 `npm run dev`를 실행합니다.
+5. 교사용 로그인에서 학교 Google 계정으로 로그인하면 "등록된 교사 계정이 아니에요"가 나옵니다. 콘솔 Authentication에서 그 계정의 UID를 복사해 Firestore에 `teachers/{UID}` 문서를 만들고 `displayName`, `email`, `role`(teacher 또는 admin), `active: true`를 넣습니다.
+6. 다시 로그인한 뒤 교사 화면의 **행사 설정**에서 "행사 구조 만들기"를 누르면 학급 20개, 팀 100개, 미션 5개가 생성됩니다.
+7. 보안 규칙과 색인을 배포합니다.
+
+```bash
+firebase deploy --only firestore:rules,firestore:indexes
+```
+
+### 로컬 에뮬레이터
+
+실제 프로젝트 없이 개발하려면 에뮬레이터를 씁니다. Java 21 이상이 필요합니다.
+
+```bash
+npm run emulators
+```
+
+`.env`에 `VITE_USE_FIREBASE_EMULATORS=1`과 `VITE_DATA_MODE=firebase`를 두면 앱이 에뮬레이터에 연결됩니다.
+
+### 보안 규칙 테스트
+
+```bash
+npm run test:rules
+```
+
+에뮬레이터를 자동으로 띄워 학생·교사 권한 규칙 18가지를 확인합니다.
+
 ## 화면 둘러보기
 
 - 학생: 시작 화면 → 팀 입장 → 팀 홈 → 미션 → 카드 뽑기 → 카드함

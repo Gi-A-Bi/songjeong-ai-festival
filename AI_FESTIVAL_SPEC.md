@@ -535,8 +535,13 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
     activeGrade: 3 | 4 | 5 | 6 | null
     activeRound: 0 | 1 | 2 | 3 | 4 | 5
     roundEndsAt: timestamp | null
+    pausedRemainingMs: number | null
+    roundDurationMs: number
+    moveDurationMs: number
     createdAt: timestamp
     updatedAt: timestamp
+
+일시정지하면 남은 시간을 pausedRemainingMs에 보관하고 roundEndsAt을 비운다. 다시 시작할 때 남은 시간만큼 새 종료 시각을 만든다.
 
 #### events/{eventId}/classes/{classId}
 
@@ -582,15 +587,29 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
     startedAt: timestamp | null
     endsAt: timestamp | null
 
+#### events/{eventId}/missionStates/{missionId__gGRADE__rROUND}
+
+    missionId: string
+    grade: number
+    roundNo: number
+    answerRevealed: boolean
+    updatedAt: timestamp
+
+골든벨 정답 공개처럼 미션·학년·라운드별 진행 상태를 담는 작은 문서다.
+
 #### events/{eventId}/submissions/{submissionId}
+
+문서 ID는 `{missionId}__{teamId}` 고정이다.
 
     teamId: string
     classId: string
     missionId: string
+    grade: number
     roundNo: number
     status: "draft" | "submitted" | "verified"
     answer: map
     score: number | null
+    requestId: string
     submittedAt: timestamp | null
     updatedAt: timestamp
 

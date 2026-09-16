@@ -12,7 +12,8 @@ import { TeacherLoginPage } from '../features/teacher/TeacherLoginPage';
 import { TeacherMissionPage } from '../features/teacher/TeacherMissionPage';
 import { TeamHomePage } from '../features/tour/TeamHomePage';
 import { TeamLayout } from '../features/tour/TeamLayout';
-import { NotFoundPage, RouteErrorPage } from './SystemPages';
+import { AdminPage } from '../features/teacher/AdminPage';
+import { AdminRedirect, NotFoundPage, RouteErrorPage } from './SystemPages';
 
 export const appRoutes: RouteObject[] = [
   {
@@ -41,8 +42,10 @@ export const appRoutes: RouteObject[] = [
           { index: true, element: <TeacherDashboardPage /> },
           { path: 'mission/:missionId', element: <TeacherMissionPage /> },
           { path: 'exchange', element: <ExchangePage /> },
+          { path: 'admin', element: <AdminPage /> },
         ],
       },
+      { path: 'admin/:eventId', element: <AdminRedirect /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

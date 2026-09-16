@@ -48,6 +48,7 @@ import type {
   ClassCardRow,
   CreateExchangeInput,
   EventRepository,
+  EventSetupSummary,
   FinalizeRankingInput,
   FinalizeRankingOutcome,
   MissionParticipant,
@@ -61,6 +62,8 @@ import type {
   Unsubscribe,
 } from '../EventRepository';
 import { RepositoryError } from '../errors';
+// 샘플 행사 구조는 mock과 Firestore가 같은 정의를 쓴다.
+import { buildSampleEvent } from '../mock/seed';
 import { getFirebase } from './firebaseApp';
 import {
   mapClass,
@@ -220,6 +223,90 @@ export class FirestoreEventRepository implements EventRepository {
   async signOutTeacher(): Promise<void> {
     this.teacher = null;
     await signOut(getFirebase().auth);
+  }
+
+  // ---- 행사 준비 ----
+
+  /** 행사·학급·팀·미션 문서를 한 번에 만든다(126개 문서, 배치 한도 안). */
+  async setupEvent(eventId: string): Promise<EventSetupSummary> {
+    return run(async () => {
+      await this.ensureUser();
+      if (!this.teacher)
+        throw new RepositoryError('not-allowed', '교사로 로그인해야 할 수 있어요.');
+
+      const existing = await getDoc(this.eventRef(eventId));
+      if (existing.exists()) {
+        const [classes, teams, missions] = await Promise.all([
+          getDocs(this.sub(eventId, 'classes')),
+          getDocs(this.sub(eventId, 'teams')),
+          getDocs(this.sub(eventId, 'missions')),
+        ]);
+        return {
+          created: false,
+          classes: classes.size,
+          teams: teams.size,
+          missions: missions.size,
+        };
+      }
+
+      const structure = buildSampleEvent(eventId, Date.now());
+      const batch = writeBatch(this.db);
+      batch.set(this.eventRef(eventId), {
+        title: structure.event.title,
+        schoolName: structure.event.schoolName,
+        status: 'ready',
+        activeGrade: null,
+        activeRound: 0,
+        roundEndsAt: null,
+        pausedRemainingMs: null,
+        roundDurationMs: structure.event.roundDurationMs,
+        moveDurationMs: structure.event.moveDurationMs,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      for (const classInfo of structure.classes) {
+        batch.set(doc(this.sub(eventId, 'classes'), classInfo.id), {
+          grade: classInfo.grade,
+          classNo: classInfo.classNo,
+          displayName: classInfo.displayName,
+          status: classInfo.status,
+        });
+      }
+      for (const team of structure.teams) {
+        batch.set(doc(this.sub(eventId, 'teams'), team.id), {
+          classId: team.classId,
+          grade: team.grade,
+          classNo: team.classNo,
+          teamNo: team.teamNo,
+          displayName: team.displayName,
+          status: team.status,
+          lockedSessionUid: null,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      for (const mission of structure.missions) {
+        batch.set(doc(this.sub(eventId, 'missions'), mission.id), {
+          no: mission.no,
+          type: mission.type,
+          title: mission.title,
+          room: mission.room,
+          cardType: mission.cardType,
+          summary: mission.summary,
+          teacherJudged: mission.teacherJudged,
+          enabled: mission.enabled,
+          config: mission.config,
+        });
+      }
+      await batch.commit();
+
+      return {
+        created: true,
+        classes: structure.classes.length,
+        teams: structure.teams.length,
+        missions: structure.missions.length,
+      };
+    });
   }
 
   // ---- 행사 상태 ----

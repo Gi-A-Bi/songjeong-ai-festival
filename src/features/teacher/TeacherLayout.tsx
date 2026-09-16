@@ -67,6 +67,12 @@ export function TeacherLayout() {
         <Icon name="swap_horiz" />
         카드 교환
       </NavLink>
+      {profile.role === 'admin' ? (
+        <NavLink to={paths.admin(eventId)} className="teacher-nav__link">
+          <Icon name="settings" />
+          행사 설정
+        </NavLink>
+      ) : null}
       <button type="button" className="teacher-nav__link" onClick={() => void logout()}>
         <Icon name="logout" />
         로그아웃

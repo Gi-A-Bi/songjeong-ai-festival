@@ -16,4 +16,5 @@ export const paths = {
   teacherMission: (eventId: string, missionId: string) =>
     `/teacher/${e(eventId)}/mission/${e(missionId)}`,
   exchange: (eventId: string) => `/teacher/${e(eventId)}/exchange`,
+  admin: (eventId: string) => `/teacher/${e(eventId)}/admin`,
 };

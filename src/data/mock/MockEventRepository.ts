@@ -31,6 +31,7 @@ import type {
   CreateExchangeInput,
   DevTools,
   EventRepository,
+  EventSetupSummary,
   FinalizeRankingInput,
   FinalizeRankingOutcome,
   MissionParticipant,
@@ -89,6 +90,21 @@ export class MockEventRepository implements EventRepository, DevTools {
     this.state = createSeedState(this.now());
     this.shouldFailNext = false;
     this.notifyEvent();
+  }
+
+  // ---- 행사 준비 ----
+
+  /** mock은 항상 샘플 행사가 준비되어 있어 현재 구조만 알려 준다. */
+  async setupEvent(eventId: string): Promise<EventSetupSummary> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    return {
+      created: false,
+      classes: this.state.classes.length,
+      teams: this.state.teams.length,
+      missions: this.state.missions.length,
+    };
   }
 
   // ---- 행사 상태 ----
