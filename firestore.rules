@@ -1,0 +1,172 @@
+rules_version = '2';
+
+// 송정 AI 페스티벌 보안 규칙
+// - 학생: 익명 로그인. 자기 팀 제출물만 만들고 고칠 수 있다.
+// - 교사: Google 로그인. teachers/{uid}에 등록되고 active가 true여야 한다.
+// - 순위, 카드 종류, 교환 기록은 학생이 바꿀 수 없다.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function teacherDoc() {
+      return get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data;
+    }
+
+    function isTeacher() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/teachers/$(request.auth.uid))
+        && teacherDoc().active == true;
+    }
+
+    function isAdmin() {
+      return isTeacher() && teacherDoc().role == 'admin';
+    }
+
+    // 이 기기가 잠근 팀. 첫 입장 때 sessions/{uid} 문서로 기록한다.
+    function sessionTeamId(eventId) {
+      return get(/databases/$(database)/documents/events/$(eventId)/sessions/$(request.auth.uid)).data.teamId;
+    }
+
+    function isTeamMember(eventId, teamId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/events/$(eventId)/sessions/$(request.auth.uid))
+        && sessionTeamId(eventId) == teamId;
+    }
+
+    function unchanged(field) {
+      return request.resource.data[field] == resource.data[field];
+    }
+
+    // 교사 명부는 콘솔이나 관리자만 바꾼다. 본인 문서만 확인할 수 있다.
+    match /teachers/{uid} {
+      allow get: if isSignedIn() && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    match /events/{eventId} {
+      // 행사 상태, 학급, 팀, 미션, 라운드는 로그인한 사람이면 읽을 수 있다.
+      allow read: if isSignedIn();
+      allow write: if isTeacher();
+
+      match /classes/{classId} {
+        allow read: if isSignedIn();
+        allow write: if isTeacher();
+      }
+
+      match /teams/{teamId} {
+        allow read: if isSignedIn();
+        allow write: if isTeacher();
+      }
+
+      match /missions/{missionId} {
+        allow read: if isSignedIn();
+        allow write: if isTeacher();
+      }
+
+      match /rounds/{roundId} {
+        allow read: if isSignedIn();
+        allow write: if isTeacher();
+      }
+
+      // 팀 세션: 한 기기(uid)는 한 팀에만 묶인다. 잠금 해제는 교사만.
+      match /sessions/{uid} {
+        allow get: if isSignedIn() && (request.auth.uid == uid || isTeacher());
+        allow list: if isTeacher();
+        allow create: if isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          && request.resource.data.teamId is string
+          && exists(/databases/$(database)/documents/events/$(eventId)/teams/$(request.resource.data.teamId));
+        allow update: if isSignedIn()
+          && request.auth.uid == uid
+          && unchanged('teamId');
+        allow delete: if isTeacher();
+      }
+
+      // 제출물: 미션·팀별 고정 ID라 다시 보내도 문서가 늘지 않는다.
+      match /submissions/{submissionId} {
+        function isOwnSubmission() {
+          return isTeamMember(eventId, request.resource.data.teamId);
+        }
+        function scoreUntouched() {
+          return request.resource.data.score == null;
+        }
+        function statusAllowed() {
+          return request.resource.data.status in ['draft', 'submitted'];
+        }
+        function rankingOpen() {
+          return !exists(/databases/$(database)/documents/events/$(eventId)/results/$(request.resource.data.missionId + '__g' + string(request.resource.data.grade) + '__r' + string(request.resource.data.roundNo) + '__' + request.resource.data.teamId));
+        }
+
+        allow read: if isSignedIn();
+        allow create: if isTeacher()
+          || (isOwnSubmission() && statusAllowed() && scoreUntouched() && rankingOpen());
+        allow update: if isTeacher()
+          || (isOwnSubmission()
+            && unchanged('teamId')
+            && unchanged('missionId')
+            && statusAllowed()
+            && scoreUntouched()
+            && resource.data.status != 'verified'
+            && rankingOpen());
+        allow delete: if isTeacher();
+      }
+
+      // 그림 제출: 용량 제한을 규칙에서도 검사한다(문서 1MiB 한도 보호).
+      match /drawingSubmissions/{teamId} {
+        function drawingValid() {
+          return request.resource.data.mimeType == 'image/webp'
+            && request.resource.data.byteSize is int
+            && request.resource.data.byteSize <= 358400
+            && request.resource.data.imageBytes.size() <= 358400;
+        }
+
+        allow read: if isTeacher();
+        allow create, update: if isTeacher()
+          || (isTeamMember(eventId, teamId) && drawingValid());
+        allow delete: if isAdmin();
+      }
+
+      // 순위는 교사만 확정한다. 학생은 읽기만 한다.
+      match /results/{resultId} {
+        allow read: if isSignedIn();
+        allow write: if isTeacher();
+      }
+
+      // 뽑기권: 학생은 자기 팀 것을 읽고, 사용 표시(claimedAt)만 할 수 있다.
+      match /drawTickets/{ticketId} {
+        allow read: if isSignedIn();
+        allow create, delete: if isTeacher();
+        allow update: if isTeacher()
+          || (isTeamMember(eventId, resource.data.teamId)
+            && resource.data.claimedAt == null
+            && request.resource.data.claimedAt == request.time
+            && unchanged('teamId')
+            && unchanged('classId')
+            && unchanged('cardType')
+            && unchanged('sourceResultId')
+            && unchanged('createdAt'));
+      }
+
+      // 카드 교환은 교사만 기록한다. 잘못된 교환은 지우지 않고 반대 기록으로 바로잡는다.
+      match /exchanges/{exchangeId} {
+        allow read: if isSignedIn();
+        allow create: if isTeacher()
+          && request.resource.data.quantity is int
+          && request.resource.data.quantity > 0
+          && request.resource.data.fromClassId != request.resource.data.toClassId
+          && request.resource.data.status == 'completed';
+        allow update: if isTeacher() && unchanged('quantity') && unchanged('cardType');
+        allow delete: if false;
+      }
+    }
+
+    // 위에서 허용하지 않은 경로는 모두 막는다.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

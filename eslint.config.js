@@ -26,7 +26,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['vite.config.ts'],
+    files: ['vite.config.ts', 'vitest.rules.config.ts', 'tests/**/*.ts'],
     languageOptions: { globals: globals.node },
   },
   prettier,
