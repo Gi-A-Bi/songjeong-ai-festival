@@ -30,6 +30,36 @@ export function AdminRedirect() {
   return <Navigate to={paths.admin(eventId)} replace />;
 }
 
+/** 예전 카드 뽑기·피날레·팀별 결승 주소는 학급 카드 현황으로 보낸다(팀별 결승 화면은 없다). */
+export function TeamCardsRedirect() {
+  const { eventId = '', teamId = '' } = useParams();
+  return <Navigate to={paths.cards(eventId, teamId)} replace />;
+}
+
+/** 예전 카드 교환(/teacher/:eventId/exchange) 주소를 학급 카드 현황으로 보낸다. */
+export function TeacherCardsRedirect() {
+  const { eventId = '' } = useParams();
+  return <Navigate to={paths.teacherCards(eventId)} replace />;
+}
+
+/** 교사 화면 첫 주소와 예전 결승 운영 주소를 새 화면으로 보낸다. */
+export function TeacherPathRedirect({ to }: { to: 'teacherDashboard' | 'finalResults' }) {
+  const { eventId = '' } = useParams();
+  return <Navigate to={paths[to](eventId)} replace />;
+}
+
+/** 예전 미션 운영 주소(/mission/:missionId)를 부스 화면으로 보낸다. */
+export function StationRedirect() {
+  const { eventId = '', missionId = '' } = useParams();
+  return <Navigate to={paths.teacherStation(eventId, missionId)} replace />;
+}
+
+/** 예전 학급 결승 주소(/class/:eventId/:classId/final)를 전자칠판용 최종 미션으로 보낸다. */
+export function ClassFinalRedirect() {
+  const { eventId = '', classId = '' } = useParams();
+  return <Navigate to={paths.teacherClassFinal(eventId, classId)} replace />;
+}
+
 export function RouteErrorPage() {
   const error = useRouteError();
   return (

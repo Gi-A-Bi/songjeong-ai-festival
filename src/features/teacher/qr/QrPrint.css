@@ -1,0 +1,183 @@
+/*
+ * QR 인쇄 화면. 화면에서는 A4 미리보기처럼 보이고, 인쇄할 때는 설정 영역과 머리글을 숨긴다.
+ * 인쇄 크기는 cm로 정해 어느 프린터에서도 QR 크기가 같게 나온다.
+ */
+.qr-print {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.qr-print__controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.qr-print__address {
+  width: 100%;
+  font-size: var(--font-size-sm);
+}
+
+.qr-sheets {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+/* A4 비율(210:297)의 미리보기 */
+.qr-sheet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  width: min(100%, 21cm);
+  min-height: min(141vw, 29.7cm);
+  padding: 1.5cm;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--navy-950);
+  box-shadow: var(--shadow-md);
+  text-align: center;
+}
+
+.qr-sheet__kicker {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+}
+
+.qr-sheet__title {
+  margin: 0;
+  font-size: 4rem;
+  font-weight: var(--font-weight-heavy);
+  line-height: var(--line-height-tight);
+}
+
+.qr-sheet__subtitle {
+  margin: 0;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-medium);
+}
+
+.qr-sheet__code {
+  display: block;
+  width: 6cm;
+  max-width: 100%;
+  height: auto;
+}
+
+.qr-sheet__code--large {
+  width: 13cm;
+  margin-block: var(--space-4);
+}
+
+.qr-sheet__steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: var(--space-6);
+  font-size: var(--font-size-xl);
+  text-align: left;
+}
+
+.qr-sheet__url {
+  margin: auto 0 0;
+  font-size: var(--font-size-xs);
+  word-break: break-all;
+  opacity: 0.7;
+}
+
+/* 다섯 팀(2열 3줄)이 A4 한 장에 들어가도록 여백과 QR 크기를 줄인다. */
+.qr-sheet--teams {
+  gap: var(--space-3);
+  padding: 1.2cm;
+}
+
+.qr-sheet--teams .qr-sheet__code {
+  width: 5.6cm;
+}
+
+.qr-sheet__class {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-heavy);
+}
+
+.qr-team-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 점선을 따라 잘라 팀에 나눠 준다. */
+.qr-team-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.35cm 0.3cm;
+  border: 1px dashed var(--gray-400);
+  break-inside: avoid;
+}
+
+.qr-team-card__name {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+}
+
+.qr-team-card__hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  /* 인쇄물에는 앱 머리글과 설정 영역을 넣지 않는다. */
+  .app-header,
+  .qr-print__controls {
+    display: none !important;
+  }
+
+  body {
+    background: var(--white) !important;
+  }
+
+  .page.teacher-page {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .qr-print,
+  .qr-sheets {
+    display: block;
+  }
+
+  .qr-sheet {
+    width: 21cm;
+    height: 29.6cm;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    break-after: page;
+    overflow: hidden;
+  }
+
+  .qr-sheet:last-child {
+    break-after: auto;
+  }
+}

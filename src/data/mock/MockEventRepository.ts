@@ -1,61 +1,93 @@
 import {
-  claimTicket as applyTicketClaim,
-  computeClassCardCounts,
-  countClaimedCards,
-  drawCardType,
-  isActiveTicket,
-  nextTicketIndexes,
-  planTicketAdjustment,
-  TicketAlreadyClaimedError,
+  CardAwardError,
+  claimCardAward as applyCardClaim,
+  computeClassCardProgress,
+  createCardAward,
+  reconcileCardProgress,
+  reofferCardAward,
 } from '../../domain/cards';
-import { EXCHANGE_ERROR_MESSAGES, validateExchange } from '../../domain/exchange';
+import { toDeviceCode } from '../../domain/device';
 import { getGoldenBellConfigError } from '../../domain/goldenBell';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
-import { getRankingEntryError, getTicketCountForRank } from '../../domain/rewards';
+import { getRankingEntryError } from '../../domain/rewards';
 import { getRoundForMission, getTeamNoForMission, ROUND_NUMBERS } from '../../domain/rotation';
 import { resolveSubmissionScore } from '../../domain/scoring';
+import { CARD_INFO } from '../../domain/catalog';
+import {
+  getFinalStartBlocker,
+  getHintTotal,
+  presentFinalClassStatus,
+  redactFinalClassState,
+} from '../../domain/finalMission';
 import type {
-  CardCounts,
-  CardType,
+  ActivityEvent,
+  CardAward,
+  ClassCardProgress,
   ClassInfo,
   DrawingFile,
-  DrawTicket,
-  Exchange,
   FestivalEvent,
+  FinalClassState,
+  FinalSession,
   Grade,
   Mission,
   MissionConfig,
   MissionResult,
+  MissionRoundState,
   RoundNo,
   RoundStatus,
   Submission,
   Team,
   TeacherProfile,
+  TeacherRole,
+  TeamMissionState,
 } from '../../domain/types';
 import { RepositoryError } from '../errors';
 import type {
-  ClassCardRow,
-  CreateExchangeInput,
+  AdjustFinalResultInput,
+  CardAwardView,
+  CheckInInput,
+  CheckInOutcome,
+  ClaimCardAwardInput,
+  ClaimCardAwardOutcome,
+  ClassCardBoard,
+  ClassFinalView,
+  ClassOpsDetail,
+  DeviceInfo,
   DevTools,
   EventRepository,
   EventSetupSummary,
+  FinalAdminActionInput,
+  FinalBoard,
   FinalizeRankingInput,
   FinalizeRankingOutcome,
+  FinalQuestionActionInput,
+  MarkArrivedInput,
   MissionLiveState,
   MissionParticipant,
   MissionProgress,
+  OpenFinalInput,
+  OpsDashboard,
   ReopenSubmissionInput,
   ReviseRankingOutcome,
   RoundControlAction,
   SaveSubmissionInput,
-  TeamCardSummary,
+  SelectFinalChoiceInput,
+  StartClassFinalInput,
+  StartStationInput,
+  StationArrivals,
+  TeacherClassCards,
   TeamMissionView,
+  TeamRewardView,
+  TeamDevice,
   TeamSession,
-  TicketView,
+  TeamTourStatus,
   Unsubscribe,
 } from '../EventRepository';
 import { resultId, resultKey, roundKey, submissionId, toTeamId } from './keys';
-import { createSeedState, DEV_TEACHER, type MockState } from './seed';
+import type { MockStoreContext } from './mockContext';
+import { MockFinalStore } from './mockFinal';
+import { MockTourStore } from './mockTour';
+import { createSeedState, DEV_TEACHER, THIS_DEVICE_ID, type MockState } from './seed';
 
 export interface MockEventRepositoryOptions {
   /** 네트워크 지연 흉내(ms). 테스트에서는 0 */
@@ -78,6 +110,7 @@ function cloneDrawing(file: DrawingFile): DrawingFile {
  */
 export class MockEventRepository implements EventRepository, DevTools {
   readonly mode = 'mock' as const;
+  readonly capabilities = { liveOps: true, classFinal: true };
 
   private state: MockState;
   private readonly latencyMs: number;
@@ -85,6 +118,11 @@ export class MockEventRepository implements EventRepository, DevTools {
   private readonly random: () => number;
   private readonly eventListeners = new Set<(event: FestivalEvent) => void>();
   private readonly missionStateListeners = new Map<string, Set<() => void>>();
+  private readonly opsListeners = new Map<Grade, Set<(revision: number) => void>>();
+  private readonly finalListeners = new Map<Grade, Set<(revision: number) => void>>();
+  private liveRevision = 0;
+  private readonly tour: MockTourStore;
+  private readonly final: MockFinalStore;
   private shouldFailNext = false;
   private teacher: TeacherProfile | null = null;
 
@@ -93,6 +131,9 @@ export class MockEventRepository implements EventRepository, DevTools {
     this.now = options.now ?? Date.now;
     this.random = options.random ?? Math.random;
     this.state = createSeedState(this.now());
+    const context = this.createContext();
+    this.tour = new MockTourStore(context);
+    this.final = new MockFinalStore(context);
   }
 
   // ---- 개발 도구 ----
@@ -106,6 +147,32 @@ export class MockEventRepository implements EventRepository, DevTools {
     this.shouldFailNext = false;
     this.notifyEvent();
     for (const key of this.missionStateListeners.keys()) this.notifyMissionState(key);
+    for (const grade of this.opsListeners.keys()) this.notifyOps(grade);
+    for (const grade of this.finalListeners.keys()) this.notifyFinal(grade);
+  }
+
+  signInAs(
+    role: TeacherRole,
+    assignment: { missionId?: string; classId?: string } = {},
+  ): TeacherProfile {
+    const names: Record<TeacherRole, string> = {
+      admin: '개발용 총괄 선생님',
+      station_teacher: '개발용 부스 선생님',
+      homeroom_teacher: '개발용 담임 선생님',
+    };
+    this.teacher = {
+      uid: `dev-${role}`,
+      displayName: names[role],
+      role,
+      missionId: role === 'station_teacher' ? (assignment.missionId ?? null) : null,
+      classId: role === 'homeroom_teacher' ? (assignment.classId ?? null) : null,
+    };
+    return { ...this.teacher };
+  }
+
+  /** mock은 브라우저 메모리가 곧 서버라 저장소의 시계를 서버 시각으로 쓴다. */
+  serverNow(): number {
+    return this.now();
   }
 
   // ---- 행사 준비 ----
@@ -161,7 +228,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   async controlRound(eventId: string, action: RoundControlAction): Promise<FestivalEvent> {
     await this.request();
     this.assertEvent(eventId);
-    this.requireTeacher();
+    this.requireAdmin();
     const event = this.state.event;
     const now = this.now();
 
@@ -183,7 +250,13 @@ export class MockEventRepository implements EventRepository, DevTools {
         throw new RepositoryError('not-allowed', '진행 중인 라운드가 없어요.');
       }
       this.state.roundStatuses[roundKey(event.activeGrade, event.activeRound)] = 'scoring';
-      this.updateEvent({ status: 'ready', roundEndsAt: null, pausedRemainingMs: null });
+      this.updateEvent({
+        status: 'ready',
+        roundEndsAt: null,
+        pausedRemainingMs: null,
+        roundEndedAt: now,
+      });
+      this.logRound(event.activeGrade, event.activeRound, '종료', `end`);
     } else if (event.status === 'paused') {
       this.updateEvent({
         status: 'active',
@@ -210,15 +283,18 @@ export class MockEventRepository implements EventRepository, DevTools {
         activeRound: roundNo,
         roundEndsAt: now + event.roundDurationMs,
         pausedRemainingMs: null,
+        roundEndedAt: null,
       });
+      this.logRound(grade, roundNo, '시작', 'start');
     }
+    if (this.state.event.activeGrade !== null) this.notifyOps(this.state.event.activeGrade);
     return clone(this.state.event);
   }
 
   async setActiveGrade(eventId: string, grade: Grade): Promise<FestivalEvent> {
     await this.request();
     this.assertEvent(eventId);
-    this.requireTeacher();
+    this.requireAdmin();
     const event = this.state.event;
     if (event.status === 'active' || event.status === 'paused') {
       throw new RepositoryError('not-allowed', '라운드를 종료한 뒤 학년을 바꿀 수 있어요.');
@@ -233,6 +309,7 @@ export class MockEventRepository implements EventRepository, DevTools {
       status: 'ready',
       roundEndsAt: null,
       pausedRemainingMs: null,
+      roundEndedAt: null,
     });
     return clone(this.state.event);
   }
@@ -264,7 +341,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   ): Promise<Mission> {
     await this.request();
     this.assertEvent(eventId);
-    this.requireTeacher();
+    this.requireStationAccess(missionId);
     const mission = this.findMission(missionId);
     if (config.type !== mission.type) {
       throw new RepositoryError('invalid-input', '미션 종류와 설정 형식이 달라요.');
@@ -299,9 +376,52 @@ export class MockEventRepository implements EventRepository, DevTools {
     await this.request();
     this.assertEvent(eventId);
     const team = this.findTeam(teamId);
-    const joinedAt = this.now();
-    this.state.sessions[team.id] = joinedAt;
+    const now = this.now();
+    // 실제 저장소처럼 첫 입장 기기를 한 팀에 묶는다.
+    const current = this.state.devices[THIS_DEVICE_ID];
+    if (current && current.teamId !== team.id) throw new RepositoryError('device-locked');
+    const joinedAt = current?.joinedAt ?? now;
+    this.state.devices[THIS_DEVICE_ID] = {
+      id: THIS_DEVICE_ID,
+      teamId: team.id,
+      joinedAt,
+      lastSeenAt: now,
+    };
+    this.state.deviceTeamId = team.id;
     return { eventId, teamId: team.id, joinedAt };
+  }
+
+  async getMyDevice(eventId: string): Promise<DeviceInfo> {
+    await this.request();
+    this.assertEvent(eventId);
+    const teamId = this.state.devices[THIS_DEVICE_ID]?.teamId;
+    return {
+      code: toDeviceCode(THIS_DEVICE_ID),
+      team: teamId ? clone(this.findTeam(teamId)) : null,
+    };
+  }
+
+  async listClassDevices(eventId: string, classId: string): Promise<TeamDevice[]> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    const teams = this.teamsOfClass(this.findClass(classId).id);
+    return Object.values(this.state.devices)
+      .flatMap((device) => {
+        const team = teams.find((item) => item.id === device.teamId);
+        return team ? [{ device, teamNo: team.teamNo }] : [];
+      })
+      .sort((a, b) => a.teamNo - b.teamNo || a.device.joinedAt - b.device.joinedAt)
+      .map(({ device }) => ({ ...device, code: toDeviceCode(device.id) }));
+  }
+
+  async unlockDevice(eventId: string, deviceId: string): Promise<void> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    // 이미 풀린 기기를 다시 풀어도 오류가 아니다.
+    delete this.state.devices[deviceId];
+    if (deviceId === THIS_DEVICE_ID) this.state.deviceTeamId = null;
   }
 
   // ---- 제출 ----
@@ -480,13 +600,12 @@ export class MockEventRepository implements EventRepository, DevTools {
         const result =
           this.state.results.find((item) => item.id === resultId(key, team.id)) ?? null;
         const stored = this.state.submissions[submissionId(mission.id, team.id)] ?? null;
-        const tickets = result ? this.activeTicketsOf(result.id) : [];
         return {
           team,
           submission: stored ? { ...stored, score: resolveSubmissionScore(stored, mission) } : null,
           result,
-          ticketCount: tickets.length,
-          claimedTicketCount: tickets.filter((ticket) => ticket.claimedAt !== null).length,
+          award: result ? (this.awardOf(result.id) ?? null) : null,
+          movement: this.tour.present(team, roundNo),
         };
       }),
     );
@@ -501,7 +620,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   ): Promise<void> {
     await this.request();
     this.assertEvent(eventId);
-    this.requireTeacher();
+    this.requireStationAccess(missionId);
     const mission = this.findMission(missionId);
     this.touchMissionState(mission.id, grade, roundNo, { answerRevealed: revealed });
   }
@@ -520,7 +639,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   async finalizeRanking(input: FinalizeRankingInput): Promise<FinalizeRankingOutcome> {
     await this.request();
     this.assertEvent(input.eventId);
-    const teacher = this.requireTeacher();
+    const teacher = this.requireStationAccess(input.missionId);
     const mission = this.findMission(input.missionId);
     const key = resultKey(mission.id, input.grade, input.roundNo);
 
@@ -529,7 +648,7 @@ export class MockEventRepository implements EventRepository, DevTools {
     if (existing.length > 0) {
       return clone({
         results: existing,
-        ticketsByTeam: this.ticketsByTeam(existing),
+        awards: this.awardsOf(existing),
         alreadyFinalized: true,
       });
     }
@@ -549,25 +668,27 @@ export class MockEventRepository implements EventRepository, DevTools {
       finalizedAt: now,
     }));
 
-    for (const result of results) {
+    // 결과 하나당 카드 보상 하나. ID가 결과 ID와 같아 다시 만들어지지 않는다.
+    const awards = results.map((result) => {
       const team = this.findTeam(result.teamId);
-      const count = getTicketCountForRank(result.rank);
-      for (let index = 1; index <= count; index += 1) {
-        this.state.tickets.push(this.newTicket(result.id, index, team, now));
-      }
       this.markVerified(mission.id, team.id, result.score, now);
-    }
+      return createCardAward({ result, team, now, random: this.random });
+    });
     this.state.results.push(...results);
+    this.state.cardAwards.push(...awards);
     this.state.processedRequests[input.requestId] = key;
+    this.refreshProgress(awards.map((award) => award.classId));
+    this.tour.onRankingFinalized(mission, results, teacher.uid);
+    for (const award of awards) this.logCardEarned(award);
     this.touchMissionState(mission.id, input.grade, input.roundNo, {});
 
-    return clone({ results, ticketsByTeam: this.ticketsByTeam(results), alreadyFinalized: false });
+    return clone({ results, awards, alreadyFinalized: false });
   }
 
   async reviseRanking(input: FinalizeRankingInput): Promise<ReviseRankingOutcome> {
     await this.request();
     this.assertEvent(input.eventId);
-    const teacher = this.requireTeacher();
+    const teacher = this.requireStationAccess(input.missionId);
     const mission = this.findMission(input.missionId);
     const key = resultKey(mission.id, input.grade, input.roundNo);
     if (!this.isFinalized(mission.id, input.grade, input.roundNo)) {
@@ -579,10 +700,10 @@ export class MockEventRepository implements EventRepository, DevTools {
     this.validateRankingEntries(input, mission);
 
     const now = this.now();
-    let added = 0;
-    let revoked = 0;
-    let revokedClaimed = 0;
+    let reoffered = 0;
+    let keptClaimed = 0;
     const results: MissionResult[] = [];
+    const awards: CardAward[] = [];
     for (const entry of input.entries) {
       const team = this.findTeam(entry.teamId);
       const id = resultId(key, team.id);
@@ -602,39 +723,34 @@ export class MockEventRepository implements EventRepository, DevTools {
       else this.state.results[index] = result;
       results.push(result);
 
-      const tickets = this.state.tickets.filter((ticket) => ticket.sourceResultId === id);
-      const plan = planTicketAdjustment(tickets, getTicketCountForRank(entry.rank));
-      const indexes = nextTicketIndexes(
-        tickets.map((ticket) => ticket.id),
-        plan.createCount,
-      );
-      for (const ticketNo of indexes)
-        this.state.tickets.push(this.newTicket(id, ticketNo, team, now));
-      const revokeIds = new Set(plan.revokeIds);
-      this.state.tickets = this.state.tickets.map((ticket) =>
-        revokeIds.has(ticket.id) ? { ...ticket, revokedAt: now } : ticket,
-      );
-      added += plan.createCount;
-      revoked += plan.revokeIds.length;
-      revokedClaimed += plan.revokedClaimed;
+      const awardIndex = this.state.cardAwards.findIndex((award) => award.id === id);
+      if (awardIndex === -1) {
+        const created = createCardAward({ result, team, now, random: this.random });
+        this.state.cardAwards.push(created);
+        awards.push(created);
+      } else {
+        const previous = this.state.cardAwards[awardIndex];
+        const next = reofferCardAward(previous, entry.rank, now, this.random);
+        if (next.changed && previous.status === 'pending') reoffered += 1;
+        if (next.keptClaimed) keptClaimed += 1;
+        this.state.cardAwards[awardIndex] = next.award;
+        awards.push(next.award);
+      }
       this.markVerified(mission.id, team.id, entry.score, now);
     }
     this.state.processedRequests[input.requestId] = key;
+    this.refreshProgress(awards.map((award) => award.classId));
+    this.tour.onRankingFinalized(mission, results, teacher.uid);
+    for (const award of awards) this.logCardEarned(award);
     this.touchMissionState(mission.id, input.grade, input.roundNo, {});
 
-    return clone({
-      results,
-      ticketsByTeam: this.ticketsByTeam(results),
-      added,
-      revoked,
-      revokedClaimed,
-    });
+    return clone({ results, awards, reoffered, keptClaimed });
   }
 
   async reopenSubmission(input: ReopenSubmissionInput): Promise<void> {
     await this.request();
     this.assertEvent(input.eventId);
-    this.requireTeacher();
+    this.requireStationAccess(input.missionId);
     const mission = this.findMission(input.missionId);
     const team = this.findTeam(input.teamId);
     const id = submissionId(mission.id, team.id);
@@ -675,114 +791,290 @@ export class MockEventRepository implements EventRepository, DevTools {
     });
   }
 
-  // ---- 카드 ----
+  // ---- 카드 보상과 네 조각 성장 ----
 
-  async listTeamTickets(eventId: string, teamId: string): Promise<TicketView[]> {
+  async getTeamRewardView(eventId: string, teamId: string): Promise<TeamRewardView> {
     await this.request();
     this.assertEvent(eventId);
     const team = this.findTeam(teamId);
-    return this.state.tickets
-      .filter((ticket) => ticket.teamId === team.id && isActiveTicket(ticket))
-      .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-      .map((ticket) => ({
-        id: ticket.id,
-        claimed: ticket.claimedAt !== null,
-        cardType: ticket.claimedAt !== null ? ticket.cardType : null,
-        sourceLabel: this.describeTicketSource(ticket),
-      }));
+    const awards = this.state.cardAwards
+      .filter((award) => award.teamId === team.id)
+      .sort(
+        (a, b) =>
+          Number(a.status === 'claimed') - Number(b.status === 'claimed') ||
+          b.roundNo - a.roundNo ||
+          b.createdAt - a.createdAt,
+      );
+    return clone({
+      classInfo: this.findClass(team.classId),
+      progress: this.classProgress(team.classId),
+      awards: awards.map((award) => this.toAwardView(award)),
+    });
   }
 
-  async claimTicket(eventId: string, teamId: string, ticketId: string): Promise<CardType> {
-    await this.request();
-    this.assertEvent(eventId);
-    const index = this.state.tickets.findIndex(
-      (ticket) => ticket.id === ticketId && ticket.teamId === teamId,
-    );
-    if (index === -1 || !isActiveTicket(this.state.tickets[index])) {
-      throw new RepositoryError('not-found', '뽑기권을 찾을 수 없어요.');
-    }
-    try {
-      const claimed = applyTicketClaim(this.state.tickets[index], this.now());
-      this.state.tickets[index] = claimed;
-      return claimed.cardType;
-    } catch (error) {
-      if (error instanceof TicketAlreadyClaimedError) throw new RepositoryError('already-claimed');
-      throw error;
-    }
-  }
-
-  async getTeamCardSummary(eventId: string, teamId: string): Promise<TeamCardSummary> {
-    await this.request();
-    this.assertEvent(eventId);
-    const team = this.findTeam(teamId);
-    const classInfo = this.findClass(team.classId);
-    return {
-      team: countClaimedCards(this.state.tickets.filter((ticket) => ticket.teamId === team.id)),
-      class: this.classCounts(classInfo.id),
-      classDisplayName: classInfo.displayName,
-    };
-  }
-
-  async listClassCardRows(eventId: string, grade: Grade): Promise<ClassCardRow[]> {
-    await this.request();
-    this.assertEvent(eventId);
-    return this.classesOf(grade).map((classInfo) => ({
-      classInfo: clone(classInfo),
-      counts: this.classCounts(classInfo.id),
-    }));
-  }
-
-  async listExchanges(eventId: string, grade: Grade): Promise<Exchange[]> {
-    await this.request();
-    this.assertEvent(eventId);
-    const classIds = new Set(this.classesOf(grade).map((classInfo) => classInfo.id));
-    return clone(
-      this.state.exchanges
-        .filter((exchange) => classIds.has(exchange.fromClassId))
-        .sort((a, b) => b.createdAt - a.createdAt),
-    );
-  }
-
-  async createExchange(input: CreateExchangeInput): Promise<Exchange> {
+  async claimCardAward(input: ClaimCardAwardInput): Promise<ClaimCardAwardOutcome> {
     await this.request();
     this.assertEvent(input.eventId);
+    const team = this.findTeam(input.teamId);
+    const index = this.state.cardAwards.findIndex(
+      (award) => award.id === input.awardId && award.teamId === team.id,
+    );
+    if (index === -1) throw new RepositoryError('not-found', '카드 보상을 찾을 수 없어요.');
+    const current = this.state.cardAwards[index];
+
+    // 같은 요청을 다시 보낸 경우(연타·재시도)는 이미 받은 결과를 그대로 돌려준다.
+    if (
+      current.status === 'claimed' &&
+      current.selectedType &&
+      this.state.processedRequests[input.requestId] === current.id
+    ) {
+      const progress = this.classProgress(current.classId);
+      const same = progress.cards[current.selectedType];
+      return clone({ award: this.toAwardView(current), before: same, after: same, progress });
+    }
+
+    const before = this.classProgress(current.classId).cards[input.selectedType];
+    let claimed: CardAward;
+    try {
+      claimed = applyCardClaim(current, input.selectedType, this.now());
+    } catch (error) {
+      if (error instanceof CardAwardError) {
+        throw error.reason === 'already-claimed'
+          ? new RepositoryError('already-claimed', '이미 받은 카드 보상이에요.')
+          : new RepositoryError('invalid-input', '제시된 카드 중에서만 고를 수 있어요.');
+      }
+      throw error;
+    }
+    this.state.cardAwards[index] = claimed;
+    this.state.processedRequests[input.requestId] = claimed.id;
+    const [progress] = this.refreshProgress([claimed.classId]);
+    this.logCardEarned(claimed);
+    return clone({
+      award: this.toAwardView(claimed),
+      before,
+      after: progress.cards[input.selectedType],
+      progress,
+    });
+  }
+
+  async listClassCardBoards(eventId: string, grade: Grade): Promise<ClassCardBoard[]> {
+    await this.request();
+    this.assertEvent(eventId);
+    return clone(
+      this.classesOf(grade).map((classInfo) => ({
+        classInfo,
+        progress: this.classProgress(classInfo.id),
+      })),
+    );
+  }
+
+  async getTeacherClassCards(eventId: string, classId: string): Promise<TeacherClassCards> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    const classInfo = this.findClass(classId);
+    return clone({
+      classInfo,
+      teams: this.teamsOfClass(classInfo.id),
+      progress: this.classProgress(classInfo.id),
+      awards: this.state.cardAwards
+        .filter((award) => award.classId === classInfo.id)
+        .sort((a, b) => a.roundNo - b.roundNo || a.teamId.localeCompare(b.teamId))
+        .map((award) => this.toAwardView(award)),
+    });
+  }
+
+  // ---- 팀 이동과 QR 체크인 ----
+
+  async getMyTeam(eventId: string): Promise<Team | null> {
+    await this.request();
+    this.assertEvent(eventId);
+    const teamId = this.state.deviceTeamId;
+    return teamId ? clone(this.findTeam(teamId)) : null;
+  }
+
+  async checkInStation(input: CheckInInput): Promise<CheckInOutcome> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.tour.checkIn(this.findTeam(input.teamId), input.stationId));
+  }
+
+  async getTeamTourStatus(eventId: string, teamId: string): Promise<TeamTourStatus> {
+    await this.request();
+    this.assertEvent(eventId);
+    return clone(this.tour.tourStatus(this.findTeam(teamId)));
+  }
+
+  // ---- 실시간 운영 대시보드 ----
+
+  async getOpsDashboard(eventId: string, grade: Grade, roundNo?: RoundNo): Promise<OpsDashboard> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    return clone(this.tour.dashboard(grade, roundNo));
+  }
+
+  async getClassOpsDetail(eventId: string, classId: string): Promise<ClassOpsDetail> {
+    await this.request();
+    this.assertEvent(eventId);
     const teacher = this.requireTeacher();
+    const classInfo = this.findClass(classId);
+    const session = this.final.sessionOf(classInfo.grade);
+    const finalState = this.final.stateOf(classInfo);
+    const progress = this.classProgress(classInfo.id);
+    const canView =
+      teacher.role === 'admin' ||
+      session.status === 'results_published' ||
+      session.status === 'closed';
+    return clone({
+      classInfo,
+      teams: this.tour.classTeams(classInfo.id),
+      progress,
+      hintPreview: getHintTotal(progress),
+      session,
+      finalState: redactFinalClassState(finalState, canView),
+      finalStatus: presentFinalClassStatus(session, finalState, this.now()),
+      canRunFinal: this.canRunClassFinal(classInfo.id),
+      startBlocker: getFinalStartBlocker(session, finalState),
+    });
+  }
 
-    const processedId = this.state.processedRequests[input.requestId];
-    const processed = this.state.exchanges.find((exchange) => exchange.id === processedId);
-    if (processed) return clone(processed);
+  subscribeOps(
+    eventId: string,
+    grade: Grade,
+    onChange: (revision: number) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe {
+    return this.subscribeLive(this.opsListeners, eventId, grade, onChange, onError);
+  }
 
-    const from = this.state.classes.find((item) => item.id === input.fromClassId);
-    const to = this.state.classes.find((item) => item.id === input.toClassId);
-    if (!from || !to) {
-      throw new RepositoryError('invalid-input', EXCHANGE_ERROR_MESSAGES['missing-class']);
-    }
-    if (from.grade !== to.grade) {
-      throw new RepositoryError('invalid-input', '같은 학년 학급끼리만 교환할 수 있어요.');
-    }
-    const validationError = validateExchange(input, this.classCounts(from.id));
-    if (validationError) {
-      throw new RepositoryError(
-        validationError === 'insufficient-cards' ? 'insufficient-cards' : 'invalid-input',
-        EXCHANGE_ERROR_MESSAGES[validationError],
-      );
-    }
+  async getMissionRoundState(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+  ): Promise<MissionRoundState> {
+    await this.request();
+    this.assertEvent(eventId);
+    return clone(this.tour.missionRound(missionId, grade, roundNo));
+  }
 
-    const exchange: Exchange = {
-      id: `exchange-${this.state.exchanges.length + 1}`,
-      requestId: input.requestId,
-      fromClassId: from.id,
-      toClassId: to.id,
-      cardType: input.cardType,
-      quantity: input.quantity,
-      status: 'completed',
-      createdBy: teacher.uid,
-      createdAt: this.now(),
-      reversesExchangeId: null,
-    };
-    this.state.exchanges.push(exchange);
-    this.state.processedRequests[input.requestId] = exchange.id;
-    return clone(exchange);
+  async getStationArrivals(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+  ): Promise<StationArrivals> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    return clone(this.tour.arrivals(missionId, grade, roundNo));
+  }
+
+  async startStationRound(input: StartStationInput): Promise<MissionRoundState> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.tour.startStation(input));
+  }
+
+  async markTeamArrived(input: MarkArrivedInput): Promise<TeamMissionState> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.tour.markArrived(input));
+  }
+
+  // ---- 학급 전체 최종 미션 ----
+
+  async getFinalBoard(eventId: string, grade: Grade): Promise<FinalBoard> {
+    await this.request();
+    this.assertEvent(eventId);
+    return clone(this.final.board(grade));
+  }
+
+  // mock은 읽기 비용이 없어 학급 범위(classId)를 따로 나누지 않고 학년 단위로 알린다.
+  subscribeFinal(
+    eventId: string,
+    grade: Grade,
+    onChange: (revision: number) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe {
+    return this.subscribeLive(this.finalListeners, eventId, grade, onChange, onError);
+  }
+
+  async openFinal(input: OpenFinalInput): Promise<FinalSession> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.final.open(input));
+  }
+
+  async setFinalDuration(
+    eventId: string,
+    grade: Grade,
+    durationLimitSec: number,
+  ): Promise<FinalSession> {
+    await this.request();
+    this.assertEvent(eventId);
+    return clone(this.final.setDuration(grade, durationLimitSec));
+  }
+
+  async publishFinalResults(eventId: string, grade: Grade): Promise<FinalSession> {
+    await this.request();
+    this.assertEvent(eventId);
+    return clone(this.final.publish(grade));
+  }
+
+  async getClassFinalView(eventId: string, classId: string): Promise<ClassFinalView> {
+    await this.request();
+    this.assertEvent(eventId);
+    return clone(this.final.classView(classId));
+  }
+
+  async startClassFinal(input: StartClassFinalInput): Promise<ClassFinalView> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.final.start(input));
+  }
+
+  async selectFinalChoice(input: SelectFinalChoiceInput): Promise<ClassFinalView> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.final.select(input));
+  }
+
+  async applyFinalHint(input: FinalQuestionActionInput): Promise<ClassFinalView> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.final.hint(input));
+  }
+
+  async confirmFinalAnswer(input: FinalQuestionActionInput): Promise<ClassFinalView> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.final.confirm(input));
+  }
+
+  async closeExpiredClassFinal(eventId: string, classId: string): Promise<ClassFinalView> {
+    await this.request();
+    this.assertEvent(eventId);
+    return clone(this.final.closeExpired(classId));
+  }
+
+  async forceCloseClassFinal(input: FinalAdminActionInput): Promise<FinalClassState> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.final.forceClose(input));
+  }
+
+  async adjustFinalResult(input: AdjustFinalResultInput): Promise<FinalClassState> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.final.adjust(input));
+  }
+
+  async resetClassFinal(input: FinalAdminActionInput): Promise<FinalClassState> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.final.reset(input));
   }
 
   // ---- 교사 인증(목업) ----
@@ -892,19 +1184,6 @@ export class MockEventRepository implements EventRepository, DevTools {
     }
   }
 
-  private newTicket(sourceResultId: string, index: number, team: Team, now: number): DrawTicket {
-    return {
-      id: `${sourceResultId}__${index}`,
-      teamId: team.id,
-      classId: team.classId,
-      sourceResultId,
-      cardType: drawCardType(this.random),
-      claimedAt: null,
-      revokedAt: null,
-      createdAt: now,
-    };
-  }
-
   /** 제출한 팀만 확인 상태로 바꾼다. 제출하지 않은 팀의 빈 제출 문서는 만들지 않는다. */
   private markVerified(missionId: string, teamId: string, score: number, now: number): void {
     const submission = this.state.submissions[submissionId(missionId, teamId)];
@@ -917,10 +1196,146 @@ export class MockEventRepository implements EventRepository, DevTools {
     };
   }
 
-  private activeTicketsOf(sourceResultId: string): DrawTicket[] {
-    return this.state.tickets.filter(
-      (ticket) => ticket.sourceResultId === sourceResultId && isActiveTicket(ticket),
+  private requireAdmin(): TeacherProfile {
+    const teacher = this.requireTeacher();
+    if (teacher.role !== 'admin') {
+      throw new RepositoryError('not-allowed', '총괄 선생님만 할 수 있어요.');
+    }
+    return teacher;
+  }
+
+  private requireStationAccess(missionId: string): TeacherProfile {
+    const teacher = this.requireTeacher();
+    const allowed =
+      teacher.role === 'admin' ||
+      (teacher.role === 'station_teacher' &&
+        (teacher.missionId === null || teacher.missionId === missionId));
+    if (!allowed) {
+      throw new RepositoryError('not-allowed', '담당 미션만 운영할 수 있어요.');
+    }
+    return teacher;
+  }
+
+  private canRunClassFinal(classId: string): boolean {
+    const teacher = this.teacher;
+    if (!teacher) return false;
+    return (
+      teacher.role === 'admin' ||
+      (teacher.role === 'homeroom_teacher' && teacher.classId === classId)
     );
+  }
+
+  private requireClassAccess(classId: string): TeacherProfile {
+    const teacher = this.requireTeacher();
+    if (!this.canRunClassFinal(classId)) {
+      throw new RepositoryError('not-allowed', '담당 학급의 최종 미션만 진행할 수 있어요.');
+    }
+    return teacher;
+  }
+
+  private createContext(): MockStoreContext {
+    return {
+      state: () => this.state,
+      now: () => this.now(),
+      teacher: () => this.teacher,
+      requireTeacher: () => this.requireTeacher(),
+      requireAdmin: () => this.requireAdmin(),
+      requireStationAccess: (missionId) => this.requireStationAccess(missionId),
+      requireClassAccess: (classId) => this.requireClassAccess(classId),
+      canRunClassFinal: (classId) => this.canRunClassFinal(classId),
+      findTeam: (teamId) => this.findTeam(teamId),
+      findClass: (classId) => this.findClass(classId),
+      findMission: (missionId) => this.findMission(missionId),
+      classesOf: (grade) => this.classesOf(grade),
+      teamsOfClass: (classId) => this.teamsOfClass(classId),
+      classProgress: (classId) => this.classProgress(classId),
+      roundStatusOf: (grade, roundNo) => this.roundStatusOf(grade, roundNo),
+      addActivity: (event) => this.addActivity(event),
+      notifyOps: (grade) => this.notifyOps(grade),
+      notifyFinal: (grade) => this.notifyFinal(grade),
+    };
+  }
+
+  /** 같은 ID의 활동은 한 번만 남긴다(중복 클릭·재시도·새로고침 안전). */
+  private addActivity(event: Omit<ActivityEvent, 'at'> & { at?: number }): void {
+    if (this.state.activityEvents[event.id]) return;
+    this.state.activityEvents[event.id] = { ...event, at: event.at ?? this.now() };
+  }
+
+  private logRound(grade: Grade, roundNo: RoundNo, label: string, action: string): void {
+    this.addActivity({
+      id: `round__g${grade}__r${roundNo}__${action}__${this.now()}`,
+      grade,
+      type: 'round_changed',
+      message: `${grade}학년 ${roundNo}라운드 ${label}`,
+      classId: null,
+      teamId: null,
+      missionId: null,
+      roundNo,
+    });
+  }
+
+  private logCardEarned(award: CardAward): void {
+    if (award.status !== 'claimed' || !award.selectedType) return;
+    this.tour.onCardEarned(
+      this.findTeam(award.teamId),
+      award.id,
+      award.selectedType,
+      CARD_INFO[award.selectedType].name,
+    );
+  }
+
+  private subscribeLive(
+    registry: Map<Grade, Set<(revision: number) => void>>,
+    eventId: string,
+    grade: Grade,
+    onChange: (revision: number) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe {
+    let active = true;
+    const listener = (revision: number) => {
+      if (active) onChange(revision);
+    };
+    const timer = setTimeout(() => {
+      if (!active) return;
+      if (eventId !== this.state.event.id) {
+        onError(new RepositoryError('not-found'));
+        return;
+      }
+      const listeners = registry.get(grade) ?? new Set();
+      listeners.add(listener);
+      registry.set(grade, listeners);
+      listener(this.liveRevision);
+    }, this.latencyMs);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      registry.get(grade)?.delete(listener);
+    };
+  }
+
+  private notifyOps(grade: Grade): void {
+    this.liveRevision += 1;
+    for (const listener of this.opsListeners.get(grade) ?? []) listener(this.liveRevision);
+  }
+
+  private notifyFinal(grade: Grade): void {
+    this.liveRevision += 1;
+    for (const listener of this.finalListeners.get(grade) ?? []) listener(this.liveRevision);
+  }
+
+  private teamsOfClass(classId: string): Team[] {
+    return this.state.teams
+      .filter((team) => team.classId === classId)
+      .sort((a, b) => a.teamNo - b.teamNo);
+  }
+
+  private awardOf(awardId: string): CardAward | undefined {
+    return this.state.cardAwards.find((award) => award.id === awardId);
+  }
+
+  private awardsOf(results: readonly MissionResult[]): CardAward[] {
+    return results.flatMap((result) => this.awardOf(result.id) ?? []);
   }
 
   private findMission(missionId: string): Mission {
@@ -957,22 +1372,29 @@ export class MockEventRepository implements EventRepository, DevTools {
     return this.state.results.some((item) => item.id.startsWith(prefix));
   }
 
-  private classCounts(classId: string): CardCounts {
-    return computeClassCardCounts(classId, this.state.tickets, this.state.exchanges);
+  /**
+   * 학급 카드 진행도. 받은 보상 원장으로 계산하고,
+   * 화면 편의용 캐시가 원장과 다르면 원장 값으로 바꿔 둔다.
+   */
+  private classProgress(classId: string): ClassCardProgress {
+    const ledger = computeClassCardProgress(classId, this.state.cardAwards);
+    const { progress, stale } = reconcileCardProgress(
+      this.state.cardProgressCache[classId],
+      ledger,
+    );
+    if (stale) this.state.cardProgressCache[classId] = progress;
+    return progress;
   }
 
-  private ticketsByTeam(results: readonly MissionResult[]): Record<string, number> {
-    const counts: Record<string, number> = {};
-    for (const result of results) {
-      counts[result.teamId] = this.activeTicketsOf(result.id).length;
-    }
-    return counts;
+  private refreshProgress(classIds: readonly string[]): ClassCardProgress[] {
+    return [...new Set(classIds)].map((classId) => this.classProgress(classId));
   }
 
-  private describeTicketSource(ticket: DrawTicket): string {
-    const result = this.state.results.find((item) => item.id === ticket.sourceResultId);
-    if (!result) return '개발용 시작 카드';
-    const mission = this.state.missions.find((item) => item.id === result.missionId);
-    return `${result.roundNo}라운드 ${mission?.title ?? '미션'} ${result.rank}위`;
+  private toAwardView(award: CardAward): CardAwardView {
+    const mission = this.state.missions.find((item) => item.id === award.missionId);
+    return {
+      ...award,
+      sourceLabel: `${award.roundNo}라운드 ${mission?.title ?? '미션'} ${award.rank}위`,
+    };
   }
 }

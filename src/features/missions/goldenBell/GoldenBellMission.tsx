@@ -245,7 +245,7 @@ export function GoldenBellMission({
         <p className="dev-note">
           <Icon name="settings" size="sm" />
           개발용:{' '}
-          <Link to={paths.teacherMission(eventId, mission.id)}>교사 화면에서 정답 공개하기</Link>
+          <Link to={paths.teacherStation(eventId, mission.id)}>교사 화면에서 정답 공개하기</Link>
         </p>
       ) : null}
 

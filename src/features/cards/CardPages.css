@@ -1,4 +1,4 @@
-/* 카드함 */
+/* 카드 보상·학급 카드 공통 */
 .card-page__top {
   display: flex;
   flex-wrap: wrap;
@@ -13,283 +13,328 @@
   gap: var(--space-2);
 }
 
+.card-page__count {
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-pill);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-active);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
 .card-page__hint {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   color: var(--color-accent-orange-strong);
-  font-weight: var(--font-weight-medium);
-}
-
-.collection-complete {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  overflow: hidden;
-  border-radius: var(--radius-xl);
-  background: var(--color-stage);
-  color: var(--color-text-inverse);
-  box-shadow: var(--shadow-lg);
-}
-
-.collection-complete__image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.collection-complete__body {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: var(--space-3);
-  padding: var(--space-6);
-}
-
-.collection-complete__kicker {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--gold-400);
-  font-weight: var(--font-weight-heavy);
-}
-
-.collection-complete__title {
-  font-size: var(--font-size-2xl);
-}
-
-/* 피날레 */
-.finale {
-  position: relative;
-  overflow: hidden;
-  border-radius: var(--radius-xl);
-  background: var(--color-stage);
-  color: var(--color-text-inverse);
-  box-shadow: var(--shadow-lg);
-}
-
-.finale__scene {
-  width: 100%;
-  height: auto;
-  max-height: 46dvh;
-  object-fit: cover;
-}
-
-.finale__body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-6);
-  text-align: center;
-}
-
-.finale__class {
-  color: var(--gold-400);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-heavy);
-}
-
-.finale__title {
-  font-size: var(--font-size-3xl);
-  animation: finale-glow 2s ease-in-out infinite;
-}
-
-.finale__lead {
-  font-size: var(--font-size-lg);
-}
-
-.finale__cards {
-  display: flex;
-  justify-content: center;
-  gap: var(--space-3);
-  margin-block: var(--space-2);
-  list-style: none;
-}
-
-.finale__cards li {
-  animation: finale-rise var(--duration-slow) var(--ease-bounce) both;
-}
-
-.finale__card {
-  width: min(96px, 16vw);
-  height: auto;
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-lg);
-}
-
-@keyframes finale-glow {
-  50% {
-    text-shadow: 0 0 24px var(--gold-400);
-  }
-}
-
-@keyframes finale-rise {
-  from {
-    opacity: 0;
-    transform: translateY(24px) rotate(-6deg);
-  }
-}
-
-/* 카드 뽑기 */
-.draw-stage {
-  position: relative;
-  overflow: hidden;
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-md);
-}
-
-.draw-stage__scene {
-  width: 100%;
-  height: 180px;
-  object-fit: cover;
-}
-
-.draw-stage__text {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-6);
-  background: linear-gradient(90deg, rgb(11 21 51 / 75%), transparent 70%);
-  color: var(--color-text-inverse);
-}
-
-.draw-stage__title {
-  font-size: var(--font-size-3xl);
-}
-
-.draw-stage__count {
-  padding: var(--space-2) var(--space-5);
-  border-radius: var(--radius-pill);
-  background: var(--color-accent-orange-strong);
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
 }
 
-.draw-page__guide {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-heavy);
-  text-align: center;
-}
-
-.draw-grid {
+.card-page__pending {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-6);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border: 3px solid var(--color-accent-orange);
+}
+
+.card-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+/* 보상 전 학급 진행도 띠 */
+.progress-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
   list-style: none;
 }
 
-.draw-grid__item {
+.progress-strip__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.progress-strip__name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.progress-strip__value {
+  font-weight: var(--font-weight-heavy);
+}
+
+/* 후보 고르기 */
+.reward-choice__source {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--accent-golden-bell-ink);
+  font-weight: var(--font-weight-heavy);
+}
+
+.reward-choice__title {
+  font-size: var(--font-size-2xl);
+}
+
+.reward-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  list-style: none;
+}
+
+.reward-options--2 {
+  grid-template-columns: repeat(2, minmax(0, 260px));
+  justify-content: center;
+}
+
+.reward-option {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
-  width: min(200px, 28vw);
+  width: 100%;
+  min-height: var(--button-height);
+  padding: var(--space-4);
+  border: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
 }
 
-.draw-grid__caption {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
+.reward-option:not(:disabled):hover,
+.reward-option:not(:disabled):focus-visible {
+  border-color: var(--color-primary);
+  transform: translateY(-4px);
+}
+
+.reward-option .card-pieces {
+  max-width: 140px;
+}
+
+.reward-option__name {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+}
+
+.reward-option__next {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-primary-active);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 받은 결과 */
+.reward-result {
+  display: grid;
+  grid-template-columns: minmax(160px, 240px) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-6);
+  border: 3px solid var(--gold-400);
+}
+
+.reward-result__art {
+  display: flex;
+  justify-content: center;
+}
+
+.reward-result__kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--accent-golden-bell-ink);
+  font-weight: var(--font-weight-heavy);
+}
+
+.reward-result__title {
+  font-size: var(--font-size-2xl);
+}
+
+.reward-result__master {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-weight: var(--font-weight-bold);
+}
+
+.reward-history {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-3);
+  list-style: none;
+}
+
+.reward-history__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+
+.reward-history__thumb {
+  width: 40px;
+  height: auto;
+  border-radius: 4px;
+}
+
+.reward-history__name {
+  font-weight: var(--font-weight-heavy);
+}
+
+/* 학급 카드 5종 */
+.card-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-4);
+  list-style: none;
+}
+
+.card-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-3);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
   text-align: center;
 }
 
-.flip-card {
-  width: 100%;
-  aspect-ratio: 2 / 3;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: transparent;
-  perspective: 1200px;
+.card-tile--complete {
+  border-color: var(--gold-400);
+  background: var(--accent-golden-bell-soft);
 }
 
-.flip-card:disabled {
-  cursor: default;
+.card-tile__name {
+  font-size: var(--font-size-lg);
 }
 
-.flip-card:not(:disabled):hover .flip-card__inner {
-  transform: translateY(-6px) rotate(-2deg);
-}
-
-.flip-card__inner {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 100%;
-  transform-style: preserve-3d;
-  transition: transform var(--duration-flip) var(--ease-out);
-}
-
-.flip-card--revealed .flip-card__inner {
-  transform: rotateY(180deg);
-}
-
-.flip-card__face {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  backface-visibility: hidden;
-}
-
-.flip-card__face img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.flip-card__face--front {
-  transform: rotateY(180deg);
-}
-
-.earned {
+.card-tile__progress {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-4);
+  justify-content: center;
+  gap: var(--space-2);
 }
 
-.earned__mascot {
-  width: 120px;
-  height: auto;
-}
-
-.earned__card {
-  width: 120px;
-  height: auto;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  animation: dialog-pop var(--duration-slow) var(--ease-bounce);
-}
-
-.earned__name {
+.card-tile__pieces {
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-heavy);
 }
 
+.card-tile__duplicates {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-purple-soft);
+  color: var(--color-accent-purple-strong);
+  font-weight: var(--font-weight-bold);
+}
+
+.card-tile__chance {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+
+.card-tile__chance .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.card-tile__chance--ready {
+  color: var(--color-text);
+}
+
+/* 최종 미션 힌트 안내 */
+.hint-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-xl);
+  background: var(--color-stage);
+  color: var(--color-text-inverse);
+  box-shadow: var(--shadow-lg);
+}
+
+.hint-banner__count {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--radius-pill);
+  background: var(--gold-400);
+  color: var(--navy-900);
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-heavy);
+}
+
+.hint-banner__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xl);
+}
+
+.hint-banner__bonus {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--gold-400);
+  font-weight: var(--font-weight-heavy);
+}
+
+@media (max-width: 1100px) {
+  .card-board {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 720px) {
-  .collection-complete {
+  .card-board,
+  .reward-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .progress-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .reward-result {
     grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    text-align: center;
   }
 
-  .draw-stage__text {
+  .hint-banner {
     flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-  }
-
-  .draw-stage__title {
-    font-size: var(--font-size-2xl);
-  }
-
-  .earned {
-    flex-wrap: wrap;
-    justify-content: center;
     text-align: center;
   }
 }

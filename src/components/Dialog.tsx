@@ -84,7 +84,7 @@ interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
-/** 순위 확정·교환처럼 되돌리기 어려운 동작 전에 한 번 더 묻는다. */
+/** 순위 확정·힌트 사용·결과 공개처럼 되돌리기 어려운 동작 전에 한 번 더 묻는다. */
 export function ConfirmDialog({
   open,
   title,

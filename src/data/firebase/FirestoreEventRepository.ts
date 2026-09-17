@@ -9,8 +9,10 @@ import {
 import {
   Bytes,
   collection,
+  deleteDoc,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   onSnapshot,
   query,
@@ -26,71 +28,103 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import {
-  computeClassCardCounts,
-  countClaimedCards,
-  drawCardType,
-  isActiveTicket,
-  nextTicketIndexes,
-  planTicketAdjustment,
+  CardAwardError,
+  claimCardAward as applyCardClaim,
+  computeClassCardProgress,
+  createCardAward,
+  reofferCardAward,
 } from '../../domain/cards';
-import { EXCHANGE_ERROR_MESSAGES, validateExchange } from '../../domain/exchange';
+import {
+  canViewFinalResults,
+  getFinalStartBlocker,
+  getHintTotal,
+  presentFinalClassStatus,
+  redactFinalClassState,
+} from '../../domain/finalMission';
 import { getGoldenBellConfigError } from '../../domain/goldenBell';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
-import { getRankingEntryError, getTicketCountForRank } from '../../domain/rewards';
+import { getRankingEntryError } from '../../domain/rewards';
+import { missionRoundStateId, teamMissionStateId } from '../../domain/tour';
 import { getRoundForMission, getTeamNoForMission, ROUND_NUMBERS } from '../../domain/rotation';
 import { resolveSubmissionScore } from '../../domain/scoring';
 import type {
-  CardType,
+  CardAward,
+  ClassCardProgress,
   ClassInfo,
   DrawingFile,
-  DrawTicket,
-  Exchange,
   FestivalEvent,
+  FinalClassState,
+  FinalSession,
   Grade,
   Mission,
   MissionConfig,
   MissionResult,
+  MissionRoundState,
   RoundNo,
   RoundStatus,
   Submission,
   Team,
   TeacherProfile,
+  TeamMissionState,
 } from '../../domain/types';
+import { toDeviceCode } from '../../domain/device';
 import type {
-  ClassCardRow,
-  CreateExchangeInput,
+  AdjustFinalResultInput,
+  CardAwardView,
+  CheckInInput,
+  CheckInOutcome,
+  ClaimCardAwardInput,
+  ClaimCardAwardOutcome,
+  ClassCardBoard,
+  ClassFinalView,
+  ClassOpsDetail,
+  DeviceInfo,
   EventRepository,
   EventSetupSummary,
+  FinalAdminActionInput,
+  FinalBoard,
   FinalizeRankingInput,
   FinalizeRankingOutcome,
+  FinalQuestionActionInput,
+  MarkArrivedInput,
   MissionLiveState,
   MissionParticipant,
   MissionProgress,
+  OpenFinalInput,
+  OpsDashboard,
   ReopenSubmissionInput,
   ReviseRankingOutcome,
   RoundControlAction,
   SaveSubmissionInput,
-  TeamCardSummary,
+  SelectFinalChoiceInput,
+  StartClassFinalInput,
+  StartStationInput,
+  StationArrivals,
+  TeacherClassCards,
+  TeamDevice,
   TeamMissionView,
+  TeamRewardView,
   TeamSession,
-  TicketView,
+  TeamTourStatus,
   Unsubscribe,
 } from '../EventRepository';
 import { RepositoryError } from '../errors';
 // 샘플 행사 구조는 mock과 Firestore가 같은 정의를 쓴다.
 import { buildSampleEvent } from '../mock/seed';
 import { getFirebase } from './firebaseApp';
+import type { FirestoreStoreContext } from './firestoreContext';
+import { FirestoreFinalStore } from './firestoreFinal';
+import { FirestoreTourStore } from './firestoreTour';
 import {
   isCompleteSubmission,
+  mapCardAward,
   mapClass,
   mapDrawingFile,
   mapEvent,
-  mapExchange,
   mapMission,
   mapResult,
   mapSubmission,
   mapTeam,
-  mapTicket,
   toMillis,
 } from './mappers';
 
@@ -129,6 +163,14 @@ function toRepositoryError(error: unknown): RepositoryError {
   return new RepositoryError('unavailable');
 }
 
+/** 미션·학급·팀 목록처럼 행사 중에 거의 바뀌지 않는 자료를 메모리에 두는 시간 */
+const STATIC_TTL_MS = 10 * 60_000;
+
+interface Cached<T> {
+  at: number;
+  value: Promise<T>;
+}
+
 async function run<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
@@ -143,13 +185,93 @@ async function run<T>(operation: () => Promise<T>): Promise<T> {
  */
 export class FirestoreEventRepository implements EventRepository {
   readonly mode = 'firebase' as const;
+  readonly capabilities = { liveOps: true, classFinal: true };
 
   private readonly db: Firestore;
   private authReady: Promise<void> | null = null;
   private teacher: TeacherProfile | null = null;
+  private readonly tour: FirestoreTourStore;
+  private readonly final: FirestoreFinalStore;
+  private readonly staticCache = new Map<string, Cached<unknown>>();
+  /** 구독 중인 행사 상태. 대시보드·체크인이 행사 문서를 다시 읽지 않게 한다. */
+  private readonly liveEvents = new Map<string, { count: number; event: FestivalEvent | null }>();
+  private clockOffsetMs = 0;
+  private clockSync: Promise<void> | null = null;
 
   constructor() {
     this.db = getFirebase().db;
+    const context = this.createContext();
+    this.tour = new FirestoreTourStore(context);
+    this.final = new FirestoreFinalStore(context);
+  }
+
+  /** 서버 기준 현재 시각 추정값. 기기 시계가 틀려도 타이머와 마감 판정이 서버 시각을 따른다. */
+  serverNow(): number {
+    return Date.now() + this.clockOffsetMs;
+  }
+
+  /**
+   * 기기 시계와 서버 시계의 차이를 한 번 잰다(쓰기 1회 + 읽기 1회).
+   * 자기 문서에 서버 시각을 기록하고 되읽어, 요청을 보낸 시각과 받은 시각의 가운데와 비교한다.
+   */
+  private syncClock(eventId: string): Promise<void> {
+    this.clockSync ??= (async () => {
+      const user = await this.ensureUser();
+      const ref = doc(this.sub(eventId, 'clockSync'), user.uid);
+      const sentAt = Date.now();
+      await setDoc(ref, { at: serverTimestamp() });
+      const receivedAt = Date.now();
+      const serverAt = toMillis((await getDocFromServer(ref)).data()?.at);
+      if (serverAt !== null) this.clockOffsetMs = serverAt - (sentAt + receivedAt) / 2;
+    })().catch(() => {
+      // 실패하면 기기 시계를 그대로 쓰고, 다음 기회에 다시 잰다.
+      this.clockSync = null;
+    });
+    return this.clockSync;
+  }
+
+  // ---- 기능별 모듈이 함께 쓰는 통로 ----
+
+  private cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+    const hit = this.staticCache.get(key) as Cached<T> | undefined;
+    if (hit && Date.now() - hit.at < STATIC_TTL_MS) return hit.value;
+    const value = load();
+    this.staticCache.set(key, { at: Date.now(), value });
+    // 실패한 읽기는 기억하지 않는다.
+    value.catch(() => this.staticCache.delete(key));
+    return value;
+  }
+
+  private createContext(): FirestoreStoreContext {
+    return {
+      db: this.db,
+      sub: (eventId, name) => this.sub(eventId, name),
+      eventRef: (eventId) => this.eventRef(eventId),
+      ensureUser: () => this.ensureUser(),
+      serverNow: () => this.serverNow(),
+      teacher: () => this.teacher,
+      requireTeacher: () => this.requireTeacher(),
+      requireAdmin: () => this.requireAdmin(),
+      requireStationAccess: (missionId) => this.requireStationAccess(missionId),
+      requireClassAccess: (classId) => this.requireClassAccess(classId),
+      canRunClassFinal: (classId) => this.canRunClassFinal(classId),
+      currentEvent: async (eventId) => {
+        const live = this.liveEvents.get(eventId)?.event;
+        if (live) return live;
+        return mapEvent(await getDoc(this.eventRef(eventId)));
+      },
+      missions: (eventId) => this.cached(`missions|${eventId}`, () => this.listMissions(eventId)),
+      classes: (eventId, grade) =>
+        this.cached(`classes|${eventId}|${grade}`, () => this.listClasses(eventId, grade)),
+      teams: (eventId, grade) =>
+        this.cached(`teams|${eventId}|${grade}`, () => this.listTeams(eventId, grade)),
+      getClass: (eventId, classId) =>
+        this.cached(`class|${eventId}|${classId}`, () => this.getClass(eventId, classId)),
+      getTeam: (eventId, teamId) =>
+        this.cached(`team|${eventId}|${teamId}`, () => this.getTeam(eventId, teamId)),
+      classAwards: (eventId, classId) => this.classAwards(eventId, classId),
+      classProgress: (eventId, classId) => this.classProgress(eventId, classId),
+    };
   }
 
   // ---- 경로 ----
@@ -186,10 +308,15 @@ export class FirestoreEventRepository implements EventRepository {
     const snapshot = await getDoc(doc(this.db, 'teachers', uid));
     const data = snapshot.data();
     if (!data || data.active !== true) return null;
+    // 예전 역할값 teacher는 담당이 정해지지 않은 부스 교사로 읽는다.
+    const role =
+      data.role === 'admin' || data.role === 'homeroom_teacher' ? data.role : 'station_teacher';
     return {
       uid,
       displayName: String(data.displayName ?? '선생님'),
-      role: data.role === 'admin' ? 'admin' : 'teacher',
+      role,
+      missionId: typeof data.missionId === 'string' ? data.missionId : null,
+      classId: typeof data.classId === 'string' ? data.classId : null,
     };
   }
 
@@ -240,12 +367,52 @@ export class FirestoreEventRepository implements EventRepository {
 
   async signOutTeacher(): Promise<void> {
     this.teacher = null;
+    // 교사 권한으로 붙인 구독은 로그아웃하면 거부되므로 먼저 끊는다.
+    this.tour.stopAll();
+    this.final.stopAll();
     await signOut(getFirebase().auth);
   }
 
   private requireTeacher(): TeacherProfile {
     if (!this.teacher) throw new RepositoryError('not-allowed', '교사로 로그인해야 할 수 있어요.');
     return this.teacher;
+  }
+
+  private requireAdmin(): TeacherProfile {
+    const teacher = this.requireTeacher();
+    if (teacher.role !== 'admin') {
+      throw new RepositoryError('not-allowed', '총괄 선생님만 할 수 있어요.');
+    }
+    return teacher;
+  }
+
+  /** 총괄 운영자 또는 그 미션 담당(담당이 정해지지 않은 부스 교사 포함) */
+  private requireStationAccess(missionId: string): TeacherProfile {
+    const teacher = this.requireTeacher();
+    const allowed =
+      teacher.role === 'admin' ||
+      (teacher.role === 'station_teacher' &&
+        (teacher.missionId === null || teacher.missionId === missionId));
+    if (!allowed) throw new RepositoryError('not-allowed', '담당 미션만 운영할 수 있어요.');
+    return teacher;
+  }
+
+  private canRunClassFinal(classId: string): boolean {
+    const teacher = this.teacher;
+    if (!teacher) return false;
+    return (
+      teacher.role === 'admin' ||
+      (teacher.role === 'homeroom_teacher' && teacher.classId === classId)
+    );
+  }
+
+  /** 총괄 운영자 또는 그 학급 담임 */
+  private requireClassAccess(classId: string): TeacherProfile {
+    const teacher = this.requireTeacher();
+    if (!this.canRunClassFinal(classId)) {
+      throw new RepositoryError('not-allowed', '담당 학급의 최종 미션만 진행할 수 있어요.');
+    }
+    return teacher;
   }
 
   // ---- 행사 준비 ----
@@ -259,6 +426,7 @@ export class FirestoreEventRepository implements EventRepository {
 
       const existing = await getDoc(this.eventRef(eventId));
       if (existing.exists()) {
+        await this.ensureFinalQuestionSets(eventId);
         const [classes, teams, missions] = await Promise.all([
           getDocs(this.sub(eventId, 'classes')),
           getDocs(this.sub(eventId, 'teams')),
@@ -322,6 +490,8 @@ export class FirestoreEventRepository implements EventRepository {
         });
       }
       await batch.commit();
+      this.staticCache.clear();
+      await this.ensureFinalQuestionSets(eventId);
 
       return {
         created: true,
@@ -330,6 +500,14 @@ export class FirestoreEventRepository implements EventRepository {
         missions: structure.missions.length,
       };
     });
+  }
+
+  /** 최종 미션 문제가 없는 학년에 샘플 10문제를 넣는다(정답은 총괄 운영자만 읽는 문서에 따로 둔다). */
+  private async ensureFinalQuestionSets(eventId: string): Promise<void> {
+    if (this.teacher?.role !== 'admin') return;
+    for (const grade of [3, 4, 5, 6] as const) {
+      await this.final.ensureQuestionSet(eventId, grade);
+    }
   }
 
   // ---- 행사 상태 ----
@@ -348,16 +526,22 @@ export class FirestoreEventRepository implements EventRepository {
   ): Unsubscribe {
     let stopped = false;
     let detach: Unsubscribe = () => undefined;
+    const entry = this.liveEvents.get(eventId) ?? { count: 0, event: null };
+    entry.count += 1;
+    this.liveEvents.set(eventId, entry);
 
     void this.ensureUser()
       .then(() => {
         if (stopped) return;
+        void this.syncClock(eventId);
         // 진행 상태는 작은 문서 하나만 실시간 구독한다(무료 사용량 보호).
         detach = onSnapshot(
           this.eventRef(eventId),
           (snapshot) => {
             try {
-              onChange(mapEvent(snapshot));
+              const event = mapEvent(snapshot);
+              entry.event = event;
+              onChange(event);
             } catch (error) {
               onError(toRepositoryError(error));
             }
@@ -368,19 +552,25 @@ export class FirestoreEventRepository implements EventRepository {
       .catch((error: unknown) => onError(toRepositoryError(error)));
 
     return () => {
+      if (stopped) return;
       stopped = true;
       detach();
+      entry.count -= 1;
+      if (entry.count <= 0) this.liveEvents.delete(eventId);
     };
   }
 
   async controlRound(eventId: string, action: RoundControlAction): Promise<FestivalEvent> {
     return run(async () => {
       await this.ensureUser();
+      this.requireAdmin();
+      await this.syncClock(eventId);
       const eventRef = this.eventRef(eventId);
       await runTransaction(this.db, async (transaction) => {
         const snapshot = await transaction.get(eventRef);
         const event = mapEvent(snapshot);
-        const now = Date.now();
+        // 학생 기기의 타이머와 같은 시계(서버 시각 추정값)로 종료 시각을 정한다.
+        const now = this.serverNow();
         if (event.activeGrade === null) {
           throw new RepositoryError('not-allowed', '먼저 진행할 학년을 골라 주세요.');
         }
@@ -416,6 +606,7 @@ export class FirestoreEventRepository implements EventRepository {
             status: 'ready',
             roundEndsAt: null,
             pausedRemainingMs: null,
+            roundEndedAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
           return;
@@ -470,6 +661,7 @@ export class FirestoreEventRepository implements EventRepository {
           activeRound: nextRound,
           roundEndsAt: endsAt,
           pausedRemainingMs: null,
+          roundEndedAt: null,
           updatedAt: serverTimestamp(),
         });
       });
@@ -480,6 +672,7 @@ export class FirestoreEventRepository implements EventRepository {
   async setActiveGrade(eventId: string, grade: Grade): Promise<FestivalEvent> {
     return run(async () => {
       await this.ensureUser();
+      this.requireAdmin();
       const event = await this.getEvent(eventId);
       if (event.status === 'active' || event.status === 'paused') {
         throw new RepositoryError('not-allowed', '라운드를 종료한 뒤 학년을 바꿀 수 있어요.');
@@ -494,6 +687,7 @@ export class FirestoreEventRepository implements EventRepository {
         status: 'ready',
         roundEndsAt: null,
         pausedRemainingMs: null,
+        roundEndedAt: null,
         updatedAt: serverTimestamp(),
       });
       return this.getEvent(eventId);
@@ -540,7 +734,7 @@ export class FirestoreEventRepository implements EventRepository {
   ): Promise<Mission> {
     return run(async () => {
       await this.ensureUser();
-      this.requireTeacher();
+      this.requireStationAccess(missionId);
       const mission = await this.getMission(eventId, missionId);
       if (config.type !== mission.type) {
         throw new RepositoryError('invalid-input', '미션 종류와 설정 형식이 달라요.');
@@ -550,6 +744,7 @@ export class FirestoreEventRepository implements EventRepository {
         if (error) throw new RepositoryError('invalid-input', error);
       }
       await updateDoc(doc(this.sub(eventId, 'missions'), missionId), { config });
+      this.staticCache.delete(`missions|${eventId}`);
       return { ...mission, config };
     });
   }
@@ -590,12 +785,7 @@ export class FirestoreEventRepository implements EventRepository {
       const sessionRef = doc(this.sub(eventId, 'sessions'), user.uid);
       const existing = await getDoc(sessionRef);
       const existingTeamId = existing.data()?.teamId as string | undefined;
-      if (existingTeamId && existingTeamId !== teamId) {
-        throw new RepositoryError(
-          'not-allowed',
-          '이 기기는 다른 팀으로 입장했어요. 선생님께 잠금 해제를 요청해 주세요.',
-        );
-      }
+      if (existingTeamId && existingTeamId !== teamId) throw new RepositoryError('device-locked');
       if (!existing.exists()) {
         await setDoc(sessionRef, {
           uid: user.uid,
@@ -607,6 +797,66 @@ export class FirestoreEventRepository implements EventRepository {
         await updateDoc(sessionRef, { lastSeenAt: serverTimestamp() });
       }
       return { eventId, teamId, joinedAt: Date.now() };
+    });
+  }
+
+  async getMyDevice(eventId: string): Promise<DeviceInfo> {
+    return run(async () => {
+      const user = await this.ensureUser();
+      const session = await getDoc(doc(this.sub(eventId, 'sessions'), user.uid));
+      const teamId = session.data()?.teamId as string | undefined;
+      return {
+        code: toDeviceCode(user.uid),
+        team: teamId ? await this.getTeam(eventId, teamId) : null,
+      };
+    });
+  }
+
+  /** 필요할 때만 한 번 읽는다(구독하지 않는다). 학급의 다섯 팀에 묶인 세션만 가져온다. */
+  async listClassDevices(eventId: string, classId: string): Promise<TeamDevice[]> {
+    return run(async () => {
+      await this.ensureUser();
+      this.requireTeacher();
+      const classInfo = await this.getClass(eventId, classId);
+      const teams = (await this.listTeams(eventId, classInfo.grade)).filter(
+        (team) => team.classId === classId,
+      );
+      if (teams.length === 0) return [];
+      const snapshot = await getDocs(
+        query(
+          this.sub(eventId, 'sessions'),
+          where(
+            'teamId',
+            'in',
+            teams.map((team) => team.id),
+          ),
+        ),
+      );
+      const teamNoOf = (teamId: string) => teams.find((team) => team.id === teamId)?.teamNo ?? 0;
+      return snapshot.docs
+        .map((item): TeamDevice => {
+          const data = item.data();
+          return {
+            id: item.id,
+            teamId: String(data.teamId),
+            code: toDeviceCode(item.id),
+            joinedAt: toMillis(data.createdAt),
+            lastSeenAt: toMillis(data.lastSeenAt),
+          };
+        })
+        .sort(
+          (a, b) =>
+            teamNoOf(a.teamId) - teamNoOf(b.teamId) || (a.joinedAt ?? 0) - (b.joinedAt ?? 0),
+        );
+    });
+  }
+
+  async unlockDevice(eventId: string, deviceId: string): Promise<void> {
+    return run(async () => {
+      await this.ensureUser();
+      this.requireTeacher();
+      // 세션 문서만 지운다. 제출·카드·체크인 기록은 팀 단위라 그대로 남는다.
+      await deleteDoc(doc(this.sub(eventId, 'sessions'), deviceId));
     });
   }
 
@@ -873,8 +1123,8 @@ export class FirestoreEventRepository implements EventRepository {
           mapResult,
         ),
       ]);
-      // 확정된 순위가 있을 때만 뽑기권 수를 센다(불필요한 읽기 방지).
-      const ticketCounts = results.length > 0 ? await this.ticketsForResults(eventId, results) : {};
+      // 확정된 순위가 있을 때만 카드 보상을 읽는다(불필요한 읽기 방지).
+      const awards = await this.awardsForResults(eventId, results);
       return teams.map((team) => {
         const submission = submissions.find((item) => item.teamId === team.id) ?? null;
         return {
@@ -883,8 +1133,13 @@ export class FirestoreEventRepository implements EventRepository {
             ? { ...submission, score: resolveSubmissionScore(submission, mission) }
             : null,
           result: results.find((item) => item.teamId === team.id) ?? null,
-          ticketCount: ticketCounts[team.id]?.active ?? 0,
-          claimedTicketCount: ticketCounts[team.id]?.claimed ?? 0,
+          award: awards.find((item) => item.teamId === team.id) ?? null,
+          movement: this.movementOf(
+            team,
+            missionId,
+            roundNo,
+            results.find((item) => item.teamId === team.id) ?? null,
+          ),
         };
       });
     });
@@ -899,7 +1154,7 @@ export class FirestoreEventRepository implements EventRepository {
   ): Promise<void> {
     return run(async () => {
       await this.ensureUser();
-      this.requireTeacher();
+      this.requireStationAccess(missionId);
       const state = this.missionStateWrite(eventId, missionId, grade, roundNo, {
         answerRevealed: revealed,
       });
@@ -946,15 +1201,22 @@ export class FirestoreEventRepository implements EventRepository {
     });
   }
 
-  private newTicketData(team: Team, sourceResultId: string) {
+  /** 카드 보상 문서 값. 시각은 서버 시각으로 기록한다. */
+  private cardAwardData(award: CardAward) {
     return {
-      teamId: team.id,
-      classId: team.classId,
-      sourceResultId,
-      cardType: drawCardType(Math.random),
-      claimedAt: null,
-      revokedAt: null,
+      resultId: award.resultId,
+      grade: award.grade,
+      classId: award.classId,
+      teamId: award.teamId,
+      missionId: award.missionId,
+      roundNo: award.roundNo,
+      rank: award.rank,
+      selectionMode: award.selectionMode,
+      offeredTypes: award.offeredTypes,
+      selectedType: award.selectedType,
+      status: award.status,
       createdAt: serverTimestamp(),
+      claimedAt: award.status === 'claimed' ? serverTimestamp() : null,
     };
   }
 
@@ -991,29 +1253,78 @@ export class FirestoreEventRepository implements EventRepository {
     );
   }
 
-  /** 순위 확정과 뽑기권 발급을 한 번에 기록한다. 같은 묶음을 다시 확정해도 늘지 않는다. */
+  /**
+   * 순위를 확정한 팀을 부스 문서에도 적는다. 대시보드는 이 작은 문서만 구독해
+   * 팀의 완료 여부를 알 수 있어 결과 문서를 되풀이해 읽지 않는다. 원본은 여전히 results다.
+   */
+  private async boothResultWrite(
+    input: Pick<FinalizeRankingInput, 'eventId' | 'missionId' | 'grade' | 'roundNo'>,
+    teamIds: readonly string[],
+    teacherUid: string,
+  ) {
+    const ref = doc(
+      this.sub(input.eventId, 'missionRoundStates'),
+      missionRoundStateId(input.missionId, input.grade, input.roundNo),
+    );
+    const existing = (await getDoc(ref)).data();
+    const stored = Array.isArray(existing?.resultTeamIds) ? existing.resultTeamIds.map(String) : [];
+    const upToDate =
+      existing?.resultFinalizedAt != null &&
+      stored.length === teamIds.length &&
+      teamIds.every((teamId) => stored.includes(teamId));
+    return {
+      ref,
+      upToDate,
+      data: {
+        grade: input.grade,
+        missionId: input.missionId,
+        roundNo: input.roundNo,
+        status: 'completed',
+        ...(existing ? {} : { startedAt: null }),
+        // 처음 확정한 시각은 순위를 고쳐도 그대로 둔다.
+        ...(existing?.resultFinalizedAt != null
+          ? {}
+          : { resultFinalizedAt: serverTimestamp(), completedAt: serverTimestamp() }),
+        resultTeamIds: [...teamIds],
+        updatedBy: teacherUid,
+        updatedAt: serverTimestamp(),
+      },
+    };
+  }
+
+  /** 순위 확정과 카드 보상 생성을 한 번에 기록한다. 같은 묶음을 다시 확정해도 늘지 않는다. */
   async finalizeRanking(input: FinalizeRankingInput): Promise<FinalizeRankingOutcome> {
     return run(async () => {
       await this.ensureUser();
-      const teacher = this.requireTeacher();
+      const teacher = this.requireStationAccess(input.missionId);
 
       const existing = await this.resultsOf(input);
       if (existing.length > 0) {
-        const tickets = await this.ticketsForResults(input.eventId, existing);
+        // 부스 문서가 없던 때 확정한 순위라면 지금 맞춰 둔다.
+        const booth = await this.boothResultWrite(
+          input,
+          existing.map((result) => result.teamId),
+          teacher.uid,
+        );
+        if (!booth.upToDate) await setDoc(booth.ref, booth.data, { merge: true });
         return {
           results: existing,
-          ticketsByTeam: Object.fromEntries(
-            Object.entries(tickets).map(([teamId, count]) => [teamId, count.active]),
-          ),
+          awards: await this.awardsForResults(input.eventId, existing),
           alreadyFinalized: true,
         };
       }
 
       const teams = await this.validateRankingEntries(input);
       const submittedRefs = await this.submittedRefsByTeam(input.eventId, input.missionId, teams);
+      const booth = await this.boothResultWrite(
+        input,
+        teams.map((team) => team.id),
+        teacher.uid,
+      );
       const batch = writeBatch(this.db);
+      batch.set(booth.ref, booth.data, { merge: true });
       const results: MissionResult[] = [];
-      const ticketsByTeam: Record<string, number> = {};
+      const awards: CardAward[] = [];
       const now = Date.now();
 
       input.entries.forEach((entry, entryIndex) => {
@@ -1029,7 +1340,7 @@ export class FirestoreEventRepository implements EventRepository {
           finalizedBy: teacher.uid,
           finalizedAt: serverTimestamp(),
         });
-        results.push({
+        const result: MissionResult = {
           id,
           missionId: input.missionId,
           grade: input.grade,
@@ -1039,16 +1350,13 @@ export class FirestoreEventRepository implements EventRepository {
           rank: entry.rank,
           finalizedBy: teacher.uid,
           finalizedAt: now,
-        });
+        };
+        results.push(result);
 
-        const count = getTicketCountForRank(entry.rank);
-        ticketsByTeam[team.id] = count;
-        for (let index = 1; index <= count; index += 1) {
-          batch.set(
-            doc(this.sub(input.eventId, 'drawTickets'), `${id}__${index}`),
-            this.newTicketData(team, id),
-          );
-        }
+        // 결과 하나당 카드 보상 하나. 문서 ID를 결과 ID로 고정한다.
+        const award = createCardAward({ result, team, now, random: Math.random });
+        awards.push(award);
+        batch.set(doc(this.sub(input.eventId, 'cardAwards'), id), this.cardAwardData(award));
         const submittedRef = submittedRefs.get(team.id);
         if (submittedRef) {
           batch.update(submittedRef, {
@@ -1068,14 +1376,14 @@ export class FirestoreEventRepository implements EventRepository {
       batch.set(state.ref, state.data, { merge: true });
 
       await batch.commit();
-      return { results, ticketsByTeam, alreadyFinalized: false };
+      return { results, awards, alreadyFinalized: false };
     });
   }
 
   async reviseRanking(input: FinalizeRankingInput): Promise<ReviseRankingOutcome> {
     return run(async () => {
       await this.ensureUser();
-      const teacher = this.requireTeacher();
+      const teacher = this.requireStationAccess(input.missionId);
       const existing = await this.resultsOf(input);
       if (existing.length === 0) {
         throw new RepositoryError(
@@ -1085,13 +1393,19 @@ export class FirestoreEventRepository implements EventRepository {
       }
       const teams = await this.validateRankingEntries(input);
       const submittedRefs = await this.submittedRefsByTeam(input.eventId, input.missionId, teams);
+      const booth = await this.boothResultWrite(
+        input,
+        [...new Set([...existing.map((result) => result.teamId), ...teams.map((team) => team.id)])],
+        teacher.uid,
+      );
 
       const batch = writeBatch(this.db);
+      batch.set(booth.ref, booth.data, { merge: true });
       const results: MissionResult[] = [];
-      const ticketsByTeam: Record<string, number> = {};
-      let added = 0;
-      let revoked = 0;
-      let revokedClaimed = 0;
+      const awards: CardAward[] = [];
+      const now = Date.now();
+      let reoffered = 0;
+      let keptClaimed = 0;
 
       for (const [entryIndex, entry] of input.entries.entries()) {
         const team = teams[entryIndex];
@@ -1112,7 +1426,7 @@ export class FirestoreEventRepository implements EventRepository {
           },
           { merge: true },
         );
-        results.push({
+        const result: MissionResult = {
           id,
           missionId: input.missionId,
           grade: input.grade,
@@ -1121,34 +1435,37 @@ export class FirestoreEventRepository implements EventRepository {
           score: entry.score,
           rank: entry.rank,
           finalizedBy: teacher.uid,
-          finalizedAt: previous?.finalizedAt ?? Date.now(),
-        });
+          finalizedAt: previous?.finalizedAt ?? now,
+        };
+        results.push(result);
 
-        const tickets = await this.fetchAll(
-          query(this.sub(input.eventId, 'drawTickets'), where('sourceResultId', '==', id)),
-          mapTicket,
-        );
-        const target = getTicketCountForRank(entry.rank);
-        const plan = planTicketAdjustment(tickets, target);
-        const newIndexes = nextTicketIndexes(
-          tickets.map((ticket) => ticket.id),
-          plan.createCount,
-        );
-        for (const ticketNo of newIndexes) {
-          batch.set(
-            doc(this.sub(input.eventId, 'drawTickets'), `${id}__${ticketNo}`),
-            this.newTicketData(team, id),
-          );
+        // 고르기 전 보상만 새 순위에 맞추고, 이미 받은 보상은 그대로 둔다.
+        const awardRef = doc(this.sub(input.eventId, 'cardAwards'), id);
+        const awardSnapshot = await getDoc(awardRef);
+        if (!awardSnapshot.exists()) {
+          const created = createCardAward({ result, team, now, random: Math.random });
+          awards.push(created);
+          batch.set(awardRef, this.cardAwardData(created));
+        } else {
+          const current = mapCardAward(awardSnapshot);
+          const next = reofferCardAward(current, entry.rank, now, Math.random);
+          awards.push(next.award);
+          if (next.changed) {
+            batch.update(awardRef, {
+              rank: next.award.rank,
+              selectionMode: next.award.selectionMode,
+              offeredTypes: next.award.offeredTypes,
+              selectedType: next.award.selectedType,
+              status: next.award.status,
+              claimedAt:
+                current.status === 'pending' && next.award.status === 'claimed'
+                  ? serverTimestamp()
+                  : (awardSnapshot.data().claimedAt ?? null),
+            });
+          }
+          if (next.changed && current.status === 'pending') reoffered += 1;
+          if (next.keptClaimed) keptClaimed += 1;
         }
-        for (const ticketId of plan.revokeIds) {
-          batch.update(doc(this.sub(input.eventId, 'drawTickets'), ticketId), {
-            revokedAt: serverTimestamp(),
-          });
-        }
-        ticketsByTeam[team.id] = target;
-        added += plan.createCount;
-        revoked += plan.revokeIds.length;
-        revokedClaimed += plan.revokedClaimed;
 
         const submittedRef = submittedRefs.get(team.id);
         if (submittedRef) {
@@ -1169,14 +1486,14 @@ export class FirestoreEventRepository implements EventRepository {
       batch.set(state.ref, state.data, { merge: true });
 
       await batch.commit();
-      return { results, ticketsByTeam, added, revoked, revokedClaimed };
+      return { results, awards, reoffered, keptClaimed };
     });
   }
 
   async reopenSubmission(input: ReopenSubmissionInput): Promise<void> {
     return run(async () => {
       await this.ensureUser();
-      this.requireTeacher();
+      this.requireStationAccess(input.missionId);
       const ref = doc(
         this.sub(input.eventId, 'submissions'),
         submissionId(input.missionId, input.teamId),
@@ -1240,221 +1557,343 @@ export class FirestoreEventRepository implements EventRepository {
     });
   }
 
-  /** 순위 결과별로 회수되지 않은 뽑기권 수와 그중 사용한 수 */
-  private async ticketsForResults(
+  /** 순위 결과별 카드 보상. 보상 ID가 결과 ID와 같아 문서를 하나씩 읽는다. */
+  private async awardsForResults(
     eventId: string,
     results: readonly MissionResult[],
-  ): Promise<Record<string, { active: number; claimed: number }>> {
-    const counts: Record<string, { active: number; claimed: number }> = {};
-    for (const result of results) {
-      const tickets = (
-        await this.fetchAll(
-          query(this.sub(eventId, 'drawTickets'), where('sourceResultId', '==', result.id)),
-          mapTicket,
-        )
-      ).filter(isActiveTicket);
-      counts[result.teamId] = {
-        active: tickets.length,
-        claimed: tickets.filter((ticket) => ticket.claimedAt !== null).length,
-      };
-    }
-    return counts;
-  }
-
-  // ---- 카드 ----
-
-  private async teamTickets(eventId: string, teamId: string): Promise<DrawTicket[]> {
-    const tickets = await this.fetchAll(
-      query(this.sub(eventId, 'drawTickets'), where('teamId', '==', teamId)),
-      mapTicket,
+  ): Promise<CardAward[]> {
+    const snapshots = await Promise.all(
+      results.map((result) => getDoc(doc(this.sub(eventId, 'cardAwards'), result.id))),
     );
-    return tickets.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+    return snapshots.filter((snapshot) => snapshot.exists()).map(mapCardAward);
   }
 
-  async listTeamTickets(eventId: string, teamId: string): Promise<TicketView[]> {
-    return run(async () => {
-      await this.ensureUser();
-      const [tickets, missions] = await Promise.all([
-        this.teamTickets(eventId, teamId),
-        this.listMissions(eventId),
-      ]);
-      const resultCache = new Map<string, MissionResult | null>();
-      const views: TicketView[] = [];
-      for (const ticket of tickets.filter(isActiveTicket)) {
-        let label = '카드 뽑기권';
-        if (ticket.sourceResultId) {
-          if (!resultCache.has(ticket.sourceResultId)) {
-            const snapshot = await getDoc(doc(this.sub(eventId, 'results'), ticket.sourceResultId));
-            resultCache.set(ticket.sourceResultId, snapshot.exists() ? mapResult(snapshot) : null);
-          }
-          const result = resultCache.get(ticket.sourceResultId) ?? null;
-          if (result) {
-            const mission = missions.find((item) => item.id === result.missionId);
-            label = `${result.roundNo}라운드 ${mission?.title ?? '미션'} ${result.rank}위`;
-          }
-        }
-        views.push({
-          id: ticket.id,
-          claimed: ticket.claimedAt !== null,
-          cardType: ticket.claimedAt !== null ? ticket.cardType : null,
-          sourceLabel: label,
-        });
-      }
-      return views;
-    });
-  }
+  // ---- 카드 보상과 네 조각 성장 ----
 
-  async claimTicket(eventId: string, teamId: string, ticketId: string): Promise<CardType> {
-    return run(async () => {
-      await this.ensureUser();
-      const ref = doc(this.sub(eventId, 'drawTickets'), ticketId);
-      return runTransaction(this.db, async (transaction) => {
-        const snapshot = await transaction.get(ref);
-        if (!snapshot.exists()) throw new RepositoryError('not-found', '뽑기권을 찾을 수 없어요.');
-        const ticket = mapTicket(snapshot);
-        if (ticket.teamId !== teamId) {
-          throw new RepositoryError('not-allowed', '다른 팀의 뽑기권이에요.');
-        }
-        if (!isActiveTicket(ticket)) {
-          throw new RepositoryError('not-found', '선생님이 회수한 뽑기권이에요.');
-        }
-        if (ticket.claimedAt !== null) throw new RepositoryError('already-claimed');
-        transaction.update(ref, { claimedAt: serverTimestamp() });
-        return ticket.cardType;
-      });
-    });
-  }
-
-  private async classTickets(eventId: string, classId: string): Promise<DrawTicket[]> {
+  private classAwards(eventId: string, classId: string): Promise<CardAward[]> {
     return this.fetchAll(
-      query(this.sub(eventId, 'drawTickets'), where('classId', '==', classId)),
-      mapTicket,
+      query(this.sub(eventId, 'cardAwards'), where('classId', '==', classId)),
+      mapCardAward,
     );
   }
 
-  private async classExchanges(eventId: string, classId: string): Promise<Exchange[]> {
-    const [outgoing, incoming] = await Promise.all([
-      this.fetchAll(
-        query(this.sub(eventId, 'exchanges'), where('fromClassId', '==', classId)),
-        mapExchange,
-      ),
-      this.fetchAll(
-        query(this.sub(eventId, 'exchanges'), where('toClassId', '==', classId)),
-        mapExchange,
-      ),
-    ]);
-    return [...outgoing, ...incoming];
+  private async classProgress(eventId: string, classId: string): Promise<ClassCardProgress> {
+    return computeClassCardProgress(classId, await this.classAwards(eventId, classId));
   }
 
-  async getTeamCardSummary(eventId: string, teamId: string): Promise<TeamCardSummary> {
+  private async awardViews(eventId: string, awards: readonly CardAward[]) {
+    const missions = await this.listMissions(eventId);
+    return awards.map((award): CardAwardView => ({
+      ...award,
+      sourceLabel: `${award.roundNo}라운드 ${
+        missions.find((mission) => mission.id === award.missionId)?.title ?? '미션'
+      } ${award.rank}위`,
+    }));
+  }
+
+  private async getClass(eventId: string, classId: string): Promise<ClassInfo> {
+    const snapshot = await getDoc(doc(this.sub(eventId, 'classes'), classId));
+    if (!snapshot.exists()) throw new RepositoryError('not-found', '학급을 찾을 수 없어요.');
+    return mapClass(snapshot);
+  }
+
+  async getTeamRewardView(eventId: string, teamId: string): Promise<TeamRewardView> {
     return run(async () => {
       await this.ensureUser();
       const team = await this.getTeam(eventId, teamId);
-      const [teamTickets, classTickets, exchanges, classSnapshot] = await Promise.all([
-        this.teamTickets(eventId, teamId),
-        this.classTickets(eventId, team.classId),
-        this.classExchanges(eventId, team.classId),
-        getDoc(doc(this.sub(eventId, 'classes'), team.classId)),
+      const [classInfo, progress, awards] = await Promise.all([
+        this.getClass(eventId, team.classId),
+        this.classProgress(eventId, team.classId),
+        this.fetchAll(
+          query(this.sub(eventId, 'cardAwards'), where('teamId', '==', team.id)),
+          mapCardAward,
+        ),
       ]);
-      return {
-        team: countClaimedCards(teamTickets),
-        class: computeClassCardCounts(team.classId, classTickets, exchanges),
-        classDisplayName: classSnapshot.exists()
-          ? mapClass(classSnapshot).displayName
-          : team.classId,
-      };
+      awards.sort(
+        (a, b) =>
+          Number(a.status === 'claimed') - Number(b.status === 'claimed') ||
+          b.roundNo - a.roundNo ||
+          b.createdAt - a.createdAt,
+      );
+      return { classInfo, progress, awards: await this.awardViews(eventId, awards) };
     });
   }
 
-  async listClassCardRows(eventId: string, grade: Grade): Promise<ClassCardRow[]> {
+  async claimCardAward(input: ClaimCardAwardInput): Promise<ClaimCardAwardOutcome> {
     return run(async () => {
       await this.ensureUser();
-      const classes = await this.listClasses(eventId, grade);
-      const classIds = classes.map((classInfo) => classInfo.id);
-      const [tickets, exchanges] = await Promise.all([
-        classIds.length > 0
-          ? this.fetchAll(
-              query(this.sub(eventId, 'drawTickets'), where('classId', 'in', classIds)),
-              mapTicket,
-            )
-          : Promise.resolve([]),
-        this.listExchanges(eventId, grade),
+      const team = await this.getTeam(input.eventId, input.teamId);
+      const before = (await this.classProgress(input.eventId, team.classId)).cards[
+        input.selectedType
+      ];
+      const ref = doc(this.sub(input.eventId, 'cardAwards'), input.awardId);
+      const claimed = await runTransaction(this.db, async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        if (!snapshot.exists()) {
+          throw new RepositoryError('not-found', '카드 보상을 찾을 수 없어요.');
+        }
+        const award = mapCardAward(snapshot);
+        if (award.teamId !== team.id) {
+          throw new RepositoryError('not-allowed', '다른 팀의 카드 보상이에요.');
+        }
+        // 같은 요청을 다시 보낸 경우(연타·재시도)는 이미 받은 결과로 본다.
+        if (award.status === 'claimed' && snapshot.data().claimRequestId === input.requestId) {
+          return award;
+        }
+        try {
+          const next = applyCardClaim(award, input.selectedType, Date.now());
+          transaction.update(ref, {
+            status: 'claimed',
+            selectedType: input.selectedType,
+            claimedAt: serverTimestamp(),
+            claimRequestId: input.requestId,
+          });
+          return next;
+        } catch (error) {
+          if (error instanceof CardAwardError) {
+            throw error.reason === 'already-claimed'
+              ? new RepositoryError('already-claimed', '이미 받은 카드 보상이에요.')
+              : new RepositoryError('invalid-input', '제시된 카드 중에서만 고를 수 있어요.');
+          }
+          throw error;
+        }
+      });
+      const progress = await this.classProgress(input.eventId, team.classId);
+      const [view] = await this.awardViews(input.eventId, [claimed]);
+      const selectedType = claimed.selectedType ?? input.selectedType;
+      return { award: view, before, after: progress.cards[selectedType], progress };
+    });
+  }
+
+  async listClassCardBoards(eventId: string, grade: Grade): Promise<ClassCardBoard[]> {
+    return run(async () => {
+      await this.ensureUser();
+      const [classes, awards] = await Promise.all([
+        this.listClasses(eventId, grade),
+        this.fetchAll(
+          query(this.sub(eventId, 'cardAwards'), where('grade', '==', grade)),
+          mapCardAward,
+        ),
       ]);
       return classes.map((classInfo) => ({
         classInfo,
-        counts: computeClassCardCounts(classInfo.id, tickets, exchanges),
+        progress: computeClassCardProgress(classInfo.id, awards),
       }));
     });
   }
 
-  async listExchanges(eventId: string, grade: Grade): Promise<Exchange[]> {
+  async getTeacherClassCards(eventId: string, classId: string): Promise<TeacherClassCards> {
     return run(async () => {
       await this.ensureUser();
-      const classes = await this.listClasses(eventId, grade);
-      const classIds = classes.map((classInfo) => classInfo.id);
-      if (classIds.length === 0) return [];
-      const exchanges = await this.fetchAll(
-        query(this.sub(eventId, 'exchanges'), where('fromClassId', 'in', classIds)),
-        mapExchange,
-      );
-      return exchanges.sort((a, b) => b.createdAt - a.createdAt);
+      this.requireTeacher();
+      const classInfo = await this.getClass(eventId, classId);
+      const [teams, awards] = await Promise.all([
+        this.listTeams(eventId, classInfo.grade),
+        this.fetchAll(
+          query(this.sub(eventId, 'cardAwards'), where('classId', '==', classId)),
+          mapCardAward,
+        ),
+      ]);
+      awards.sort((a, b) => a.roundNo - b.roundNo || a.teamId.localeCompare(b.teamId));
+      return {
+        classInfo,
+        teams: teams.filter((team) => team.classId === classId).sort((a, b) => a.teamNo - b.teamNo),
+        progress: computeClassCardProgress(classId, awards),
+        awards: await this.awardViews(eventId, awards),
+      };
     });
   }
 
-  async createExchange(input: CreateExchangeInput): Promise<Exchange> {
+  /** 팀 이동 기록을 연결하기 전까지는 순위 결과로만 완료 여부를 알린다. */
+  private movementOf(
+    team: Team,
+    missionId: string,
+    roundNo: RoundNo,
+    result: MissionResult | null,
+  ): TeamMissionState {
+    return {
+      id: teamMissionStateId(team.classId, team.teamNo, roundNo),
+      grade: team.grade,
+      classId: team.classId,
+      teamId: team.id,
+      teamNo: team.teamNo,
+      roundNo,
+      expectedMissionId: missionId,
+      actualMissionId: null,
+      status: result ? 'completed' : 'scheduled',
+      alertCodes: [],
+      checkedInAt: null,
+      startedAt: null,
+      completedAt: result?.finalizedAt ?? null,
+      resultId: result?.id ?? null,
+      updatedAt: result?.finalizedAt ?? 0,
+    };
+  }
+
+  // ---- 팀 이동과 QR 체크인 ----
+
+  async getMyTeam(eventId: string): Promise<Team | null> {
+    return run(async () => {
+      const user = await this.ensureUser();
+      const session = await getDoc(doc(this.sub(eventId, 'sessions'), user.uid));
+      const teamId = session.data()?.teamId as string | undefined;
+      return teamId ? this.getTeam(eventId, teamId) : null;
+    });
+  }
+
+  async checkInStation(input: CheckInInput): Promise<CheckInOutcome> {
+    return run(() => this.tour.checkIn(input));
+  }
+
+  async getTeamTourStatus(eventId: string, teamId: string): Promise<TeamTourStatus> {
+    return run(() => this.tour.tourStatus(eventId, teamId));
+  }
+
+  // ---- 실시간 운영 대시보드 ----
+
+  async getOpsDashboard(eventId: string, grade: Grade, roundNo?: RoundNo): Promise<OpsDashboard> {
+    return run(() => this.tour.dashboard(eventId, grade, roundNo));
+  }
+
+  async getClassOpsDetail(eventId: string, classId: string): Promise<ClassOpsDetail> {
     return run(async () => {
       await this.ensureUser();
-      const teacher = this.teacher;
-      if (!teacher) throw new RepositoryError('not-allowed', '교사로 로그인해야 할 수 있어요.');
-
-      // 문서 ID를 requestId로 고정해 중복 클릭·재시도에도 기록이 하나만 생긴다.
-      // 재시도는 카드가 이미 옮겨진 뒤이므로 수량 검사보다 먼저 확인한다.
-      const ref = doc(this.sub(input.eventId, 'exchanges'), input.requestId);
-      const alreadyRecorded = await getDoc(ref);
-      if (alreadyRecorded.exists()) return mapExchange(alreadyRecorded);
-
-      const [fromSnap, toSnap] = await Promise.all([
-        getDoc(doc(this.sub(input.eventId, 'classes'), input.fromClassId)),
-        getDoc(doc(this.sub(input.eventId, 'classes'), input.toClassId)),
+      const teacher = this.requireTeacher();
+      const classInfo = await this.getClass(eventId, classId);
+      const [awards, session] = await Promise.all([
+        this.classAwards(eventId, classId),
+        this.final.sessionOf(eventId, classInfo.grade),
       ]);
-      if (!fromSnap.exists() || !toSnap.exists()) {
-        throw new RepositoryError('invalid-input', EXCHANGE_ERROR_MESSAGES['missing-class']);
-      }
-      const fromClass = mapClass(fromSnap);
-      const toClass = mapClass(toSnap);
-      if (fromClass.grade !== toClass.grade) {
-        throw new RepositoryError('invalid-input', '같은 학년 학급끼리만 교환할 수 있어요.');
-      }
-
-      const [tickets, exchanges] = await Promise.all([
-        this.classTickets(input.eventId, fromClass.id),
-        this.classExchanges(input.eventId, fromClass.id),
+      const [teams, finalState] = await Promise.all([
+        this.tour.classTeams(eventId, classId, classInfo.grade, awards),
+        this.final.stateOf(eventId, classInfo, session),
       ]);
-      const counts = computeClassCardCounts(fromClass.id, tickets, exchanges);
-      const validationError = validateExchange(input, counts);
-      if (validationError) {
-        throw new RepositoryError(
-          validationError === 'insufficient-cards' ? 'insufficient-cards' : 'invalid-input',
-          EXCHANGE_ERROR_MESSAGES[validationError],
-        );
-      }
-
-      await runTransaction(this.db, async (transaction) => {
-        const existing = await transaction.get(ref);
-        if (existing.exists()) return;
-        transaction.set(ref, {
-          requestId: input.requestId,
-          fromClassId: input.fromClassId,
-          toClassId: input.toClassId,
-          cardType: input.cardType,
-          quantity: input.quantity,
-          status: 'completed',
-          createdBy: teacher.uid,
-          createdAt: serverTimestamp(),
-          reversesExchangeId: null,
-        });
-      });
-      return mapExchange(await getDoc(ref));
+      const progress = computeClassCardProgress(classId, awards);
+      return {
+        classInfo,
+        teams,
+        progress,
+        hintPreview: getHintTotal(progress),
+        session,
+        finalState: redactFinalClassState(finalState, canViewFinalResults(session, teacher.role)),
+        finalStatus: presentFinalClassStatus(session, finalState, this.serverNow()),
+        canRunFinal: this.canRunClassFinal(classId),
+        startBlocker: getFinalStartBlocker(session, finalState),
+      };
     });
+  }
+
+  subscribeOps(
+    eventId: string,
+    grade: Grade,
+    onChange: (revision: number) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe {
+    return this.tour.subscribe(eventId, grade, onChange, (error) =>
+      onError(toRepositoryError(error)),
+    );
+  }
+
+  async getMissionRoundState(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+  ): Promise<MissionRoundState> {
+    return run(() => this.tour.missionRound(eventId, missionId, grade, roundNo));
+  }
+
+  async getStationArrivals(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+  ): Promise<StationArrivals> {
+    return run(() => this.tour.arrivals(eventId, missionId, grade, roundNo));
+  }
+
+  async startStationRound(input: StartStationInput): Promise<MissionRoundState> {
+    return run(() => this.tour.startStation(input));
+  }
+
+  async markTeamArrived(input: MarkArrivedInput): Promise<TeamMissionState> {
+    return run(() => this.tour.markArrived(input));
+  }
+
+  // ---- 학급 전체 최종 미션 ----
+
+  async getFinalBoard(eventId: string, grade: Grade): Promise<FinalBoard> {
+    return run(() => this.final.board(eventId, grade));
+  }
+
+  subscribeFinal(
+    eventId: string,
+    grade: Grade,
+    onChange: (revision: number) => void,
+    onError: (error: unknown) => void,
+    classId?: string,
+  ): Unsubscribe {
+    return this.final.subscribe(
+      eventId,
+      grade,
+      onChange,
+      (error) => onError(toRepositoryError(error)),
+      classId,
+    );
+  }
+
+  async openFinal(input: OpenFinalInput): Promise<FinalSession> {
+    return run(() => this.final.open(input));
+  }
+
+  async setFinalDuration(
+    eventId: string,
+    grade: Grade,
+    durationLimitSec: number,
+  ): Promise<FinalSession> {
+    return run(() => this.final.setDuration(eventId, grade, durationLimitSec));
+  }
+
+  async publishFinalResults(eventId: string, grade: Grade): Promise<FinalSession> {
+    return run(() => this.final.publish(eventId, grade));
+  }
+
+  async getClassFinalView(eventId: string, classId: string): Promise<ClassFinalView> {
+    return run(() => this.final.classView(eventId, classId));
+  }
+
+  async startClassFinal(input: StartClassFinalInput): Promise<ClassFinalView> {
+    return run(async () => {
+      await this.syncClock(input.eventId);
+      return this.final.start(input);
+    });
+  }
+
+  async selectFinalChoice(input: SelectFinalChoiceInput): Promise<ClassFinalView> {
+    return run(() => this.final.select(input));
+  }
+
+  async applyFinalHint(input: FinalQuestionActionInput): Promise<ClassFinalView> {
+    return run(() => this.final.hint(input));
+  }
+
+  async confirmFinalAnswer(input: FinalQuestionActionInput): Promise<ClassFinalView> {
+    return run(() => this.final.confirm(input));
+  }
+
+  async closeExpiredClassFinal(eventId: string, classId: string): Promise<ClassFinalView> {
+    return run(() => this.final.closeExpired(eventId, classId));
+  }
+
+  async forceCloseClassFinal(input: FinalAdminActionInput): Promise<FinalClassState> {
+    return run(() => this.final.forceClose(input));
+  }
+
+  async adjustFinalResult(input: AdjustFinalResultInput): Promise<FinalClassState> {
+    return run(() => this.final.adjust(input));
+  }
+
+  async resetClassFinal(input: FinalAdminActionInput): Promise<FinalClassState> {
+    return run(() => this.final.reset(input));
   }
 }

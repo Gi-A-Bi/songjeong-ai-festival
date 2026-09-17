@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
-import { Button } from '../../components/Button';
+import { paths } from '../../app/paths';
+import { Button, ButtonLink } from '../../components/Button';
 import { ConfirmDialog } from '../../components/Dialog';
 import { Icon } from '../../components/Icon';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -71,7 +72,7 @@ export function AdminPage() {
         </h2>
         <p className="muted">
           3학년 4개 반, 4학년 5개 반, 5학년 6개 반, 6학년 5개 반과 학급당 5팀, 미션 5개를 만듭니다.
-          이미 있으면 덮어쓰지 않습니다.
+          이미 있으면 덮어쓰지 않습니다. 학년별 최종 미션 문제가 없으면 샘플 10문제도 함께 넣습니다.
         </p>
         {summary ? (
           <InlineAlert tone="success">
@@ -93,6 +94,19 @@ export function AdminPage() {
         </Button>
       </section>
 
+      <section className="panel stack" aria-labelledby="admin-qr-title">
+        <h2 id="admin-qr-title" className="section-title">
+          <Icon name="qr_code_scanner" /> QR 인쇄
+        </h2>
+        <p className="muted">
+          미션 교실 입구에 붙일 도착 QR 5장과 팀 입장 QR(반마다 한 장)을 A4로 인쇄합니다. QR은 이
+          기기 안에서 만들며 외부 서비스에 주소를 보내지 않습니다.
+        </p>
+        <ButtonLink to={paths.qrPrint(eventId)} variant="secondary" size="lg" icon="print">
+          QR 인쇄 화면 열기
+        </ButtonLink>
+      </section>
+
       <section className="panel stack" aria-labelledby="admin-teacher-title">
         <h2 id="admin-teacher-title" className="section-title">
           <Icon name="groups" /> 교사 계정 등록 안내
@@ -109,10 +123,16 @@ export function AdminPage() {
           <li className="rule-list__item">
             <span className="rule-list__no number">3</span>
             Firestore에서 <code>teachers/&#123;UID&#125;</code> 문서를 만들고 displayName, email,
-            role(teacher 또는 admin), active(true)를 넣습니다.
+            role, active(true)를 넣습니다. role은 총괄 <code>admin</code>, 부스{' '}
+            <code>station_teacher</code>(missionId에 담당 미션 ID), 담임{' '}
+            <code>homeroom_teacher</code>(classId에 담당 학급 ID, 예: g4-c2) 중 하나입니다.
           </li>
           <li className="rule-list__item">
             <span className="rule-list__no number">4</span>
+            라운드 제어, 최종 미션 열기·결과 공개·보정은 총괄(admin) 계정만 할 수 있습니다.
+          </li>
+          <li className="rule-list__item">
+            <span className="rule-list__no number">5</span>
             다시 로그인하면 교사 화면을 쓸 수 있습니다. 보안상 앱에서는 교사 등록을 할 수 없습니다.
           </li>
         </ol>

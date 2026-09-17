@@ -4,50 +4,50 @@
       "collectionGroup": "submissions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "grade", "order": "ASCENDING" },
-        { "fieldPath": "roundNo", "order": "ASCENDING" },
-        { "fieldPath": "missionId", "order": "ASCENDING" }
+        {
+          "fieldPath": "grade",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "roundNo",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "missionId",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "submissions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "teamId", "order": "ASCENDING" },
-        { "fieldPath": "roundNo", "order": "ASCENDING" }
+        {
+          "fieldPath": "teamId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "roundNo",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "results",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "missionId", "order": "ASCENDING" },
-        { "fieldPath": "grade", "order": "ASCENDING" },
-        { "fieldPath": "roundNo", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "drawTickets",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "teamId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "drawTickets",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "classId", "order": "ASCENDING" },
-        { "fieldPath": "claimedAt", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "exchanges",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "fromClassId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "missionId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "grade",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "roundNo",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],

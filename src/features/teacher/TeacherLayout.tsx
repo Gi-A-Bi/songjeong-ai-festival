@@ -9,7 +9,7 @@ import { useRepository } from '../../data/RepositoryContext';
 import { EventSetupPrompt } from './EventSetupPrompt';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { useLiveEvent } from '../../hooks/useLiveEvent';
-import type { TeacherContextValue } from './teacherContext';
+import { TEACHER_ROLE_LABELS, type TeacherContextValue } from './teacherContext';
 import './Teacher.css';
 
 /** 교사 로그인 확인과 행사 상태 구독을 맡고, 교사용 메뉴를 보여 준다. */
@@ -61,19 +61,46 @@ export function TeacherLayout() {
 
   const nav = (
     <>
-      <NavLink to={paths.teacherDashboard(eventId)} end className="teacher-nav__link">
+      <NavLink to={paths.teacherDashboard(eventId)} className="teacher-nav__link">
         <Icon name="dashboard" />
         대시보드
       </NavLink>
-      <NavLink to={paths.exchange(eventId)} className="teacher-nav__link">
-        <Icon name="swap_horiz" />
-        카드 교환
+      <NavLink to={paths.teacherCards(eventId)} className="teacher-nav__link">
+        <Icon name="style" />
+        학급 카드
       </NavLink>
-      {profile.role === 'admin' ? (
-        <NavLink to={paths.admin(eventId)} className="teacher-nav__link">
-          <Icon name="settings" />
-          행사 설정
+      {repository.capabilities.classFinal ? (
+        <NavLink to={paths.finalResults(eventId)} className="teacher-nav__link">
+          <Icon name="trophy" />
+          최종 미션
         </NavLink>
+      ) : null}
+      {profile.role === 'homeroom_teacher' && profile.classId ? (
+        <NavLink to={paths.teacherClass(eventId, profile.classId)} className="teacher-nav__link">
+          <Icon name="school" />
+          우리 반
+        </NavLink>
+      ) : null}
+      {profile.role === 'station_teacher' && profile.missionId ? (
+        <NavLink
+          to={paths.teacherStation(eventId, profile.missionId)}
+          className="teacher-nav__link"
+        >
+          <Icon name="flag" />
+          담당 미션
+        </NavLink>
+      ) : null}
+      {profile.role === 'admin' ? (
+        <>
+          <NavLink to={paths.qrPrint(eventId)} className="teacher-nav__link">
+            <Icon name="qr_code_scanner" />
+            QR 인쇄
+          </NavLink>
+          <NavLink to={paths.admin(eventId)} className="teacher-nav__link">
+            <Icon name="settings" />
+            행사 설정
+          </NavLink>
+        </>
       ) : null}
       <button type="button" className="teacher-nav__link" onClick={() => void logout()}>
         <Icon name="logout" />
@@ -84,7 +111,11 @@ export function TeacherLayout() {
 
   return (
     <>
-      <AppHeader variant="teacher" subtitle={profile.displayName} nav={nav} />
+      <AppHeader
+        variant="teacher"
+        subtitle={`${profile.displayName} · ${TEACHER_ROLE_LABELS[profile.role]}`}
+        nav={nav}
+      />
       <main className="page teacher-page">
         {event.status === 'loading' ? <LoadingView label="행사 상태를 불러오고 있어요" /> : null}
         {event.status === 'error' ? (

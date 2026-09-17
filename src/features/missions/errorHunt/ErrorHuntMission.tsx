@@ -5,6 +5,7 @@ import { Button } from '../../../components/Button';
 import { Icon } from '../../../components/Icon';
 import { MissionShell } from '../../../components/MissionShell';
 import { StatusBadge } from '../../../components/StatusBadge';
+import { useRepository } from '../../../data/RepositoryContext';
 import { canSubmitInPhase } from '../../../domain/missionPhase';
 import { findHitRegion } from '../../../domain/scoring';
 import type { ErrorHuntConfig } from '../../../domain/types';
@@ -43,6 +44,7 @@ export function ErrorHuntMission({
   const [misses, setMisses] = useState<MissMarker[]>([]);
   const [feedback, setFeedback] = useState('');
   const missSeq = useRef(0);
+  const repository = useRepository();
   const { submit, isPending, error } = useMissionSubmit(eventId, team.id, mission.id, onSubmitted);
 
   const editable = canSubmitInPhase(phase) && saved === null && !isPending;
@@ -79,7 +81,8 @@ export function ErrorHuntMission({
     const isCurrentRound = event.activeGrade === team.grade && event.activeRound === roundNo;
     const remainingSeconds =
       isCurrentRound && event.status === 'active' && event.roundEndsAt !== null
-        ? Math.max(0, Math.floor((event.roundEndsAt - Date.now()) / 1000))
+        ? // 남은 시간 보너스는 서버 기준 시각으로 계산한다.
+          Math.max(0, Math.floor((event.roundEndsAt - repository.serverNow()) / 1000))
         : 0;
     void submit({ type: 'error_hunt', foundRegionIds: found, wrongTaps, remainingSeconds });
   };

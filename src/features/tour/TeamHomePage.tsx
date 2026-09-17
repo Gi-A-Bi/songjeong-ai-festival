@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router';
 import { paths } from '../../app/paths';
 import { missionImageKeys } from '../../assets/manifest';
@@ -13,15 +13,21 @@ import type { IconName } from '../../components/icons';
 import { useRepository } from '../../data/RepositoryContext';
 import { MISSION_TYPE_INFO } from '../../domain/catalog';
 import { getMissionNoForRound, ROUND_NUMBERS } from '../../domain/rotation';
-import type { FestivalEvent, RoundNo, Team } from '../../domain/types';
+import type { FestivalEvent, RoundNo, Team, TeamMissionState } from '../../domain/types';
 import { useAsyncData } from '../../hooks/useAsyncData';
+import { useMissionLiveState } from '../../hooks/useMissionLiveState';
 import { useTeamContext } from './teamContext';
 import './TeamHomePage.css';
 
 type FocusKind = 'now' | 'next' | 'first' | 'done';
 
-/** 팀 홈에서 가장 크게 보여 줄 미션 라운드를 고른다. */
-function getFocus(event: FestivalEvent, team: Team): { roundNo: RoundNo; kind: FocusKind } {
+/** 팀 홈에서 가장 크게 보여 줄 미션 라운드를 고른다. 5라운드를 모두 제출했으면 투어가 끝난 것이다. */
+function getFocus(
+  event: FestivalEvent,
+  team: Team,
+  allSubmitted: boolean,
+): { roundNo: RoundNo; kind: FocusKind } {
+  if (allSubmitted) return { roundNo: 5, kind: 'done' };
   if (event.activeGrade !== team.grade || event.activeRound === 0)
     return { roundNo: 1, kind: 'first' };
   if (event.status === 'active' || event.status === 'paused') {
@@ -43,14 +49,38 @@ export function TeamHomePage() {
   const repository = useRepository();
 
   const load = useCallback(async () => {
-    const [missions, submissions, tickets] = await Promise.all([
+    const [missions, submissions, rewards, tour] = await Promise.all([
       repository.listMissions(eventId),
       repository.listTeamSubmissions(eventId, team.id),
-      repository.listTeamTickets(eventId, team.id),
+      repository.getTeamRewardView(eventId, team.id),
+      // 팀 이동 기록을 연결하지 않은 모드에서는 도착 안내를 숨긴다.
+      repository.capabilities.liveOps ? repository.getTeamTourStatus(eventId, team.id) : null,
     ]);
-    return { missions, submissions, tickets };
+    return { missions, submissions, rewards, tour };
   }, [repository, eventId, team.id]);
   const data = useAsyncData(load);
+  const loaded = data.status === 'success' ? data.data : null;
+
+  // 선생님이 지금 라운드의 순위를 확정하거나 다음 라운드를 시작하면 새로고침 없이 다시 읽는다.
+  // 그래야 "카드 보상 고르기" 버튼과 다음 미션 안내가 바로 나타난다.
+  const liveRound =
+    event.activeGrade === team.grade && event.activeRound !== 0 ? event.activeRound : null;
+  const liveMission =
+    loaded && liveRound !== null
+      ? loaded.missions.find((item) => item.no === getMissionNoForRound(team.teamNo, liveRound))
+      : undefined;
+  const liveRevision = useMissionLiveState(
+    eventId,
+    liveMission && liveRound !== null
+      ? { missionId: liveMission.id, grade: team.grade, roundNo: liveRound }
+      : null,
+  );
+  const refreshKey = `${event.status}|${event.activeGrade}|${event.activeRound}|${liveRevision}`;
+  const [seenRefreshKey, setSeenRefreshKey] = useState(refreshKey);
+  if (seenRefreshKey !== refreshKey) {
+    setSeenRefreshKey(refreshKey);
+    if (loaded) data.reload();
+  }
 
   const header = <AppHeader backTo={paths.join(eventId)} subtitle={team.displayName} />;
 
@@ -69,10 +99,9 @@ export function TeamHomePage() {
     );
   }
 
-  const { missions, submissions, tickets } = data.data;
-  const focus = getFocus(event, team);
+  const { missions, submissions, rewards, tour } = data.data;
   const isMyGrade = event.activeGrade === team.grade;
-  const unclaimed = tickets.filter((ticket) => !ticket.claimed).length;
+  const pendingRewards = rewards.awards.filter((award) => award.status === 'pending').length;
 
   const schedule = ROUND_NUMBERS.map((roundNo) => {
     const mission = missions.find((item) => item.no === getMissionNoForRound(team.teamNo, roundNo));
@@ -82,6 +111,9 @@ export function TeamHomePage() {
     return { roundNo, mission, done: submission !== undefined };
   });
   const doneCount = schedule.filter((item) => item.done).length;
+  const focus = getFocus(event, team, doneCount === ROUND_NUMBERS.length);
+  // 지금 안내하는 라운드의 도착(체크인) 상태
+  const arrival = tour && tour.roundNo === focus.roundNo ? tour.state : null;
   const focusMission = schedule.find((item) => item.roundNo === focus.roundNo)?.mission;
 
   return (
@@ -112,10 +144,21 @@ export function TeamHomePage() {
                 {focusMission.title}
               </h2>
               <p className="team-focus__room">
-                <Icon name="meeting_room" size="lg" />
-                <strong>{focusMission.room}</strong>
-                <span>{focus.kind === 'now' ? '에서 미션 중' : '으로 이동'}</span>
+                {focus.kind === 'done' ? (
+                  <>
+                    <Icon name="check_circle" size="lg" />
+                    <strong>미션 투어 완료</strong>
+                    <span>우리 교실로 돌아가 최종 미션을 준비해요</span>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="meeting_room" size="lg" />
+                    <strong>{focusMission.room}</strong>
+                    <span>{focus.kind === 'now' ? '에서 미션 중' : '으로 이동'}</span>
+                  </>
+                )}
               </p>
+              {arrival && focus.kind !== 'done' ? <ArrivalNotice state={arrival} /> : null}
               <div className="team-focus__actions">
                 {isMyGrade ? (
                   <Timer
@@ -127,7 +170,7 @@ export function TeamHomePage() {
                 ) : null}
                 {focus.kind === 'done' ? (
                   <ButtonLink to={paths.cards(eventId, team.id)} size="xl" icon="style">
-                    카드함 보기
+                    우리 반 카드 보기
                   </ButtonLink>
                 ) : (
                   <ButtonLink
@@ -183,14 +226,31 @@ export function TeamHomePage() {
             <h2 id="team-cards-title" className="visually-hidden">
               카드
             </h2>
-            {unclaimed > 0 ? (
-              <p className="team-cards__notice">
-                <Icon name="playing_cards" />
-                뽑기권 <strong className="number">{unclaimed}장</strong>이 기다려요!
-              </p>
+            {pendingRewards > 0 ? (
+              <>
+                <p className="team-cards__notice">
+                  <Icon name="playing_cards" />
+                  <span>
+                    고를 카드 보상 <strong className="number">{pendingRewards}개</strong>가
+                    기다려요!
+                  </span>
+                </p>
+                <ButtonLink
+                  to={paths.reward(eventId, team.id)}
+                  size="lg"
+                  icon="playing_cards"
+                  fullWidth
+                >
+                  카드 보상 고르기
+                </ButtonLink>
+              </>
             ) : (
-              <p className="muted">미션 순위가 확정되면 뽑기권이 생겨요.</p>
+              <p className="muted">미션 순위가 확정되면 카드 조각을 하나씩 받아요.</p>
             )}
+            <p className="team-cards__summary">
+              {rewards.classInfo.displayName} 카드 완성{' '}
+              <strong className="number">{rewards.progress.completedCount}/5</strong>
+            </p>
             <ButtonLink
               to={paths.cards(eventId, team.id)}
               variant="secondary"
@@ -198,12 +258,39 @@ export function TeamHomePage() {
               icon="style"
               fullWidth
             >
-              내 카드 보기
+              우리 반 카드 보기
             </ButtonLink>
+            <p className="muted">
+              완성한 카드 종류 수만큼 최종 미션 힌트를 받아요. 최종 미션은 교실 전자칠판에서 반
+              전체가 함께 풀어요.
+            </p>
           </section>
         </div>
       </main>
     </>
+  );
+}
+
+/** 미션 교실 QR 체크인 상태. 색뿐 아니라 아이콘과 문구로 알린다. */
+function ArrivalNotice({ state }: { state: TeamMissionState }) {
+  if (state.alertCodes.includes('wrong_station')) {
+    return (
+      <p className="team-focus__arrival team-focus__arrival--warning" role="status">
+        <Icon name="warning" /> 다른 교실 QR을 찍었어요. 위 교실로 가서 다시 찍어 주세요.
+      </p>
+    );
+  }
+  if (state.checkedInAt !== null) {
+    return (
+      <p className="team-focus__arrival team-focus__arrival--done" role="status">
+        <Icon name="check_circle" /> 도착 기록 완료
+      </p>
+    );
+  }
+  return (
+    <p className="team-focus__arrival" role="status">
+      <Icon name="qr_code_scanner" /> 교실에 도착하면 교실 QR을 찍어 도착을 알려요.
+    </p>
   );
 }
 

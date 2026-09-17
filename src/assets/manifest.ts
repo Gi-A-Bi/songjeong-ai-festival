@@ -60,20 +60,9 @@ export const assets = {
   cardExpression: { src: festival('card-expression.webp'), alt: '표현 카드', ...CARD },
   cardCommand: { src: festival('card-command.webp'), alt: '명령 카드', ...CARD },
   cardVerification: { src: festival('card-verification.webp'), alt: '검증 카드', ...CARD },
-  cardBack: { src: festival('card-back.webp'), alt: '뒤집힌 카드 뒷면', ...CARD },
-  sceneCardDraw: {
-    src: festival('scene-card-draw.webp'),
-    alt: '카드 뽑기 무대 장면',
-    ...WIDE,
-  },
-  sceneCardExchange: {
-    src: festival('scene-card-exchange.webp'),
-    alt: '학급끼리 카드를 교환하는 장면',
-    ...WIDE,
-  },
   sceneFinale: {
     src: festival('scene-finale.webp'),
-    alt: 'AI 능력 카드 5종을 모두 모아 축하하는 피날레 장면',
+    alt: '학급 최종 미션을 축하하는 피날레 무대 장면',
     ...WIDE,
   },
   mascotWelcome: {

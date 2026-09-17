@@ -1,5 +1,5 @@
 import type { EventStatus } from '../domain/types';
-import { useNow } from '../hooks/useNow';
+import { useServerNow } from '../hooks/useServerNow';
 import { formatClock, formatSpokenDuration } from '../lib/time';
 import { Icon } from './Icon';
 import './Timer.css';
@@ -13,7 +13,7 @@ interface TimerProps {
 
 /** 서버가 정한 종료 시각을 기준으로 남은 시간을 계산하고, 화면 갱신만 브라우저가 한다. */
 export function Timer({ status, endsAt, pausedRemainingMs, size = 'md' }: TimerProps) {
-  const now = useNow(1000);
+  const now = useServerNow(1000);
 
   let remainingMs: number | null = null;
   if (status === 'paused') remainingMs = pausedRemainingMs;

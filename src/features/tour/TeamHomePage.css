@@ -131,6 +131,31 @@
   gap: var(--space-3);
 }
 
+.team-focus__arrival {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-info-soft);
+  color: var(--color-info);
+  font-weight: var(--font-weight-bold);
+}
+
+.team-focus__arrival--done {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.team-focus__arrival--warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.team-cards__summary {
+  font-weight: var(--font-weight-bold);
+}
+
 .team-cards__notice {
   display: flex;
   align-items: center;
