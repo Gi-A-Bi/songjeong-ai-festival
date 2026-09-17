@@ -172,6 +172,57 @@ describe('MockEventRepository', () => {
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
   });
 
+  it('부스 제출 구독은 그 부스의 제출과 재제출 허용만 알린다', async () => {
+    await repository.signInTeacher();
+    const notified: number[] = [];
+    const others: number[] = [];
+    const stop = repository.subscribeStationSubmissions(
+      EVENT,
+      'golden-bell',
+      4,
+      2,
+      (revision) => notified.push(revision),
+      () => undefined,
+    );
+    const stopOther = repository.subscribeStationSubmissions(
+      EVENT,
+      'ozobot',
+      4,
+      2,
+      (revision) => others.push(revision),
+      () => undefined,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // 구독이 붙으면 한 번 알린다.
+    expect(notified).toHaveLength(1);
+    expect(others).toHaveLength(1);
+
+    const teamId = toTeamId(4, 2, 5);
+    await repository.saveSubmission({
+      eventId: EVENT,
+      missionId: 'golden-bell',
+      teamId,
+      answer: { type: 'golden_bell', selections: { q1: 1 } },
+      requestId: 'station-live-1',
+    });
+    expect(notified).toHaveLength(2);
+    await repository.reopenSubmission({ eventId: EVENT, missionId: 'golden-bell', teamId });
+    expect(notified).toHaveLength(3);
+    // 다른 부스에는 알리지 않는다.
+    expect(others).toHaveLength(1);
+
+    stop();
+    stopOther();
+    await repository.saveSubmission({
+      eventId: EVENT,
+      missionId: 'golden-bell',
+      teamId,
+      answer: { type: 'golden_bell', selections: { q1: 1 } },
+      requestId: 'station-live-2',
+    });
+    expect(notified).toHaveLength(3);
+  });
+
   it('교사 화면에는 자동 점수가 채워지고, 재제출을 허용하면 라운드가 끝나도 다시 낼 수 있다', async () => {
     // 2라운드 골든벨은 5팀. 4학년 2반 5팀은 아직 제출하지 않았다.
     const teamId = toTeamId(4, 2, 5);

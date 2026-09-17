@@ -479,12 +479,29 @@ export interface EventRepository {
   getRoundProgress(eventId: string, grade: Grade, roundNo: RoundNo): Promise<MissionProgress[]>;
 
   // 교사 운영
+  /**
+   * 부스 화면의 참가 팀 목록. 부스 제출을 구독하는 동안에는 구독 캐시로 만들어 제출을 다시 읽지 않는다.
+   * fresh를 주면 캐시를 쓰지 않고 서버에서 읽는다(순위 확정 직전 확인, 교사가 누른 새로고침).
+   */
   listMissionParticipants(
     eventId: string,
     missionId: string,
     grade: Grade,
     roundNo: RoundNo,
+    options?: { fresh?: boolean },
   ): Promise<MissionParticipant[]>;
+  /**
+   * 부스 화면용: 이 미션·학년·라운드의 제출이 바뀔 때마다(제출, 재제출 허용, 순위 확정) 알린다.
+   * 한 부스·한 라운드의 제출은 학급 수만큼뿐이라 구독해도 읽기가 작다.
+   */
+  subscribeStationSubmissions(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+    onChange: (revision: number) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe;
   setAnswerRevealed(
     eventId: string,
     missionId: string,

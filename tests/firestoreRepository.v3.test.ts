@@ -714,3 +714,111 @@ describe('학급 전체 최종 미션 (에뮬레이터)', () => {
     stop();
   });
 });
+
+describe('부스 화면의 제출 구독 (에뮬레이터)', () => {
+  /**
+   * 다른 기기의 학생이 제출한 것처럼 제출 문서를 넣는다.
+   * 이 테스트는 앱 하나에 로그인이 하나뿐이라, 교사가 구독하는 동안의 학생 제출은 관리자 권한으로 흉내 낸다.
+   */
+  async function seedSubmission(teamId: string, classId: string) {
+    const plain: Record<string, Plain> = {
+      teamId,
+      classId,
+      missionId: 'golden-bell',
+      grade: 4,
+      roundNo: 1,
+      status: 'submitted',
+      score: null,
+      reopened: false,
+      requestId: `seed-${teamId}`,
+      submittedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const response = await fetch(`${DOCS}/events/${EVENT}/submissions/golden-bell__${teamId}`, {
+      method: 'PATCH',
+      headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: {
+          ...Object.fromEntries(Object.entries(plain).map(([key, value]) => [key, encode(value)])),
+          answer: {
+            mapValue: {
+              fields: {
+                type: { stringValue: 'golden_bell' },
+                selections: { mapValue: { fields: { q1: { integerValue: '1' } } } },
+              },
+            },
+          },
+        },
+      }),
+    });
+    if (!response.ok) throw new Error(`제출 문서 생성 실패: ${response.status}`);
+  }
+
+  it('구독하는 동안 새 제출을 알리고, 참가 팀 목록에 새로고침 없이 나타난다', async () => {
+    await signInAsAdmin();
+    await repository.setupEvent(EVENT);
+    await repository.setActiveGrade(EVENT, 4);
+    await repository.controlRound(EVENT, 'start');
+
+    // 1라운드 골든벨에는 각 반 1팀이 온다. 1반 1팀은 교사가 화면을 열기 전에 제출했다.
+    await signInAsStudent('g4-c1-t1');
+    await repository.saveSubmission({
+      eventId: EVENT,
+      missionId: 'golden-bell',
+      teamId: 'g4-c1-t1',
+      answer: { type: 'golden_bell', selections: { q1: 1 } },
+      requestId: 'before-subscribe',
+    });
+
+    await signInAs('station-bell', 'station_teacher', { missionId: 'golden-bell' });
+    const submittedTeams = async (options?: { fresh?: boolean }) =>
+      (await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 1, options))
+        .filter((participant) => participant.submission !== null)
+        .map((participant) => participant.team.id)
+        .sort();
+
+    const revisions: number[] = [];
+    const stop = repository.subscribeStationSubmissions(
+      EVENT,
+      'golden-bell',
+      4,
+      1,
+      (revision) => revisions.push(revision),
+      (error) => {
+        throw error;
+      },
+    );
+    await vi.waitFor(() => expect(revisions.length).toBeGreaterThan(0));
+    expect(await submittedTeams()).toEqual(['g4-c1-t1']);
+
+    await seedSubmission('g4-c2-t1', 'g4-c2');
+    await vi.waitFor(() => expect(revisions[revisions.length - 1]).toBeGreaterThan(0));
+    // 구독 캐시로 만든 목록과 서버에서 다시 읽은 목록이 같다.
+    expect(await submittedTeams()).toEqual(['g4-c1-t1', 'g4-c2-t1']);
+    expect(await submittedTeams({ fresh: true })).toEqual(['g4-c1-t1', 'g4-c2-t1']);
+
+    // 자동 점수도 캐시에서 만든 목록에 채워진다.
+    const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 1);
+    const late = participants.find((participant) => participant.team.id === 'g4-c2-t1');
+    expect(late?.submission?.score).toBe(100);
+    stop();
+  });
+
+  it('학생은 부스 제출을 구독할 수 없다', async () => {
+    await signInAsAdmin();
+    await repository.setupEvent(EVENT);
+    await signInAsStudent('g4-c1-t1');
+    const errors: unknown[] = [];
+    const stop = repository.subscribeStationSubmissions(
+      EVENT,
+      'golden-bell',
+      4,
+      1,
+      () => undefined,
+      (error) => errors.push(error),
+    );
+    await vi.waitFor(() => expect(errors.length).toBeGreaterThan(0));
+    expect(isRepositoryError(errors[0], 'not-allowed')).toBe(true);
+    stop();
+  });
+});

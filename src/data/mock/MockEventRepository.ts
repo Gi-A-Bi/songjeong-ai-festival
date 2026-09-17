@@ -118,6 +118,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   private readonly random: () => number;
   private readonly eventListeners = new Set<(event: FestivalEvent) => void>();
   private readonly missionStateListeners = new Map<string, Set<() => void>>();
+  private readonly stationListeners = new Map<string, Set<(revision: number) => void>>();
   private readonly opsListeners = new Map<Grade, Set<(revision: number) => void>>();
   private readonly finalListeners = new Map<Grade, Set<(revision: number) => void>>();
   private liveRevision = 0;
@@ -147,6 +148,7 @@ export class MockEventRepository implements EventRepository, DevTools {
     this.shouldFailNext = false;
     this.notifyEvent();
     for (const key of this.missionStateListeners.keys()) this.notifyMissionState(key);
+    for (const key of this.stationListeners.keys()) this.notifyStation(key);
     for (const grade of this.opsListeners.keys()) this.notifyOps(grade);
     for (const grade of this.finalListeners.keys()) this.notifyFinal(grade);
   }
@@ -551,6 +553,7 @@ export class MockEventRepository implements EventRepository, DevTools {
     };
     this.state.submissions[id] = submission;
     this.state.processedRequests[input.requestId] = id;
+    this.notifyStation(resultKey(mission.id, team.grade, roundNo));
     return clone(submission);
   }
 
@@ -609,6 +612,41 @@ export class MockEventRepository implements EventRepository, DevTools {
         };
       }),
     );
+  }
+
+  subscribeStationSubmissions(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+    onChange: (revision: number) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe {
+    let active = true;
+    const key = resultKey(missionId, grade, roundNo);
+    const listener = (revision: number) => {
+      if (active) onChange(revision);
+    };
+    const timer = setTimeout(() => {
+      if (!active) return;
+      if (eventId !== this.state.event.id) {
+        onError(new RepositoryError('not-found'));
+        return;
+      }
+      if (!this.teacher) {
+        onError(new RepositoryError('not-allowed', '교사로 로그인해야 할 수 있어요.'));
+        return;
+      }
+      const listeners = this.stationListeners.get(key) ?? new Set();
+      listeners.add(listener);
+      this.stationListeners.set(key, listeners);
+      listener(this.liveRevision);
+    }, this.latencyMs);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      this.stationListeners.get(key)?.delete(listener);
+    };
   }
 
   async setAnswerRevealed(
@@ -1158,10 +1196,18 @@ export class MockEventRepository implements EventRepository, DevTools {
       updatedAt: Math.max(this.now(), (previous?.updatedAt ?? 0) + 1),
     };
     this.notifyMissionState(key);
+    // 교사의 재제출 허용·순위 확정·수정도 부스 화면이 바로 다시 그리게 알린다.
+    this.notifyStation(key);
   }
 
   private notifyMissionState(key: string): void {
     for (const listener of this.missionStateListeners.get(key) ?? []) listener();
+  }
+
+  /** 부스 화면이 구독하는 제출 변화(키는 미션·학년·라운드) */
+  private notifyStation(key: string): void {
+    this.liveRevision += 1;
+    for (const listener of this.stationListeners.get(key) ?? []) listener(this.liveRevision);
   }
 
   private validateRankingEntries(input: FinalizeRankingInput, mission: Mission): void {

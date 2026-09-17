@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
@@ -8,10 +8,12 @@ import type { MissionParticipant } from '../../data/EventRepository';
 import { toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
 import { ROUND_NUMBERS } from '../../domain/rotation';
+import { getCheckInRound } from '../../domain/tour';
 import type { RoundNo } from '../../domain/types';
 import { useAction } from '../../hooks/useAction';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { useOpsLive } from '../../hooks/useFinalLive';
+import { useStationLive } from '../../hooks/useStationLive';
 import { DrawingGallery } from './mission/DrawingGallery';
 import { GoldenBellQuestionEditor } from './mission/GoldenBellQuestionEditor';
 import { RankingEditor } from './mission/RankingEditor';
@@ -20,12 +22,15 @@ import { useTeacherContext } from './teacherContext';
 
 type MissionTab = 'operate' | 'questions';
 
-/** 참가 팀 목록이 바뀌었는지 알아보는 값. 바뀌면 순위표 입력을 새 데이터로 다시 채운다. */
-function participantsSignature(participants: readonly MissionParticipant[]): string {
+/**
+ * 확정한 순위와 카드 보상이 바뀌었는지 알아보는 값. 바뀌면 순위표를 새 데이터로 다시 시작한다.
+ * 학생 제출만 바뀐 때는 다시 시작하지 않고, 교사가 입력하던 점수·순위를 둔 채 목록만 맞춘다.
+ */
+function resultsSignature(participants: readonly MissionParticipant[]): string {
   return participants
     .map(
-      ({ team, submission, result, award }) =>
-        `${team.id}:${submission?.status ?? '-'}:${submission?.updatedAt ?? 0}:${result?.rank ?? '-'}:${result?.score ?? '-'}:${award?.status ?? '-'}:${award?.selectionMode ?? '-'}`,
+      ({ team, result, award }) =>
+        `${team.id}:${result?.rank ?? '-'}:${result?.score ?? '-'}:${award?.status ?? '-'}:${award?.selectionMode ?? '-'}`,
     )
     .join('|');
 }
@@ -39,8 +44,18 @@ export function TeacherMissionPage() {
   const { liveOps } = repository.capabilities;
   const grade = event.activeGrade;
   const [round, setRound] = useState<RoundNo>(event.activeRound === 0 ? 1 : event.activeRound);
+  /** 교사가 지금 라운드가 아닌 라운드를 직접 골랐는지. 그동안은 화면을 자동으로 옮기지 않는다. */
+  const [pinned, setPinned] = useState(false);
   const [tab, setTab] = useState<MissionTab>('operate');
   const [notice, setNotice] = useState<string | null>(null);
+  const [staleNotice, setStaleNotice] = useState(false);
+  /** 다음 번 참가 팀 읽기를 서버에서 할지(교사가 누른 새로고침, 확정 직전에 발견한 새 제출) */
+  const freshNext = useRef(false);
+
+  // 지금 팀이 들어오는 라운드: 활동 중이면 그 라운드, 이동 시간이면 다음 라운드
+  const liveRound: RoundNo =
+    (grade === null ? null : getCheckInRound(event, grade)) ??
+    (event.activeRound === 0 ? 1 : event.activeRound);
 
   const loadMission = useCallback(
     () => repository.getMission(eventId, missionId),
@@ -50,8 +65,10 @@ export function TeacherMissionPage() {
 
   const loadRound = useCallback(async () => {
     if (grade === null) return null;
+    const fresh = freshNext.current;
+    freshNext.current = false;
     const [participants, revealed] = await Promise.all([
-      repository.listMissionParticipants(eventId, missionId, grade, round),
+      repository.listMissionParticipants(eventId, missionId, grade, round, { fresh }),
       repository.isAnswerRevealed(eventId, missionId, grade, round),
     ]);
     return { participants, revealed };
@@ -73,6 +90,27 @@ export function TeacherMissionPage() {
     if (arrivals.status === 'success') arrivals.reload();
   }
 
+  // 학생이 제출하면 새로고침을 누르지 않아도 참가 팀 목록을 다시 그린다(구독 캐시에서 만들어 읽기가 늘지 않는다).
+  const stationRevision = useStationLive(eventId, missionId, grade, round);
+  const [seenStationRevision, setSeenStationRevision] = useState(stationRevision);
+  if (seenStationRevision !== stationRevision) {
+    setSeenStationRevision(stationRevision);
+    if (roundData.status === 'success') roundData.reload();
+  }
+
+  // 보고 있는 라운드의 순위를 이미 확정했다면, 다음 라운드가 열릴 때 화면도 따라간다.
+  // 확정 전이면 입력하던 내용을 지키려고 옮기지 않고 안내만 띄운다.
+  const viewedFinalized =
+    roundData.status === 'success' &&
+    !roundData.refreshing &&
+    roundData.data !== null &&
+    roundData.data.participants.some((participant) => participant.result !== null);
+  if (pinned && round === liveRound) setPinned(false);
+  if (grade !== null && round !== liveRound && !pinned && viewedFinalized) {
+    setRound(liveRound);
+    setStaleNotice(false);
+  }
+
   const reveal = useAction(
     useCallback(
       async (revealed: boolean) => {
@@ -91,9 +129,17 @@ export function TeacherMissionPage() {
   const config = mission.config;
 
   const refresh = () => {
+    freshNext.current = true;
     missionData.reload();
     roundData.reload();
     arrivals.reload();
+  };
+
+  const pickRound = (value: RoundNo) => {
+    setRound(value);
+    setPinned(value !== liveRound);
+    setNotice(null);
+    setStaleNotice(false);
   };
 
   return (
@@ -152,10 +198,7 @@ export function TeacherMissionPage() {
                   type="button"
                   className="round-picker__button number"
                   aria-pressed={round === value}
-                  onClick={() => {
-                    setRound(value);
-                    setNotice(null);
-                  }}
+                  onClick={() => pickRound(value)}
                 >
                   {value}
                 </button>
@@ -183,7 +226,33 @@ export function TeacherMissionPage() {
           {reveal.status === 'error' ? (
             <InlineAlert tone="danger">{toUserMessage(reveal.error)}</InlineAlert>
           ) : null}
+          {round !== liveRound ? (
+            <InlineAlert
+              tone="warning"
+              action={
+                <Button
+                  variant="secondary"
+                  icon="arrow_forward"
+                  onClick={() => pickRound(liveRound)}
+                >
+                  {liveRound}라운드로 이동
+                </Button>
+              }
+            >
+              지금 팀이 들어오는 라운드는 <strong>{liveRound}라운드</strong>예요. 이 화면은 {round}
+              라운드예요.
+              {round < liveRound && !pinned && !viewedFinalized
+                ? ` ${round}라운드 순위를 확정하면 ${liveRound}라운드로 자동으로 넘어가요.`
+                : ''}
+            </InlineAlert>
+          ) : null}
           {notice ? <InlineAlert tone="success">{notice}</InlineAlert> : null}
+          {staleNotice ? (
+            <InlineAlert tone="warning">
+              방금 새 제출이 들어와서 확정하지 않았어요. 목록을 새로 불러왔으니 점수와 순위를 확인한
+              뒤 다시 확정해 주세요.
+            </InlineAlert>
+          ) : null}
 
           {roundData.status === 'loading' ? (
             <LoadingView label="참가 팀을 불러오고 있어요" />
@@ -219,7 +288,7 @@ export function TeacherMissionPage() {
                 />
               ) : null}
               <RankingEditor
-                key={`${grade}-${round}-${participantsSignature(roundData.data.participants)}`}
+                key={`${grade}-${round}-${resultsSignature(roundData.data.participants)}`}
                 eventId={eventId}
                 mission={mission}
                 grade={grade}
@@ -229,9 +298,17 @@ export function TeacherMissionPage() {
                   (participant) => participant.result !== null,
                 )}
                 onChanged={(message) => {
-                  setNotice(message);
+                  // 화면이 다음 라운드로 넘어간 뒤에도 어느 라운드의 일인지 알 수 있게 라운드를 붙인다.
+                  setNotice(`${round}라운드: ${message}`);
+                  setStaleNotice(false);
                   roundData.reload();
                   arrivals.reload();
+                }}
+                onStale={() => {
+                  setNotice(null);
+                  setStaleNotice(true);
+                  freshNext.current = true;
+                  roundData.reload();
                 }}
               />
             </>
