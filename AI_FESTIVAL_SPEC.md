@@ -1,22 +1,26 @@
 # 송정 AI 페스티벌 웹 프로그램 개발 명세서
 
-문서 버전: 1.0  
-작성 기준일: 2026-09-15  
+문서 버전: 1.2  
+작성 기준일: 2026-09-17  
 대상 학교: 서울송정초등학교  
 행사 형태: 3~6학년 주간 하루형 AI 미션 투어
 
+> **최신 운영 상세 명세:** 실시간 대시보드, QR 체크인, 네 조각 카드 성장, 공통 힌트, 학급 전체 최종 미션과 순위는 `CARD_FINALE_UPDATE_SPEC.md` 버전 3.0을 적용한다. 충돌 시 해당 문서를 우선한다.
+
 ## 1. 제품 한눈에 보기
 
-송정 AI 페스티벌 웹 프로그램은 학생들이 5개의 AI 미션 교실을 순환하고, 미션 결과에 따라 카드를 뽑고, 학급별 카드 교환을 통해 5종의 AI 능력 카드를 완성하는 행사 운영 도구다.
+송정 AI 페스티벌 웹 프로그램은 학생들이 5개의 AI 미션 교실을 순환하고, 순위에 따른 카드 종류 선택권으로 학급의 5종 능력 카드를 네 조각씩 완성한 뒤, 완성 카드 종류 수만큼 공통 힌트를 활용해 학급 전체 최종 미션에 도전하는 행사 운영 도구다.
 
 핵심 경험은 다음과 같다.
 
 1. 학생은 팀 QR을 찍고 자기 팀 화면에 들어간다.
 2. 5개 팀이 서로 다른 미션에서 출발해 10분마다 다음 미션으로 이동한다.
-3. 미션별 결과와 순위에 따라 카드 뽑기 기회를 받는다.
-4. 카드를 웹에서 뽑으면 팀과 학급 카드함에 자동 기록된다.
-5. 투어가 끝난 뒤 학급끼리 카드를 교환하여 5종 카드 완성을 노린다.
-6. 교사는 진행 상황, 제출물, 순위, 카드 현황을 한 화면에서 관리한다.
+3. 미션별 결과와 순위에 따라 카드 종류를 선택하거나 자동 배정받는다.
+4. 같은 종류를 얻을 때마다 학급 카드의 다음 조각이 열리고 4조각이면 완성된다.
+5. 완성한 카드 종류 수만큼 최종 미션에서 공통 힌트를 사용할 수 있다.
+6. 각 반은 준비되었을 때 시작하고 학급 전체가 전자칠판으로 10문제를 함께 푼다.
+7. 정답 수, 5종 카드 완성 여부, 실제 소요 시간 순으로 최종 순위를 정한다.
+8. 교사는 대시보드에서 팀 위치, 미션 상태, 카드 성장, 최종 미션을 실시간으로 관리한다.
 
 행사의 분위기는 귀엽고 역동적인 “AI 스포츠 페스티벌”이다. 억지스러운 위기 서사보다 실제 종목에 도전하고 능력 카드를 모으는 즐거움에 집중한다.
 
@@ -35,7 +39,7 @@
 | 투어 시간 | 60분 |
 | 한 라운드 | 활동 8분 + 이동 2분 |
 | 라운드 수 | 5라운드 |
-| 카드 교환 | 미션 투어 이후 학급별 10~15분 |
+| 학급 최종 미션 | 미션 투어 이후 기본 12분, 행사 설정 가능 |
 
 학년별 동시 접속 팀 수는 20~30팀이다. 교사용 화면과 예비 기기를 포함해 동시 접속 50클라이언트를 안정성 목표로 잡는다.
 
@@ -79,7 +83,7 @@
 | 53~55분 | 이동·정리 | 카드함으로 전환 |
 | 55~60분 | 카드 확인·결과 안내 | 획득 카드와 학급 현황 표시 |
 
-카드 교환은 60분 투어와 분리하여 각 학급에서 10~15분간 진행한다.
+학급 최종 미션은 60분 투어와 분리하여 각 교실에서 기본 12분간 진행한다. 실제 운영 시간은 행사 설정에서 조정한다.
 
 ## 5. 사용자 역할
 
@@ -89,32 +93,42 @@
 - 학년, 반, 팀 번호 확인
 - 현재 미션과 다음 이동 장소 확인
 - 웹 미션 수행 및 결과 제출
-- 부여된 카드 뽑기 기회 사용
-- 팀 카드함과 학급 카드 현황 확인
+- 부여된 카드 종류 후보 중 하나 선택 또는 자동 배정 결과 확인
+- 학급 카드 5종의 네 조각 진행 상황 확인
+- 미션 교실 QR 체크인과 학급 카드 현황 확인
 
 학생 개인 계정과 이름은 수집하지 않는다.
 
 ### 5.2 미션 담당 교사
 
 - Google 계정으로 로그인
+- 전체 대시보드는 읽기 전용으로 확인
+- 담당 미션의 예정 팀과 QR 체크인 여부 확인
 - 담당 미션의 현재 라운드 시작·일시정지·종료
 - 제출 현황 확인
 - 수동 채점 또는 순위 확정
-- 순위에 따른 카드 뽑기권 지급
-- 오류 제출 취소와 재제출 허용(순위 확정 전. 허용하면 라운드가 끝났어도 그 팀은 다시 제출 가능)
-- 확정한 순위 수정(뽑기권 수를 새 순위에 맞춰 추가 발급하거나 회수 표시)
+- 순위에 따른 카드 종류 후보 생성 및 보상 확정
+- 오류 제출 취소와 재제출 허용
 
 ### 5.3 총괄 관리자
 
 - 행사, 학년, 학급, 팀 생성
 - 미션 문제와 정답 설정
 - 라운드 상태 일괄 제어
-- 전체 현황 및 장애 확인
-- 카드 교환 처리
+- 실시간 팀 위치·상태와 미도착·오입장·결과 미입력 확인
+- 학년별 최종 미션 개방과 결과 공개
 - 결과를 CSV 또는 JSON으로 내보내기
 - 리허설 데이터 초기화
 
-초기 버전에서는 교사와 관리자를 하나의 교사용 앱 안에서 역할값으로 구분한다.
+### 5.4 담임교사
+
+- Google 계정으로 로그인
+- 전체 대시보드는 읽기 전용으로 확인
+- 담당 학급의 팀 위치, 미션 결과, 카드 진행도 확인
+- 총괄 운영자가 최종 미션을 연 뒤 담당 학급의 최종 미션 시작
+- 전자칠판에서 10문제 풀이와 최종 제출 진행
+
+초기 버전에서는 부스 교사, 담임교사, 총괄 관리자를 하나의 교사용 앱 안에서 역할값으로 구분한다.
 
 ## 6. 다섯 가지 미션
 
@@ -124,18 +138,17 @@
 
 학생 화면:
 
-- 문제 번호 이동 버튼, 질문, 보기(객관식)
+- 문제 번호, 질문, 보기 또는 단답 입력
 - 8분 전체 타이머
-- 모든 문제를 풀고 한 번에 제출(안 푼 문제가 있으면 확인 창에서 알림)
-- 답 제출 후 수정 불가 표시
+- 답 제출 후 수정 가능 여부 표시
 - 제출 완료 상태
-- 교사가 공개한 경우에만 문제별 정답과 해설, 맞힌 수 표시
+- 교사가 공개한 경우에만 정답과 해설 표시
 
 교사 화면:
 
-- 문제 등록: 문제, 보기 2~4개, 정답, 해설을 등록·수정·순서 변경·삭제(권장 7문항)
-- 답변 접수는 라운드 시작·종료로 제어
-- 정답 공개(학생 화면에 실시간 반영)
+- 문제 열기
+- 답변 접수 시작·종료
+- 정답 공개
 - 팀별 점수와 제출 시간 확인
 - 동점일 경우 교사가 순위 조정
 - 최종 순위 확정
@@ -143,9 +156,8 @@
 권장 기본 규칙:
 
 - 객관식 7문항
-- 맞힌 문제마다 100점, 오답·안 푼 문제 0점
-- 총점 우선, 동점이면 제출 시각이 빠른 팀 우선
-- 점수는 지금 등록된 문제 기준으로 계산하므로, 행사 중 문제를 고치면 이미 제출한 팀 점수도 새 기준으로 다시 계산됨
+- 정답 100점, 오답 0점
+- 총점 우선, 동점이면 마지막 정답 제출 시각이 빠른 팀 우선
 - 교사는 언제든 순위를 수동 수정할 수 있음
 
 ### 6.2 AI 틀린그림 찾기
@@ -168,11 +180,9 @@
 점수 기본값:
 
     기본점수 = 찾은 정답 수 × 100
-    시간보너스 = 모든 정답을 찾았을 때만 남은 초 × 2 (하나라도 못 찾으면 0)
+    시간보너스 = 남은 초 × 2
     오답감점 = 오답 수 × 20
     최종점수 = max(0, 기본점수 + 시간보너스 - 오답감점)
-
-시간보너스를 항상 주면 하나도 찾지 않고 바로 제출하는 팀이 모두 찾은 팀보다 높은 점수를 받게 되어(8분 라운드에서 최대 960점), 모두 찾았을 때만 주도록 확정했다.
 
 교사는 자동 계산 점수를 확인한 뒤 순위를 확정한다.
 
@@ -190,20 +200,17 @@
 채점 방법:
 
 - 프로그램 안에 생성형 AI 채점 API를 넣지 않는다.
-- 교사는 미션 운영 화면에서 제출 그림을 불러와 팀별로 또는 ZIP 한 파일로 한꺼번에 내려받는다.
-- 파일 이름은 `4학년-2반-3팀_2라운드.webp` 형식으로 팀 정보를 담는다.
-- 같은 화면에 그림 설명과 파일 이름 목록으로 만든 “AI 평가 요청문”이 자동으로 만들어지고, 복사 버튼으로 복사한다.
-- 요청문은 설명에서 조건을 뽑고, 파일마다 조건 충족(○/△/×)과 100점 만점 설명 일치도를 매겨 순위를 정리하도록 요청한다. 그림 솜씨는 평가에서 뺀다.
-- 교사가 별도의 생성형 AI 서비스에 요청문을 붙여 넣고 그림 파일들을 첨부한다.
+- 교사는 제출 이미지를 한꺼번에 내려받는다.
+- 교사가 별도의 생성형 AI 서비스에 공통 설명과 제출 이미지들을 첨부한다.
+- “설명 조건과 가장 가까운 순서”로 평가하도록 요청한다.
 - AI 평가 결과는 참고자료로 사용하고, 최종 순위는 교사가 입력한다.
 
 그림 저장:
 
 - Firebase Cloud Storage는 사용하지 않는다.
 - 브라우저에서 최대 960×540 크기의 WebP로 압축한다.
-- 목표 품질은 0.65, 최대 크기는 300KB다. 넘으면 품질을 0.55→0.45→0.35로, 그래도 넘으면 크기를 75%→50%로 줄여 다시 압축한다.
-- WebP를 만들지 못하는 브라우저는 PNG로 저장한다.
-- 압축된 바이트를 Firestore의 별도 제출 문서에 임시 저장한다. 제출 버튼을 누르면 그림 파일과 제출 기록을 함께 보낸다.
+- 목표 품질은 0.65, 최대 크기는 300KB다.
+- 압축된 바이트를 Firestore의 별도 제출 문서에 임시 저장한다.
 - 교사용 화면은 제출 목록에서 요청할 때만 이미지 데이터를 읽는다.
 - 행사 종료 후 관리자가 그림 제출 데이터만 일괄 삭제한다.
 
@@ -260,15 +267,15 @@
 
 ## 7. 순위와 카드 보상
 
-| 미션 순위 | 카드 뽑기권 |
+| 미션 순위 | 카드 종류 결정 방식 |
 | --- | --- |
-| 1위 | 3장 |
-| 2위 | 2장 |
-| 3위 이하 | 1장 |
+| 1위 | 서로 다른 카드 종류 3개 중 1개 선택 |
+| 2위 | 서로 다른 카드 종류 2개 중 1개 선택 |
+| 3위 이하 | 카드 종류 1개 무작위 자동 배정 |
 
-참가 팀이 4~6팀이어도 같은 규칙을 사용한다.
+참가 팀이 4~6팀이어도 같은 규칙을 사용하며 모든 팀은 미션마다 조각 하나를 얻는다. 후보 종류는 5종에서 같은 확률로 만들고 한 보상 안에서 중복시키지 않는다.
 
-카드 종류는 5개이며 기본 확률은 모두 20퍼센트다.
+카드 종류는 다음 5개다.
 
 | 카드 | 연결 미션 | 의미 |
 | --- | --- | --- |
@@ -278,45 +285,31 @@
 | 명령 카드 | 로봇 길찾기 | 순서와 규칙으로 움직이게 하는 힘 |
 | 검증 카드 | AI 오류찾기 | 근거를 찾아 사실을 확인하는 힘 |
 
-카드 규칙:
+카드 성장 규칙:
 
-- 중복 획득 가능
-- 카드 뽑기권은 교사가 순위를 확정할 때 생성
-- 확정한 순위를 고치면 새 순위에 맞춰 모자란 뽑기권은 새로 만들고, 남는 뽑기권은 지우지 않고 회수 표시(revokedAt)한다. 안 뽑은 뽑기권부터 회수하며, 이미 뽑은 카드를 회수하면 팀·학급 카드함에서 빠진다
-- 카드 종류는 뽑기권 생성 시 무작위로 미리 정해짐
-- 학생이 카드를 누르면 뒤집기 애니메이션 후 공개
-- 한 뽑기권은 한 번만 사용할 수 있음
-- 카드 획득 기록은 삭제하지 않는 이벤트 원장으로 보관
-- 팀 카드함과 학급 카드함은 원장을 기준으로 계산
+- 카드 진행도는 팀이 아니라 학급 단위로 계산
+- 같은 종류를 얻을 때마다 다음 조각이 열려 `0/4`에서 `4/4`까지 성장
+- 권장 공개 순서는 왼쪽 위, 오른쪽 위, 왼쪽 아래, 오른쪽 아래
+- 5회 이상 획득은 진행도를 `4/4`로 유지하고 `중복 +N`으로만 기록
+- 중복 조각 교환과 재조합은 없음
+- 교사가 순위를 확정할 때 결과 하나당 카드 보상 원장 하나만 생성
+- 1·2위 학생은 현재 학급 카드 현황을 보고 제시된 후보 안에서 선택
+- 학생은 후보에 없는 카드 종류를 선택할 수 없음
+- 새로고침이나 버튼 연타로 같은 보상을 두 번 받을 수 없음
 
-카드가 클라이언트에서 임의로 늘어나지 않도록, 수량 맵 자체보다 변경 기록을 원본 데이터로 취급한다.
+카드 진행도는 claimed `cardAwards` 원장을 학급별로 집계하여 계산한다.
 
-## 8. 카드 교환
+## 8. 실시간 운영 대시보드와 학급 최종 미션
 
-교환 단위는 학급이다. 기본안은 같은 학년의 학급끼리 교환하는 방식이다.
+팀이 미션 교실 QR을 찍으면 대시보드에 입장 상태가 표시된다. 부스 교사가 미션을 시작하고 결과를 확정하면 진행 중·완료 상태와 카드 보상이 실시간으로 갱신된다. 총괄 운영자는 미션별 보기와 학급별 보기에서 모든 팀의 현재 위치, 다음 미션, 완료 여부, 미도착·오입장·결과 미입력 경고를 확인한다.
 
-교사용 교환 화면:
+미션 투어가 끝나면 총괄 운영자가 해당 학년의 최종 미션을 연다. 각 반은 준비되었을 때 담임교사 대시보드에서 시작하며, 시작 시각은 달라도 실제 소요 시간을 서버 시각으로 계산한다.
 
-1. 각 학급의 5종 카드 수량을 표로 표시
-2. 보내는 학급과 받는 학급 선택
-3. 카드 종류와 수량 선택
-4. 교환 전후 예상 수량 표시
-5. 양쪽 교사가 확인하거나 총괄 교사가 확정
-6. 교환 원장 기록
+학급 전체가 전자칠판으로 10개의 4지선다형 문제를 함께 푼다. 완성 카드 종류 수만큼 힌트를 사용할 수 있으며, 모든 힌트는 현재 문제의 오답 보기 하나를 제거한다. 카드 종류별 효과와 AI 마스터 찬스는 사용하지 않는다.
 
-교환 안전 규칙:
+최종 순위는 `정답 수 내림차순 → 5종 카드 완성 여부 → 소요 시간 오름차순`으로 정한다. 진행 중에는 다른 반의 점수와 순위를 숨기고, 같은 학년의 모든 반이 제출한 뒤 결과를 공개한다.
 
-- 보유 수량보다 많이 보낼 수 없음
-- 0장 또는 음수 교환 불가
-- 교환 확정은 Firestore 트랜잭션으로 처리
-- 중복 클릭 방지를 위한 고유 요청 ID 사용
-- 잘못된 교환은 삭제하지 않고 반대 방향의 정정 기록으로 취소
-
-완성 조건:
-
-- 학급이 5종 카드를 각각 1장 이상 보유하면 “AI 능력 컬렉션 완성”
-- 완성 학급 화면에 피날레 이미지와 축하 효과 표시
-- 카드 개수 경쟁보다 완성을 우선하고, 전체 수량 순위는 선택 기능으로 둠
+세부 화면, 상태, 데이터 모델, 복구와 테스트는 `CARD_FINALE_UPDATE_SPEC.md` 버전 3.0을 따른다.
 
 ## 9. 화면 구조
 
@@ -337,19 +330,21 @@
 | /join/:eventId | 팀 확인·입장 |
 | /team/:eventId/:teamId | 팀 홈과 현재 미션 |
 | /team/:eventId/:teamId/mission/:missionId | 미션 수행 |
-| /team/:eventId/:teamId/draw | 카드 뽑기 |
-| /team/:eventId/:teamId/cards | 팀·학급 카드함 |
-| /team/:eventId/:teamId/finale | 완성 축하 |
+| /team/:eventId/:teamId/reward | 순위별 카드 종류 선택·자동 배정 결과 |
+| /team/:eventId/:teamId/cards | 학급 카드 5종의 네 조각 진행도 |
+| /team/:eventId/:teamId/check-in/:stationId | 미션 교실 QR 체크인 결과 |
+| /check-in/:eventId/:stationId | 교실에 붙이는 QR 주소. 기기에 입장한 팀의 체크인 화면으로 이동 |
 
 ### 9.3 교사 화면
 
 | 경로 | 화면 |
 | --- | --- |
 | /teacher/login | Google 로그인 |
-| /teacher/:eventId | 전체 운영 대시보드 |
-| /teacher/:eventId/mission/:missionId | 미션 진행·채점 |
+| /teacher/:eventId/dashboard | 실시간 전체 운영 대시보드 |
+| /teacher/:eventId/station/:missionId | 미션 진행·채점 |
 | /teacher/:eventId/class/:classId | 학급 카드함 |
-| /teacher/:eventId/exchange | 카드 교환 |
+| /teacher/:eventId/class/:classId/final | 학급 전체 10문제 최종 미션 |
+| /teacher/:eventId/final-results | 학년별 최종 결과와 순위 |
 | /teacher/:eventId/export | 결과 내보내기 |
 | /admin/:eventId | 행사 설정·초기화 |
 
@@ -418,11 +413,12 @@
 - card-command.webp
 - card-verification.webp
 - card-back.webp
+- master-chance-emblem.webp (구버전 자산, 신규 화면에서 사용하지 않음)
 
 ### 장면
 
 - scene-card-draw.webp
-- scene-card-exchange.webp
+- scene-card-exchange.webp (구버전 자산, 신규 화면에서 사용하지 않음)
 - scene-finale.webp
 
 ### 투명 배경 마스코트
@@ -468,6 +464,14 @@ UI가 Firebase 코드에 직접 의존하지 않도록 저장소 인터페이스
 
 이 구조를 통해 1차 목업을 먼저 완성하고 Firebase 설정 전에도 전체 흐름을 테스트한다.
 
+구현 메모:
+
+- 저장소는 `capabilities`(`liveOps`, `classFinal`)로 연결된 기능을 알린다. mock과 Firestore 저장소 모두 켜져 있다. 새 기능을 아직 연결하지 못한 저장소는 값을 꺼 두고, 화면은 꺼진 기능의 메뉴와 버튼을 숨긴다.
+- Firestore 저장소는 대시보드·부스·최종 미션 현황을 실시간 구독 캐시에서 만든다. 화면을 다시 그릴 때마다 문서를 다시 읽지 않아, 읽기는 "바뀐 문서 수 × 보고 있는 교사 수"만큼만 든다.
+- 최근 활동은 별도 컬렉션에 쓰지 않고 구독 중인 문서(체크인, 부스, 라운드, 카드 보상, 최종 미션)의 시각으로 만든다.
+- 남은 시간, 미도착 판정, 최종 미션 소요 시간처럼 시각이 기준인 계산은 기기 시계(`Date.now()`)가 아니라 저장소의 `serverNow()`를 쓴다.
+- 정답과 힌트로 지울 보기는 저장소 안에만 두고 화면에는 문제와 보기만 내려 준다. 진행 중에는 정답 수도 내려 주지 않는다.
+
 ### 12.3 기본 폴더 구조
 
     src/
@@ -483,7 +487,8 @@ UI가 Firebase 코드에 직접 의존하지 않도록 저장소 인터페이스
           ozobot/
           libraryCheck/
         cards/
-        exchange/
+        dashboard/
+        final/
         teacher/
       data/
         mock/
@@ -533,31 +538,30 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
 
     displayName: string
     email: string
-    role: "teacher" | "admin"
+    role: "admin" | "station_teacher" | "homeroom_teacher"
+    missionId: string | null   (부스 교사의 담당 미션. 비어 있으면 모든 부스)
+    classId: string | null     (담임교사의 담당 학급, 예: g4-c2)
     active: boolean
+
+예전 값 role: "teacher"는 담당이 정해지지 않은 부스 교사로 취급한다.
 
 #### events/{eventId}
 
     title: string
     schoolName: string
-    status: "draft" | "ready" | "active" | "paused" | "exchange" | "completed"
+    status: "draft" | "ready" | "active" | "paused" | "final" | "completed"
     activeGrade: 3 | 4 | 5 | 6 | null
     activeRound: 0 | 1 | 2 | 3 | 4 | 5
     roundEndsAt: timestamp | null
-    pausedRemainingMs: number | null
-    roundDurationMs: number
-    moveDurationMs: number
     createdAt: timestamp
     updatedAt: timestamp
-
-일시정지하면 남은 시간을 pausedRemainingMs에 보관하고 roundEndsAt을 비운다. 다시 시작할 때 남은 시간만큼 새 종료 시각을 만든다.
 
 #### events/{eventId}/classes/{classId}
 
     grade: 3 | 4 | 5 | 6
     classNo: number
     displayName: string
-    status: "ready" | "touring" | "exchange" | "complete"
+    status: "ready" | "touring" | "final_ready" | "final_active" | "complete"
 
 #### events/{eventId}/teams/{teamId}
 
@@ -588,8 +592,6 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
     enabled: boolean
     config: map
 
-골든벨 config는 `{ type, questions: [{ id, question, choices, answerIndex, explanation }] }`이다. 예전 한 문제 형식(question, choices, answerIndex)은 읽을 때 `q1` 문제 하나로 바꾼다.
-
 #### events/{eventId}/rounds/{roundId}
 
     grade: number
@@ -598,31 +600,15 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
     startedAt: timestamp | null
     endsAt: timestamp | null
 
-#### events/{eventId}/missionStates/{missionId__gGRADE__rROUND}
-
-    missionId: string
-    grade: number
-    roundNo: number
-    answerRevealed: boolean
-    finalized: boolean
-    updatedAt: timestamp
-
-골든벨 정답 공개, 순위 확정·수정, 재제출 허용처럼 미션·학년·라운드별 진행 상태를 담는 작은 문서다. 학생 미션 화면은 이 문서만 실시간 구독하고, 바뀌면 화면을 다시 읽는다.
-
 #### events/{eventId}/submissions/{submissionId}
-
-문서 ID는 `{missionId}__{teamId}` 고정이다.
 
     teamId: string
     classId: string
     missionId: string
-    grade: number
     roundNo: number
     status: "draft" | "submitted" | "verified"
     answer: map
     score: number | null
-    reopened: boolean
-    requestId: string
     submittedAt: timestamp | null
     updatedAt: timestamp
 
@@ -631,9 +617,8 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
 #### events/{eventId}/drawingSubmissions/{teamId}
 
     teamId: string
-    missionId: string
     promptId: string
-    mimeType: "image/webp" | "image/png"
+    mimeType: "image/webp"
     byteSize: number
     width: number
     height: number
@@ -652,36 +637,132 @@ imageBytes 필드는 인덱스에서 제외한다.
     rank: number
     finalizedBy: string
     finalizedAt: timestamp
-    revisedAt: timestamp | null
 
-#### events/{eventId}/drawTickets/{ticketId}
+#### events/{eventId}/cardAwards/{awardId}
 
-    teamId: string
+    resultId: string
+    grade: 3 | 4 | 5 | 6
     classId: string
-    sourceResultId: string
-    cardType: "thinking" | "observation" | "expression" | "command" | "verification"
+    teamId: string
+    missionId: string
+    roundNo: 1 | 2 | 3 | 4 | 5
+    rank: number
+    selectionMode: "choose_three" | "choose_two" | "automatic"
+    offeredTypes: CardType[]
+    selectedType: CardType | null
+    status: "pending" | "claimed"
+    createdAt: timestamp
     claimedAt: timestamp | null
-    revokedAt: timestamp | null
-    createdAt: timestamp
 
-#### events/{eventId}/exchanges/{exchangeId}
+#### events/{eventId}/teamMissionStates/{classId_teamNo_roundNo}
 
-    requestId: string
-    fromClassId: string
-    toClassId: string
-    cardType: string
-    quantity: number
-    status: "completed" | "reversed"
-    createdBy: string
-    createdAt: timestamp
-    reversesExchangeId: string | null
+교실 QR 체크인 기록. 진행 중·완료와 시간 경고는 저장하지 않고 부스 문서와 라운드 시각으로 계산한다.
+
+    grade: number
+    classId: string
+    teamId: string
+    teamNo: 1 | 2 | 3 | 4 | 5
+    roundNo: 1 | 2 | 3 | 4 | 5
+    expectedMissionId: string
+    actualMissionId: string | null
+    wrongStationId: string | null     (다른 교실 QR을 찍은 기록. 올바르게 입장하면 null)
+    manualReview: boolean
+    checkedInAt: timestamp | null     (서버 시각)
+    checkedInBy: "team" | "teacher" | null
+    updatedAt: timestamp
+
+#### events/{eventId}/missionRoundStates/{missionId_gGrade_rRoundNo}
+
+    grade: number
+    missionId: string
+    roundNo: number
+    status: "active" | "completed"    (화면의 scoring은 라운드 상태로 계산)
+    startedAt: timestamp | null
+    completedAt: timestamp | null
+    resultFinalizedAt: timestamp | null
+    resultTeamIds: string[]           (순위를 확정한 팀. 대시보드가 results를 다시 읽지 않게 하는 요약)
+    updatedBy: string | null
+    updatedAt: timestamp
+
+#### events/{eventId}/clockSync/{uid}
+
+기기 시계와 서버 시계의 차이를 재는 문서. 자기 문서에 서버 시각만 적을 수 있다.
+
+    at: timestamp
+
+#### events/{eventId}/finalSessions/{grade}
+
+    grade: number
+    status: "locked" | "open" | "results_published" | "closed"
+            (results_hidden은 저장하지 않고 "모든 반 제출 + 공개 전"이면 화면에서 계산)
+    questionCount: 10
+    durationLimitSec: number
+    openedAt: timestamp | null
+    openedBy: string | null
+    forceOpenReason: string | null
+    resultsPublishedAt: timestamp | null
+    lastReset: { classId, reason, by, at } | 없음
+
+#### events/{eventId}/finalQuestionSets/{grade}
+
+교사만 읽는다. 정답은 들어 있지 않다.
+
+    grade: number
+    questions: [{ id, area, text, passage, choices: [{ id, label }] × 4, hintRemoveChoiceId }] × 10
+
+#### events/{eventId}/finalAnswerKeys/{grade}
+
+총괄 운영자만 읽는다. 채점은 총괄 운영자 기기에서 하고 결과를 공개할 때 학급 상태에 기록한다.
+
+    grade: number
+    answers: { [questionId]: choiceId }
+
+#### events/{eventId}/finalResponses/{classId}
+
+읽기를 아끼려고 학급당 문서 하나에 문제 번호("0"~"9")별로 모은다.
+보안 규칙은 지금 푸는 번호만 바꿀 수 있게 해서 확정한 답을 나중에 고치지 못하게 한다.
+
+    classId: string
+    grade: number
+    answers: {
+      "0": { questionId, selectedChoiceId, hintUsed, removedChoiceId,
+             confirmedAt: timestamp | null, hintRequestId?, confirmRequestId?, updatedAt }
+    }
+    updatedAt: timestamp
+
+#### events/{eventId}/finalClassStates/{classId}
+
+문서가 없으면 시작 전(ready)이다. 초기화는 문서를 지운다.
+
+    classId: string
+    grade: number
+    status: "active" | "submitted" | "timeout"   (locked·ready·review_required는 화면에서 계산)
+    currentQuestionIndex: number
+    completedCardTypeCountSnapshot: number
+    allFiveCardsCompletedSnapshot: boolean
+    hintTotal: number
+    hintUsed: number
+    questionCount: number             (시작할 때 세션 값을 복사. 규칙이 세션을 다시 읽지 않게 한다)
+    durationLimitSec: number
+    startedAt: timestamp              (서버 시각)
+    submittedAt: timestamp | null     (서버 시각)
+    durationMs: number | null         (결과 공개·보정 때 기록. 그 전에는 제출 시각 - 시작 시각으로 계산)
+    correctCount: number | null       (결과 공개·보정 때 총괄 운영자가 기록)
+    finalRank: number | null
+    manualOverride: boolean
+    overrideReason: string | null
+    overrideBy: string | null
+    startRequestId: string | null
+    updatedAt: timestamp
 
 ### 14.2 원본 데이터 원칙
 
 - 미션 순위의 원본은 results
-- 카드 획득의 원본은 claimed drawTickets
-- 카드 교환의 원본은 exchanges
-- 카드함의 수량은 위 기록을 합산하여 계산
+- 카드 획득과 진행도의 원본은 claimed cardAwards
+- 팀의 미션 위치·상태 원본은 teamMissionStates
+- 최종 문제 응답 원본은 finalResponses
+- 최종 학급 상태, 점수, 시작·제출 시각의 원본은 finalClassStates
+- 카드 진행도는 학급별 selectedType 기록을 합산하여 최대 4까지 계산하고 초과분은 중복 수로 표시
 - 성능이 필요하면 계산 결과를 별도 요약 문서에 캐시하되, 원장과 불일치하면 원장을 우선
 
 ## 15. 인증과 보안
@@ -699,7 +780,7 @@ imageBytes 필드는 인덱스에서 제외한다.
 - QR은 eventId와 teamId를 포함
 - 최초 입장한 UID를 팀 세션으로 잠금
 - 학생은 자기 팀 제출물만 생성·수정 가능
-- 순위, 카드 종류, 교환 기록은 학생이 변경할 수 없음
+- 순위와 카드 후보는 학생이 변경할 수 없고, 1·2위 학생은 자기 보상의 offeredTypes 안에서만 selectedType을 확정할 수 있음
 
 서버 없는 Spark 플랜 구조이므로 QR 링크 자체가 시험 수준의 강한 인증은 아니다. 이 프로그램은 학교 행사 운영용이며 민감정보와 성적을 저장하지 않는다. 악의적 공격까지 막아야 한다면 별도 서버나 유료 기능이 필요한 보안 설계를 다시 해야 한다.
 
@@ -713,11 +794,12 @@ imageBytes 필드는 인덱스에서 제외한다.
 
 ## 16. 동시성 및 데이터 무결성
 
-- 카드 교환은 Firestore 트랜잭션 사용
-- 카드 뽑기권 사용은 claimedAt이 null일 때만 성공
+- 카드 보상 생성은 결과 하나당 고정 문서 ID를 사용하여 한 번만 성공
+- 카드 종류 선택은 status가 pending이고 selectedType이 offeredTypes에 포함될 때만 성공
+- QR 체크인은 학급·팀·라운드별 고정 문서 ID로 중복을 막음
+- 공통 힌트 사용은 문제별로 한 번만 기록하고 보유 수를 넘지 못하게 함
+- 최종 미션 시작과 제출은 requestId로 중복을 막고 서버 시각으로 기록
 - 동일 제출 중복 방지를 위해 미션·팀별 고정 문서 ID 사용
-- 학생 제출은 그 미션이 지금 진행 중인 학년·라운드일 때만 받는다(보안 규칙이 팀·미션 문서로 라운드를 다시 계산해 확인). 교사가 재제출을 허용한 제출은 예외
-- 자동 채점 점수는 학생이 쓰지 않고, 교사 화면에서 읽을 때 지금 문제·정답 기준으로 계산
 - 교사 순위 확정 버튼은 중복 클릭돼도 같은 결과가 나오도록 설계
 - 쓰기 요청에는 requestId를 포함
 - 서버 시각을 기준으로 순서 기록
@@ -729,7 +811,7 @@ imageBytes 필드는 인덱스에서 제외한다.
 - 연결 상태를 화면 상단에 명확히 표시
 - 제출 중에는 버튼 비활성화와 진행 표시
 - 실패하면 입력 내용을 유지하고 재시도 버튼 제공
-- 타이머는 서버 종료 시각을 기준으로 계산하되 화면 갱신은 브라우저에서 수행
+- 타이머는 서버 시작 시각을 기준으로 계산하되 화면 갱신은 브라우저에서 수행
 - 같은 제출을 재전송해도 중복 생성되지 않도록 고정 ID 사용
 - 교사 화면에 모든 결과 수동 입력·수정 기능 제공
 - 행사 전 종이 순위표와 카드 기록표를 예비 운영안으로 준비
@@ -753,21 +835,22 @@ PWA와 완전한 오프라인 쓰기 지원은 MVP 이후 선택 기능이다.
 - 포커스 표시 제거 금지
 - 성공, 경고, 실패를 색과 함께 문구·아이콘으로 표시
 - 애니메이션 감소 설정을 존중
-- 카드 뒤집기나 축하 효과는 소리 없이도 의미가 전달되어야 함
-- 실수하기 쉬운 초기화·교환 확정에는 확인 단계 제공
+- 카드 조각 공개와 축하 효과는 소리 없이도 의미가 전달되어야 함
+- 실수하기 쉬운 초기화·힌트 사용·최종 답안 제출에는 확인 단계 제공
 
 ## 20. MVP 범위
 
 ### 포함
 
-- 학생 QR 링크 입장
+- 학생 팀 QR 입장과 미션 교실 QR 체크인
 - 팀 홈과 자동 미션 순환 안내
 - 5종 미션 화면
 - 학생 제출
 - 교사 진행·채점·순위 확정
-- 카드 뽑기와 카드함
-- 학급 카드 교환
-- 전체 현황
+- 순위별 카드 종류 선택과 네 조각 카드 성장
+- 완성 카드 종류 수만큼 공통 힌트
+- 실시간 팀 위치·미션 상태 대시보드
+- 반별로 시작하는 학급 전체 10문제 최종 미션과 자동 순위
 - 그림 제출 일괄 다운로드
 - 행사 데이터 내보내기
 - 모바일·태블릿 반응형
@@ -828,15 +911,16 @@ PWA와 완전한 오프라인 쓰기 지원은 MVP 이후 선택 기능이다.
 
 완료 조건: 그림과 텍스트 제출을 교사가 모아 확인하고 순위를 확정할 수 있다.
 
-### 5단계: 카드와 교환
+### 5단계: 실시간 대시보드, 카드 성장과 학급 최종 미션
 
-- 순위별 뽑기권 발급
-- 카드 뒤집기
-- 팀·학급 카드함
-- 트랜잭션 기반 학급 교환
-- 컬렉션 완성 피날레
+- 미션 교실 QR 체크인과 팀 이동 상태
+- 미션별·학급별 실시간 운영 대시보드
+- 순위별 카드 종류 후보 생성과 선택
+- 학급 카드 5종의 네 조각 성장
+- 완성 카드 종류 수만큼 공통 힌트
+- 반별 시작, 학급 전체 10문제 풀이, 최종 순위
 
-완료 조건: 중복 클릭이나 새로고침으로 카드가 추가 지급되지 않는다.
+완료 조건: 모든 팀의 위치와 상태를 확인할 수 있고, 중복 클릭·새로고침에도 카드·힌트·최종 답안이 정확히 유지되며 최신 순위 규칙이 적용된다.
 
 ### 6단계: 리허설과 배포
 
@@ -847,7 +931,7 @@ PWA와 완전한 오프라인 쓰기 지원은 MVP 이후 선택 기능이다.
 - 장애 복구 연습
 - Firebase Hosting 배포
 
-완료 조건: 교사가 개발자 도움 없이 행사 생성, 시작, 판정, 교환, 종료를 수행한다.
+완료 조건: 교사가 개발자 도움 없이 행사 생성, 시작, 판정, 결승 진행, 종료를 수행한다.
 
 ## 22. 핵심 인수 조건
 
@@ -855,17 +939,21 @@ PWA와 완전한 오프라인 쓰기 지원은 MVP 이후 선택 기능이다.
 2. 팀 번호에 따라 5개 미션이 겹치지 않게 순환한다.
 3. 새로고침해도 팀 연결과 제출 상태가 유지된다.
 4. 학생은 자기 팀 제출 외의 데이터를 수정할 수 없다.
-5. 교사가 확정한 순위에 따라 3장, 2장, 1장의 뽑기권이 정확히 생성된다.
-6. 뽑기권 하나로 카드를 두 번 뽑을 수 없다.
-7. 학급 카드 수량은 획득과 교환 기록의 합과 일치한다.
-8. 카드 교환 중 어느 한쪽 수량이 음수가 되지 않는다.
-9. 그림이 300KB 목표를 넘으면 재압축하고, 350KB를 넘으면 제출하지 않는다.
-10. 교사는 그림을 팀 정보가 포함된 파일명으로 일괄 다운로드할 수 있다.
-11. 모든 핵심 기능에 교사용 수동 수정 경로가 있다.
-12. 앱 내부에서 유료 AI API나 결제 필요 기능을 호출하지 않는다.
-13. 태블릿 가로 화면에서 스크롤 없이 주요 행동 버튼을 볼 수 있다.
-14. 연결 실패 시 입력 데이터가 사라지지 않고 재시도할 수 있다.
-15. 행사 종료 후 그림 데이터만 선택적으로 삭제할 수 있다.
+5. 교사가 순위를 확정하면 모든 팀에 카드 보상 하나가 생성되고 1위 3종, 2위 2종, 나머지 1종 후보 규칙을 지킨다.
+6. 학생은 offeredTypes 밖의 카드 종류를 선택할 수 없고 같은 보상을 두 번 받을 수 없다.
+7. 학급 카드 진행도는 claimed cardAwards의 selectedType 합계와 일치하며 4를 넘는 획득은 중복 수로 계산한다.
+8. 대시보드에서 어떤 학급의 어떤 팀이 어느 미션에 있는지 확인할 수 있다.
+9. 미도착, 잘못된 교실, 결과 미입력 경고가 표시된다.
+10. 완성 카드 종류 수와 최종 미션의 공통 힌트 수가 일치한다.
+11. 학급 전체가 전자칠판에서 10개의 4지선다형 문제를 풀 수 있다.
+12. 정답 수, 5종 완성 여부, 소요 시간 순으로 학급 순위를 정한다.
+13. 그림이 300KB 목표를 넘으면 재압축하고, 350KB를 넘으면 제출하지 않는다.
+14. 교사는 그림을 팀 정보가 포함된 파일명으로 일괄 다운로드할 수 있다.
+15. 모든 핵심 기능에 교사용 수동 수정 경로가 있다.
+16. 앱 내부에서 유료 AI API나 결제 필요 기능을 호출하지 않는다.
+17. 태블릿 가로 화면에서 스크롤 없이 주요 행동 버튼을 볼 수 있다.
+18. 연결 실패 시 입력 데이터가 사라지지 않고 재시도할 수 있다.
+19. 행사 종료 후 그림 데이터만 선택적으로 삭제할 수 있다.
 
 ## 23. 초기 샘플 데이터
 
@@ -877,12 +965,23 @@ PWA와 완전한 오프라인 쓰기 지원은 MVP 이후 선택 기능이다.
 - 학년: 3, 4, 5, 6
 - 학급 수: 4, 5, 6, 5
 - 학급당 팀 수: 5
-- 카드 확률: 각 20퍼센트
-- 순위 보상: 3, 2, 1
+- 카드 후보 확률: 각 종류 동일
+- 순위 보상: 1위 3종 중 선택, 2위 2종 중 선택, 3위 이하 자동 배정
+- 카드 완성: 종류별 4조각
+- 최종 미션 제한 시간: 기본 12분
+- 최종 문제 수: 10문제
+- 공통 힌트: 완성 카드 종류 수, 최대 5개
 - 라운드 활동: 8분
 - 이동: 2분
 
-Mock 데이터는 4학년 2반 3팀이 2라운드에 참여 중이며, 카드 2장을 보유한 상태로 시작해 여러 화면 상태를 확인할 수 있게 한다.
+Mock 데이터는 4학년 2반 3팀이 2라운드에 참여 중인 상태, 정상 체크인·오입장·미도착 경고, 카드 진행도·중복·완성 종류 수, 최종 미션 진행·힌트 사용·제출 상태를 각각 확인할 수 있게 만든다.
+
+현재 mock 샘플:
+
+- 4학년: 2라운드를 시작한 지 2분 30초. 시청각실·컴퓨터실 부스는 미션을 시작했고, 2반 3팀과 4반 5팀은 미도착, 5반 4팀은 도서관 대신 과학실 QR을 찍었다(오입장). 1라운드 결과는 확정되어 카드 보상이 만들어져 있다.
+- 3학년: 5라운드를 마치고 최종 미션이 열린 상태(결과 공개 전). 1반은 5종 완성·힌트 5개로 4번 문제를 푸는 중(힌트 1개 사용), 2반은 8문제 정답·6분 10초, 3반은 8문제 정답·7분 30초로 제출 완료, 4반은 시작 전이다.
+- 5·6학년: 투어 시작 전.
+- 최종 미션 샘플 문제는 `src/data/mock/finalQuestions.ts`의 10문제(영역별 2문제)이며 모든 학년이 같은 샘플을 쓴다. 실제 문제는 24장에 따라 교사가 정한다.
 
 ## 24. 변경이 필요한 미확정 항목
 
@@ -895,7 +994,9 @@ Mock 데이터는 4학년 2반 3팀이 2라운드에 참여 중이며, 카드 2�
 - 그리기 설명 문장
 - 오조봇 코스와 감점 규칙
 - 도서관 오류찾기 글, 정답 요소, 참고 도서
-- 카드 교환의 최종 승인 담당자
+- 학년별 최종 미션 개방 시각과 제한 시간
+- 학년별 최종 10문제, 정답, 오답 제거 대상
+- QR 미도착 경고 유예 시간
 - 피날레에서 표시할 학급 보상 문구
 
 ---
