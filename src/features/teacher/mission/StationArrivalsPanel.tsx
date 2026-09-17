@@ -1,7 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { paths } from '../../../app/paths';
 import { Button } from '../../../components/Button';
 import { Icon } from '../../../components/Icon';
+import { QrCode } from '../../../components/QrCode';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { InlineAlert } from '../../../components/StateViews';
 import type { StationArrivals } from '../../../data/EventRepository';
@@ -156,7 +158,7 @@ export function StationArrivalsPanel({
   );
 }
 
-/** 교실 문에 붙일 QR 주소. 무료 QR 생성기나 학교 프린터 프로그램에 붙여 넣어 만든다. */
+/** 교실 QR. 인쇄물이 없거나 떨어졌을 때는 이 화면의 QR을 학생에게 보여 줘도 된다. */
 function StationQrAddress({ eventId, mission }: { eventId: string; mission: Mission }) {
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const [copied, setCopied] = useState<boolean | null>(null);
@@ -165,12 +167,17 @@ function StationQrAddress({ eventId, mission }: { eventId: string; mission: Miss
   return (
     <details className="station-qr">
       <summary>
-        <Icon name="qr_code_scanner" size="sm" /> {mission.room} 교실 QR 주소
+        <Icon name="qr_code_scanner" size="sm" /> {mission.room} 교실 QR 보기
       </summary>
       <div className="stack">
         <p className="muted">
-          이 주소로 QR 코드를 만들어 교실 입구에 붙여 주세요. 팀 기기로 찍으면 도착이 기록돼요.
+          팀 디벗 카메라로 찍으면 도착이 기록돼요. 교실 입구에 붙일 때는 인쇄 화면을 쓰고, 급할 때는
+          이 QR을 화면에 띄워 보여 줘도 돼요.
         </p>
+        <QrCode value={address} label={`${mission.room} 도착 QR`} className="station-qr__code" />
+        <Link to={paths.qrPrint(eventId, mission.id)} className="teacher-shortcuts__link">
+          이 교실 QR 인쇄하기 <Icon name="arrow_forward" size="sm" />
+        </Link>
         <textarea
           ref={fieldRef}
           className="text-input station-qr__field"

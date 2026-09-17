@@ -9,6 +9,7 @@ import {
 import {
   Bytes,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocFromServer,
@@ -66,6 +67,7 @@ import type {
   TeacherProfile,
   TeamMissionState,
 } from '../../domain/types';
+import { toDeviceCode } from '../../domain/device';
 import type {
   AdjustFinalResultInput,
   CardAwardView,
@@ -76,6 +78,7 @@ import type {
   ClassCardBoard,
   ClassFinalView,
   ClassOpsDetail,
+  DeviceInfo,
   EventRepository,
   EventSetupSummary,
   FinalAdminActionInput,
@@ -98,6 +101,7 @@ import type {
   StartStationInput,
   StationArrivals,
   TeacherClassCards,
+  TeamDevice,
   TeamMissionView,
   TeamRewardView,
   TeamSession,
@@ -781,12 +785,7 @@ export class FirestoreEventRepository implements EventRepository {
       const sessionRef = doc(this.sub(eventId, 'sessions'), user.uid);
       const existing = await getDoc(sessionRef);
       const existingTeamId = existing.data()?.teamId as string | undefined;
-      if (existingTeamId && existingTeamId !== teamId) {
-        throw new RepositoryError(
-          'not-allowed',
-          '이 기기는 다른 팀으로 입장했어요. 선생님께 잠금 해제를 요청해 주세요.',
-        );
-      }
+      if (existingTeamId && existingTeamId !== teamId) throw new RepositoryError('device-locked');
       if (!existing.exists()) {
         await setDoc(sessionRef, {
           uid: user.uid,
@@ -798,6 +797,66 @@ export class FirestoreEventRepository implements EventRepository {
         await updateDoc(sessionRef, { lastSeenAt: serverTimestamp() });
       }
       return { eventId, teamId, joinedAt: Date.now() };
+    });
+  }
+
+  async getMyDevice(eventId: string): Promise<DeviceInfo> {
+    return run(async () => {
+      const user = await this.ensureUser();
+      const session = await getDoc(doc(this.sub(eventId, 'sessions'), user.uid));
+      const teamId = session.data()?.teamId as string | undefined;
+      return {
+        code: toDeviceCode(user.uid),
+        team: teamId ? await this.getTeam(eventId, teamId) : null,
+      };
+    });
+  }
+
+  /** 필요할 때만 한 번 읽는다(구독하지 않는다). 학급의 다섯 팀에 묶인 세션만 가져온다. */
+  async listClassDevices(eventId: string, classId: string): Promise<TeamDevice[]> {
+    return run(async () => {
+      await this.ensureUser();
+      this.requireTeacher();
+      const classInfo = await this.getClass(eventId, classId);
+      const teams = (await this.listTeams(eventId, classInfo.grade)).filter(
+        (team) => team.classId === classId,
+      );
+      if (teams.length === 0) return [];
+      const snapshot = await getDocs(
+        query(
+          this.sub(eventId, 'sessions'),
+          where(
+            'teamId',
+            'in',
+            teams.map((team) => team.id),
+          ),
+        ),
+      );
+      const teamNoOf = (teamId: string) => teams.find((team) => team.id === teamId)?.teamNo ?? 0;
+      return snapshot.docs
+        .map((item): TeamDevice => {
+          const data = item.data();
+          return {
+            id: item.id,
+            teamId: String(data.teamId),
+            code: toDeviceCode(item.id),
+            joinedAt: toMillis(data.createdAt),
+            lastSeenAt: toMillis(data.lastSeenAt),
+          };
+        })
+        .sort(
+          (a, b) =>
+            teamNoOf(a.teamId) - teamNoOf(b.teamId) || (a.joinedAt ?? 0) - (b.joinedAt ?? 0),
+        );
+    });
+  }
+
+  async unlockDevice(eventId: string, deviceId: string): Promise<void> {
+    return run(async () => {
+      await this.ensureUser();
+      this.requireTeacher();
+      // 세션 문서만 지운다. 제출·카드·체크인 기록은 팀 단위라 그대로 남는다.
+      await deleteDoc(doc(this.sub(eventId, 'sessions'), deviceId));
     });
   }
 

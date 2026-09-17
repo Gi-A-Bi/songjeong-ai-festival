@@ -345,6 +345,65 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
   });
 });
 
+describe('기기 잠금 해제 (에뮬레이터)', () => {
+  it('다른 팀에 묶인 기기는 교사가 잠금을 풀어야 올바른 팀으로 입장할 수 있다', async () => {
+    await signInAsAdmin();
+    await repository.setupEvent(EVENT);
+
+    const wrong = 'g4-c2-t4';
+    const right = 'g4-c2-t3';
+    await signInAsStudent(wrong);
+    await expect(repository.joinTeam(EVENT, right)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'device-locked'),
+    );
+    const mine = await repository.getMyDevice(EVENT);
+    expect(mine.team?.id).toBe(wrong);
+    expect(mine.code).toMatch(/^[0-9A-Z]{4}$/);
+    // 학생은 기기 목록을 볼 수 없고 스스로 잠금을 풀 수도 없다.
+    await expect(repository.listClassDevices(EVENT, 'g4-c2')).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+
+    // 학생 기기의 로그인(익명 계정)을 유지한 채로는 교사가 될 수 없으므로,
+    // 교사는 다른 기기에서 잠금을 푼 것으로 보고 세션 ID로 확인한다.
+    const { auth } = getFirebase();
+    const studentUid = auth.currentUser?.uid;
+    if (!studentUid) throw new Error('학생 로그인이 없어요');
+
+    await signInAs('homeroom-42', 'homeroom_teacher', { classId: 'g4-c2' });
+    const devices = await repository.listClassDevices(EVENT, 'g4-c2');
+    expect(devices).toHaveLength(1);
+    expect(devices[0]).toMatchObject({ id: studentUid, teamId: wrong, code: mine.code });
+    expect(devices[0].joinedAt).not.toBeNull();
+
+    await repository.unlockDevice(EVENT, studentUid);
+    expect(await repository.listClassDevices(EVENT, 'g4-c2')).toHaveLength(0);
+    // 이미 풀린 기기를 다시 풀어도 오류가 아니다.
+    await expect(repository.unlockDevice(EVENT, studentUid)).resolves.toBeUndefined();
+  });
+
+  it('잠금이 풀린 기기는 새로 고른 팀에 다시 묶인다', async () => {
+    await signInAsAdmin();
+    await repository.setupEvent(EVENT);
+    await signInAsStudent('g4-c2-t4');
+    const { auth } = getFirebase();
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error('학생 로그인이 없어요');
+
+    // 관리자 권한으로 세션 문서를 지워 "교사가 잠금을 푼 상태"를 만든다(같은 학생 로그인 유지).
+    const response = await fetch(`${DOCS}/events/${EVENT}/sessions/${uid}`, {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer owner' },
+    });
+    expect(response.ok).toBe(true);
+
+    expect((await repository.getMyDevice(EVENT)).team).toBeNull();
+    const session = await repository.joinTeam(EVENT, 'g4-c2-t3');
+    expect(session.teamId).toBe('g4-c2-t3');
+    expect((await repository.getMyDevice(EVENT)).team?.id).toBe('g4-c2-t3');
+  });
+});
+
 describe('학급 전체 최종 미션 (에뮬레이터)', () => {
   const CLASS_ID = 'g3-c1';
 

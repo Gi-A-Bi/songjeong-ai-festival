@@ -185,6 +185,27 @@ describe('역할별 권한', () => {
   });
 });
 
+describe('기기 잠금(세션)', () => {
+  it('학생은 자기 세션을 지우거나 다른 팀으로 바꿀 수 없다', async () => {
+    await assertFails(deleteDoc(doc(studentDb(), `${EVENT}/sessions/student-a`)));
+    await assertFails(updateDoc(doc(studentDb(), `${EVENT}/sessions/student-a`), { teamId: 't4' }));
+  });
+
+  it('교사는 역할과 상관없이 기기 목록을 보고 잠금을 풀 수 있다', async () => {
+    await assertSucceeds(getDoc(doc(homeroomDb(), `${EVENT}/sessions/student-a`)));
+    await assertSucceeds(deleteDoc(doc(ozobotTeacherDb(), `${EVENT}/sessions/student-a`)));
+    // 잠금이 풀린 기기는 새 팀으로 다시 입장할 수 있다.
+    await assertSucceeds(
+      setDoc(doc(studentDb(), `${EVENT}/sessions/student-a`), { uid: 'student-a', teamId: 't4' }),
+    );
+  });
+
+  it('다른 학생의 세션은 읽거나 지울 수 없다', async () => {
+    await assertFails(getDoc(doc(otherStudentDb(), `${EVENT}/sessions/student-a`)));
+    await assertFails(deleteDoc(doc(otherStudentDb(), `${EVENT}/sessions/student-a`)));
+  });
+});
+
 // ---- 교실 QR 체크인 ----
 
 function arrival(extra: Record<string, unknown> = {}) {

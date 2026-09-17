@@ -19,10 +19,12 @@ export const paths = {
   teacherStation: (eventId: string, stationId: string) =>
     `/teacher/${e(eventId)}/station/${e(stationId)}`,
   teacherCards: (eventId: string) => `/teacher/${e(eventId)}/cards`,
-  teacherClass: (eventId: string, classId: string) =>
-    `/teacher/${e(eventId)}/class/${e(classId)}`,
+  teacherClass: (eventId: string, classId: string) => `/teacher/${e(eventId)}/class/${e(classId)}`,
   teacherClassFinal: (eventId: string, classId: string) =>
     `/teacher/${e(eventId)}/class/${e(classId)}/final`,
   finalResults: (eventId: string) => `/teacher/${e(eventId)}/final-results`,
+  /** 팀 입장 QR과 미션 교실 QR 인쇄. stationId를 주면 그 교실 한 장만 보여 준다. */
+  qrPrint: (eventId: string, stationId?: string) =>
+    `/teacher/${e(eventId)}/qr${stationId ? `?station=${e(stationId)}` : ''}`,
   admin: (eventId: string) => `/teacher/${e(eventId)}/admin`,
 };

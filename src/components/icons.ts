@@ -55,6 +55,7 @@ import pause from '@material-symbols/svg-400/rounded/pause.svg?raw';
 import pending from '@material-symbols/svg-400/rounded/pending.svg?raw';
 import playArrow from '@material-symbols/svg-400/rounded/play_arrow.svg?raw';
 import playingCards from '@material-symbols/svg-400/rounded/playing_cards.svg?raw';
+import print from '@material-symbols/svg-400/rounded/print.svg?raw';
 import psychology from '@material-symbols/svg-400/rounded/psychology.svg?raw';
 import qrCodeScanner from '@material-symbols/svg-400/rounded/qr_code_scanner.svg?raw';
 import quiz from '@material-symbols/svg-400/rounded/quiz.svg?raw';
@@ -141,6 +142,7 @@ const RAW_ICONS = {
   pending,
   play_arrow: playArrow,
   playing_cards: playingCards,
+  print,
   psychology,
   qr_code_scanner: qrCodeScanner,
   quiz,

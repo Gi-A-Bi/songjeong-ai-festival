@@ -91,10 +91,16 @@ export function TeacherLayout() {
         </NavLink>
       ) : null}
       {profile.role === 'admin' ? (
-        <NavLink to={paths.admin(eventId)} className="teacher-nav__link">
-          <Icon name="settings" />
-          행사 설정
-        </NavLink>
+        <>
+          <NavLink to={paths.qrPrint(eventId)} className="teacher-nav__link">
+            <Icon name="qr_code_scanner" />
+            QR 인쇄
+          </NavLink>
+          <NavLink to={paths.admin(eventId)} className="teacher-nav__link">
+            <Icon name="settings" />
+            행사 설정
+          </NavLink>
+        </>
       ) : null}
       <button type="button" className="teacher-nav__link" onClick={() => void logout()}>
         <Icon name="logout" />

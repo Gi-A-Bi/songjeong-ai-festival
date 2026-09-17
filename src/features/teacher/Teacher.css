@@ -582,6 +582,13 @@
   cursor: pointer;
 }
 
+.station-qr__code {
+  width: min(100%, 280px);
+  height: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
 .station-qr__field {
   width: 100%;
   font-size: var(--font-size-sm);

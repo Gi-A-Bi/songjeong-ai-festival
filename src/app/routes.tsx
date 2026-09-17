@@ -13,6 +13,7 @@ import { TeacherDashboardPage } from '../features/teacher/TeacherDashboardPage';
 import { TeacherLayout } from '../features/teacher/TeacherLayout';
 import { TeacherLoginPage } from '../features/teacher/TeacherLoginPage';
 import { TeacherMissionPage } from '../features/teacher/TeacherMissionPage';
+import { QrPrintPage } from '../features/teacher/qr/QrPrintPage';
 import { CheckInPage, StationQrPage } from '../features/tour/CheckInPage';
 import { TeamHomePage } from '../features/tour/TeamHomePage';
 import { TeamLayout } from '../features/tour/TeamLayout';
@@ -65,6 +66,7 @@ export const appRoutes: RouteObject[] = [
           { path: 'class/:classId', element: <TeacherClassPage /> },
           { path: 'class/:classId/final', element: <ClassFinalMissionPage /> },
           { path: 'final-results', element: <FinalResultsPage /> },
+          { path: 'qr', element: <QrPrintPage /> },
           { path: 'admin', element: <AdminPage /> },
           // 예전 북마크
           { path: 'mission/:missionId', element: <StationRedirect /> },

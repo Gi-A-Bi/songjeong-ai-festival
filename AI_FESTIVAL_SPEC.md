@@ -345,6 +345,7 @@
 | /teacher/:eventId/class/:classId | 학급 카드함 |
 | /teacher/:eventId/class/:classId/final | 학급 전체 10문제 최종 미션 |
 | /teacher/:eventId/final-results | 학년별 최종 결과와 순위 |
+| /teacher/:eventId/qr | 팀 입장 QR과 미션 교실 도착 QR 인쇄(A4). `?station=미션ID`면 그 교실 한 장 |
 | /teacher/:eventId/export | 결과 내보내기 |
 | /admin/:eventId | 행사 설정·초기화 |
 
@@ -576,6 +577,9 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
     updatedAt: timestamp
 
 #### events/{eventId}/sessions/{uid}
+
+기기(익명 로그인 uid) 하나를 한 팀에 묶는다. 교사가 학급 화면에서 이 문서를 지우면 잠금이 풀려
+그 기기는 다시 팀을 골라 입장할 수 있다. 화면의 "기기 번호"는 uid의 끝 네 글자다.
 
     uid: string
     teamId: string

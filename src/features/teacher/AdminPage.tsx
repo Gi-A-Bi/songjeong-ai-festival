@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
-import { Button } from '../../components/Button';
+import { paths } from '../../app/paths';
+import { Button, ButtonLink } from '../../components/Button';
 import { ConfirmDialog } from '../../components/Dialog';
 import { Icon } from '../../components/Icon';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -91,6 +92,19 @@ export function AdminPage() {
         >
           행사 구조 만들기
         </Button>
+      </section>
+
+      <section className="panel stack" aria-labelledby="admin-qr-title">
+        <h2 id="admin-qr-title" className="section-title">
+          <Icon name="qr_code_scanner" /> QR 인쇄
+        </h2>
+        <p className="muted">
+          미션 교실 입구에 붙일 도착 QR 5장과 팀 입장 QR(반마다 한 장)을 A4로 인쇄합니다. QR은 이
+          기기 안에서 만들며 외부 서비스에 주소를 보내지 않습니다.
+        </p>
+        <ButtonLink to={paths.qrPrint(eventId)} variant="secondary" size="lg" icon="print">
+          QR 인쇄 화면 열기
+        </ButtonLink>
       </section>
 
       <section className="panel stack" aria-labelledby="admin-teacher-title">

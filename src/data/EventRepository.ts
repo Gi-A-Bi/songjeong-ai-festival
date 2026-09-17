@@ -45,6 +45,22 @@ export interface TeamSession {
   joinedAt: number;
 }
 
+/** 팀에 입장한 기기(익명 세션). 학생 이름이나 계정 정보는 없다. */
+export interface TeamDevice {
+  id: string;
+  teamId: string;
+  /** 학생 화면에도 보이는 짧은 기기 번호. 교사가 어느 기기인지 확인할 때 쓴다. */
+  code: string;
+  joinedAt: number | null;
+  lastSeenAt: number | null;
+}
+
+/** 이 기기의 번호와 지금 묶여 있는 팀 */
+export interface DeviceInfo {
+  code: string;
+  team: Team | null;
+}
+
 /** 화면에 보여 줄 카드 보상. sourceLabel은 “2라운드 AI 골든벨 1위” 같은 출처 문구다. */
 export interface CardAwardView extends CardAward {
   sourceLabel: string;
@@ -438,7 +454,14 @@ export interface EventRepository {
   listClasses(eventId: string, grade: Grade): Promise<ClassInfo[]>;
   listTeams(eventId: string, grade: Grade): Promise<Team[]>;
   getTeam(eventId: string, teamId: string): Promise<Team>;
+  /** 첫 입장 기기를 한 팀에 묶는다. 다른 팀에 묶인 기기면 device-locked 오류를 낸다. */
   joinTeam(eventId: string, teamId: string): Promise<TeamSession>;
+  /** 이 기기의 번호와 묶여 있는 팀(잠금 해제를 요청할 때 학생 화면에 보여 준다) */
+  getMyDevice(eventId: string): Promise<DeviceInfo>;
+  /** 학급의 팀에 입장한 기기 목록(교사) */
+  listClassDevices(eventId: string, classId: string): Promise<TeamDevice[]>;
+  /** 팀을 잘못 고른 기기의 잠금을 푼다(교사). 제출과 카드는 그대로 남는다. */
+  unlockDevice(eventId: string, deviceId: string): Promise<void>;
 
   // 제출
   getTeamMissionView(eventId: string, teamId: string, missionId: string): Promise<TeamMissionView>;

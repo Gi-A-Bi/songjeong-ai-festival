@@ -6,6 +6,7 @@ import {
   reconcileCardProgress,
   reofferCardAward,
 } from '../../domain/cards';
+import { toDeviceCode } from '../../domain/device';
 import { getGoldenBellConfigError } from '../../domain/goldenBell';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
 import { getRankingEntryError } from '../../domain/rewards';
@@ -51,6 +52,7 @@ import type {
   ClassCardBoard,
   ClassFinalView,
   ClassOpsDetail,
+  DeviceInfo,
   DevTools,
   EventRepository,
   EventSetupSummary,
@@ -76,6 +78,7 @@ import type {
   TeacherClassCards,
   TeamMissionView,
   TeamRewardView,
+  TeamDevice,
   TeamSession,
   TeamTourStatus,
   Unsubscribe,
@@ -84,7 +87,7 @@ import { resultId, resultKey, roundKey, submissionId, toTeamId } from './keys';
 import type { MockStoreContext } from './mockContext';
 import { MockFinalStore } from './mockFinal';
 import { MockTourStore } from './mockTour';
-import { createSeedState, DEV_TEACHER, type MockState } from './seed';
+import { createSeedState, DEV_TEACHER, THIS_DEVICE_ID, type MockState } from './seed';
 
 export interface MockEventRepositoryOptions {
   /** 네트워크 지연 흉내(ms). 테스트에서는 0 */
@@ -373,10 +376,52 @@ export class MockEventRepository implements EventRepository, DevTools {
     await this.request();
     this.assertEvent(eventId);
     const team = this.findTeam(teamId);
-    const joinedAt = this.now();
-    this.state.sessions[team.id] = joinedAt;
+    const now = this.now();
+    // 실제 저장소처럼 첫 입장 기기를 한 팀에 묶는다.
+    const current = this.state.devices[THIS_DEVICE_ID];
+    if (current && current.teamId !== team.id) throw new RepositoryError('device-locked');
+    const joinedAt = current?.joinedAt ?? now;
+    this.state.devices[THIS_DEVICE_ID] = {
+      id: THIS_DEVICE_ID,
+      teamId: team.id,
+      joinedAt,
+      lastSeenAt: now,
+    };
     this.state.deviceTeamId = team.id;
     return { eventId, teamId: team.id, joinedAt };
+  }
+
+  async getMyDevice(eventId: string): Promise<DeviceInfo> {
+    await this.request();
+    this.assertEvent(eventId);
+    const teamId = this.state.devices[THIS_DEVICE_ID]?.teamId;
+    return {
+      code: toDeviceCode(THIS_DEVICE_ID),
+      team: teamId ? clone(this.findTeam(teamId)) : null,
+    };
+  }
+
+  async listClassDevices(eventId: string, classId: string): Promise<TeamDevice[]> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    const teams = this.teamsOfClass(this.findClass(classId).id);
+    return Object.values(this.state.devices)
+      .flatMap((device) => {
+        const team = teams.find((item) => item.id === device.teamId);
+        return team ? [{ device, teamNo: team.teamNo }] : [];
+      })
+      .sort((a, b) => a.teamNo - b.teamNo || a.device.joinedAt - b.device.joinedAt)
+      .map(({ device }) => ({ ...device, code: toDeviceCode(device.id) }));
+  }
+
+  async unlockDevice(eventId: string, deviceId: string): Promise<void> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    // 이미 풀린 기기를 다시 풀어도 오류가 아니다.
+    delete this.state.devices[deviceId];
+    if (deviceId === THIS_DEVICE_ID) this.state.deviceTeamId = null;
   }
 
   // ---- 제출 ----

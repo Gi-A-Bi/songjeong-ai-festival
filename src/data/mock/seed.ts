@@ -95,7 +95,8 @@ export interface MockState {
   finalClassStates: Record<string, FinalClassState>;
   /** `${classId}_${questionId}` → 문제별 응답 */
   finalResponses: Record<string, FinalResponse>;
-  sessions: Record<string, number>;
+  /** 기기 ID → 팀에 입장한 기기(익명 세션) */
+  devices: Record<string, MockDevice>;
   /** requestId → 처리된 문서 ID(멱등 처리용) */
   processedRequests: Record<string, string>;
 }
@@ -356,6 +357,27 @@ const FINAL_DEMO_CARD_COUNTS: Record<number, [number, number, number, number, nu
   3: [7, 2, 4, 6, 6],
   4: [8, 7, 6, 4, 0],
 };
+
+export interface MockDevice {
+  id: string;
+  teamId: string;
+  joinedAt: number;
+  lastSeenAt: number;
+}
+
+/** 이 브라우저를 나타내는 기기 ID. 기기 번호는 ID의 끝 네 글자다. */
+export const THIS_DEVICE_ID = 'mock-device-ME01';
+
+/** 진행 중인 두 학년의 팀마다 기기 한 대가 입장해 있는 상태로 시작한다. */
+function seedDevices(teams: readonly Team[], now: number): Record<string, MockDevice> {
+  const devices: Record<string, MockDevice> = {};
+  for (const team of teams) {
+    if (team.grade !== DEMO_GRADE && team.grade !== FINAL_DEMO_GRADE) continue;
+    const id = `mock-device-${team.grade}${team.classNo}${team.teamNo}A`;
+    devices[id] = { id, teamId: team.id, joinedAt: now - 40 * MINUTE, lastSeenAt: now - MINUTE };
+  }
+  return devices;
+}
 
 /** 종류별 획득 수를 번갈아 늘어놓아 라운드마다 받은 종류가 섞이게 한다. */
 function interleaveCardTypes(counts: readonly number[]): CardType[] {
@@ -872,7 +894,7 @@ export function createSeedState(now: number): MockState {
     finalQuestionSets,
     finalClassStates,
     finalResponses,
-    sessions: {},
+    devices: seedDevices(teams, now),
     processedRequests: {},
   };
 }

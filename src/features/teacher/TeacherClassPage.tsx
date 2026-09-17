@@ -21,6 +21,7 @@ import { formatTimeOfDay } from '../../lib/time';
 import { CardProgressTile } from '../cards/CardProgressTile';
 import '../cards/CardPages.css';
 import { FinalCountdown } from '../final/FinalCountdown';
+import { ClassDevicesPanel } from './ClassDevicesPanel';
 import { ClassTeamsTable } from './dashboard/ClassDetailPanel';
 import './dashboard/OpsBoard.css';
 import { useTeacherContext } from './teacherContext';
@@ -100,6 +101,8 @@ export function TeacherClassPage() {
           ))}
         </ul>
       </section>
+
+      <ClassDevicesPanel eventId={eventId} classId={classInfo.id} teams={teams} />
 
       <section className="panel stack" aria-labelledby="class-awards-title">
         <h2 id="class-awards-title" className="section-title">

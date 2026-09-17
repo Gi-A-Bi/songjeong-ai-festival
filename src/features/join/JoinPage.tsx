@@ -4,9 +4,10 @@ import { paths } from '../../app/paths';
 import { AppHeader } from '../../components/AppHeader';
 import { AssetImage } from '../../components/AssetImage';
 import { Button, ButtonLink } from '../../components/Button';
+import { Icon } from '../../components/Icon';
 import { ErrorView, InlineAlert, LoadingView } from '../../components/StateViews';
 import { DEV_DEFAULT_TEAM } from '../../config';
-import { toUserMessage } from '../../data/errors';
+import { isRepositoryError, toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
 import { TEAM_NUMBERS } from '../../domain/rotation';
 import type { Grade, Team, TeamNo } from '../../domain/types';
@@ -65,7 +66,11 @@ function TeamConfirm({ eventId, teamId }: { eventId: string; teamId: string }) {
         <p className="join-confirm__team">{team.data.displayName}</p>
         <p className="muted">이름은 적지 않아요. 팀 번호만 확인해요.</p>
         {join.status === 'error' ? (
-          <InlineAlert tone="danger">{toUserMessage(join.error)}</InlineAlert>
+          isRepositoryError(join.error, 'device-locked') ? (
+            <LockedDeviceNotice eventId={eventId} />
+          ) : (
+            <InlineAlert tone="danger">{toUserMessage(join.error)}</InlineAlert>
+          )
         ) : null}
         <div className="join-confirm__actions">
           <Button
@@ -86,7 +91,46 @@ function TeamConfirm({ eventId, teamId }: { eventId: string; teamId: string }) {
   );
 }
 
-/** 개발용 팀 선택. 실제 행사에서는 팀 QR로 바로 확인 화면에 들어온다. */
+/**
+ * 이 기기가 이미 다른 팀에 묶여 있을 때의 안내. 어느 팀인지와 기기 번호를 보여 줘서
+ * 선생님이 학급 화면에서 같은 번호의 기기를 찾아 잠금을 풀 수 있게 한다.
+ */
+function LockedDeviceNotice({ eventId }: { eventId: string }) {
+  const repository = useRepository();
+  const load = useCallback(() => repository.getMyDevice(eventId), [repository, eventId]);
+  const device = useAsyncData(load);
+
+  if (device.status !== 'success') {
+    return (
+      <InlineAlert tone="danger">
+        이 기기는 다른 팀으로 입장했어요. 선생님께 잠금 해제를 요청해 주세요.
+      </InlineAlert>
+    );
+  }
+  const { team, code } = device.data;
+  return (
+    <div className="join-locked" role="alert">
+      <p className="join-locked__title">
+        <Icon name="lock" /> 이 기기는 {team ? `${team.displayName}으로` : '다른 팀으로'} 입장해
+        있어요
+      </p>
+      <p>
+        우리 팀이 아니면 선생님께 이 기기 번호를 보여 주세요. 선생님이 잠금을 풀면 다시 입장할 수
+        있어요.
+      </p>
+      <p>
+        기기 번호 <strong className="join-locked__code">{code}</strong>
+      </p>
+      {team ? (
+        <ButtonLink to={paths.teamHome(eventId, team.id)} variant="secondary" size="lg" icon="home">
+          {team.displayName} 화면으로 가기
+        </ButtonLink>
+      ) : null}
+    </div>
+  );
+}
+
+/** 팀 QR이 없을 때 쓰는 팀 선택. 실제 행사에서는 팀 QR로 바로 확인 화면에 들어온다. */
 function TeamPicker({ eventId }: { eventId: string }) {
   const repository = useRepository();
   const [grade, setGrade] = useState<Grade>(DEV_DEFAULT_TEAM.grade);
@@ -113,7 +157,7 @@ function TeamPicker({ eventId }: { eventId: string }) {
           우리 팀을 골라요
         </h1>
         <InlineAlert tone="info" icon="qr_code_scanner">
-          개발용 선택 화면이에요. 행사 날에는 팀 QR을 찍으면 바로 확인 화면이 열려요.
+          팀 QR을 찍으면 바로 확인 화면이 열려요. QR이 없을 때만 여기에서 팀을 골라요.
         </InlineAlert>
       </div>
 
