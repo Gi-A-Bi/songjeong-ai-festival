@@ -1,0 +1,101 @@
+.card-pieces {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--color-stage);
+  box-shadow: var(--shadow-md);
+}
+
+.card-pieces--sm {
+  max-width: 72px;
+  border-radius: var(--radius-sm);
+}
+
+.card-pieces--md {
+  max-width: 160px;
+}
+
+.card-pieces--lg {
+  max-width: 240px;
+  border-radius: var(--radius-lg);
+}
+
+.card-pieces__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card-pieces__grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+/* 아직 열리지 않은 조각: 원본 위를 어둡게 덮는다. */
+.card-pieces__cell {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--card-piece-seam);
+  background: var(--card-piece-hidden);
+  backdrop-filter: grayscale(1) blur(6px);
+  color: var(--color-text-inverse);
+}
+
+.card-pieces__cell--open {
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.card-pieces__cell--revealing {
+  animation: card-piece-reveal calc(var(--duration-slow) * 3) var(--ease-out) both;
+}
+
+.card-pieces__number {
+  opacity: 0.7;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+}
+
+.card-pieces--sm .card-pieces__number {
+  font-size: var(--font-size-xs);
+}
+
+.card-pieces--complete {
+  box-shadow: var(--card-complete-glow);
+}
+
+.card-pieces__check {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--gold-400);
+  color: var(--navy-900);
+}
+
+@keyframes card-piece-reveal {
+  0% {
+    background: var(--card-piece-hidden);
+    box-shadow: inset 0 0 0 0 var(--gold-400);
+  }
+
+  50% {
+    background: var(--card-piece-flash);
+    box-shadow: inset 0 0 0 6px var(--gold-400);
+  }
+
+  100% {
+    background: transparent;
+    box-shadow: inset 0 0 0 0 var(--gold-400);
+  }
+}

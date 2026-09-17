@@ -82,6 +82,11 @@ a {
   outline-offset: 3px;
 }
 
+/* display를 지정한 클래스(.stack 등)가 hidden 속성을 덮어쓰지 않게 한다. */
+[hidden] {
+  display: none !important;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

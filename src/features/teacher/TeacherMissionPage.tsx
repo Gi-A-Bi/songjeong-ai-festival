@@ -11,9 +11,11 @@ import { ROUND_NUMBERS } from '../../domain/rotation';
 import type { RoundNo } from '../../domain/types';
 import { useAction } from '../../hooks/useAction';
 import { useAsyncData } from '../../hooks/useAsyncData';
+import { useOpsLive } from '../../hooks/useFinalLive';
 import { DrawingGallery } from './mission/DrawingGallery';
 import { GoldenBellQuestionEditor } from './mission/GoldenBellQuestionEditor';
 import { RankingEditor } from './mission/RankingEditor';
+import { StationArrivalsPanel } from './mission/StationArrivalsPanel';
 import { useTeacherContext } from './teacherContext';
 
 type MissionTab = 'operate' | 'questions';
@@ -22,16 +24,19 @@ type MissionTab = 'operate' | 'questions';
 function participantsSignature(participants: readonly MissionParticipant[]): string {
   return participants
     .map(
-      ({ team, submission, result, ticketCount }) =>
-        `${team.id}:${submission?.status ?? '-'}:${submission?.updatedAt ?? 0}:${result?.rank ?? '-'}:${result?.score ?? '-'}:${ticketCount}`,
+      ({ team, submission, result, award }) =>
+        `${team.id}:${submission?.status ?? '-'}:${submission?.updatedAt ?? 0}:${result?.rank ?? '-'}:${result?.score ?? '-'}:${award?.status ?? '-'}:${award?.selectionMode ?? '-'}`,
     )
     .join('|');
 }
 
 export function TeacherMissionPage() {
   const { eventId, event } = useTeacherContext();
-  const { missionId = '' } = useParams();
+  // 부스 화면 주소는 /station/:stationId 이고 stationId는 미션 ID와 같다.
+  const params = useParams();
+  const missionId = params.stationId ?? params.missionId ?? '';
   const repository = useRepository();
+  const { liveOps } = repository.capabilities;
   const grade = event.activeGrade;
   const [round, setRound] = useState<RoundNo>(event.activeRound === 0 ? 1 : event.activeRound);
   const [tab, setTab] = useState<MissionTab>('operate');
@@ -53,6 +58,21 @@ export function TeacherMissionPage() {
   }, [repository, eventId, missionId, grade, round]);
   const roundData = useAsyncData(loadRound);
 
+  // 입장 현황은 채점 자료와 따로 읽는다. 팀이 교실 QR을 찍을 때마다 이것만 다시 읽어
+  // 제출물·순위를 되풀이해 읽지 않는다(무료 사용량 보호).
+  const loadArrivals = useCallback(async () => {
+    if (grade === null || !liveOps) return null;
+    return repository.getStationArrivals(eventId, missionId, grade, round);
+  }, [repository, eventId, missionId, grade, round, liveOps]);
+  const arrivals = useAsyncData(loadArrivals);
+
+  const revision = useOpsLive(eventId, liveOps ? grade : null);
+  const [seenRevision, setSeenRevision] = useState(revision);
+  if (seenRevision !== revision) {
+    setSeenRevision(revision);
+    if (arrivals.status === 'success') arrivals.reload();
+  }
+
   const reveal = useAction(
     useCallback(
       async (revealed: boolean) => {
@@ -73,6 +93,7 @@ export function TeacherMissionPage() {
   const refresh = () => {
     missionData.reload();
     roundData.reload();
+    arrivals.reload();
   };
 
   return (
@@ -172,6 +193,20 @@ export function TeacherMissionPage() {
           ) : null}
           {roundData.status === 'success' && roundData.data ? (
             <>
+              {arrivals.status === 'success' && arrivals.data ? (
+                <StationArrivalsPanel
+                  eventId={eventId}
+                  mission={mission}
+                  grade={grade}
+                  round={round}
+                  teams={roundData.data.participants.map((participant) => participant.team)}
+                  arrivals={arrivals.data}
+                  onChanged={arrivals.reload}
+                />
+              ) : null}
+              {arrivals.status === 'error' ? (
+                <ErrorView error={arrivals.error} onRetry={arrivals.reload} />
+              ) : null}
               {config.type === 'drawing' ? (
                 <DrawingGallery
                   key={`${grade}-${round}`}
@@ -196,6 +231,7 @@ export function TeacherMissionPage() {
                 onChanged={(message) => {
                   setNotice(message);
                   roundData.reload();
+                  arrivals.reload();
                 }}
               />
             </>

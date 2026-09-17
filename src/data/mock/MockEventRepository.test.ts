@@ -29,26 +29,20 @@ describe('MockEventRepository', () => {
     ]);
   });
 
-  it('샘플 팀은 4학년 2반 3팀, 카드 2장과 미사용 뽑기권 3장으로 시작한다', async () => {
-    const tickets = await repository.listTeamTickets(EVENT, DEMO_TEAM_ID);
-    expect(tickets.filter((item) => item.claimed)).toHaveLength(2);
-    const unclaimed = tickets.filter((item) => !item.claimed);
-    expect(unclaimed).toHaveLength(3);
-    expect(unclaimed.every((item) => item.cardType === null)).toBe(true);
+  it('샘플 팀은 4학년 2반 3팀, 1라운드 1위 카드 보상을 아직 고르지 않은 상태로 시작한다', async () => {
+    const view = await repository.getTeamRewardView(EVENT, DEMO_TEAM_ID);
+    expect(view.classInfo.displayName).toBe('4학년 2반');
+    expect(view.awards).toHaveLength(1);
+    expect(view.awards[0]).toMatchObject({
+      status: 'pending',
+      selectionMode: 'choose_three',
+      selectedType: null,
+      sourceLabel: '1라운드 AI 설명대로 그려라 1위',
+    });
+    expect(view.progress.cards.thinking.pieces).toBe(2);
   });
 
-  it('사용한 뽑기권으로 다시 카드를 뽑을 수 없다', async () => {
-    const [first] = (await repository.listTeamTickets(EVENT, DEMO_TEAM_ID)).filter(
-      (item) => !item.claimed,
-    );
-    const cardType = await repository.claimTicket(EVENT, DEMO_TEAM_ID, first.id);
-    expect(cardType).toBeTruthy();
-    await expect(repository.claimTicket(EVENT, DEMO_TEAM_ID, first.id)).rejects.toSatisfy((error) =>
-      isRepositoryError(error, 'already-claimed'),
-    );
-  });
-
-  it('순위 확정 시 1위 3장, 2위 2장, 나머지 1장을 만들고 다시 눌러도 늘지 않는다', async () => {
+  it('순위 확정 시 결과 하나당 카드 보상 하나를 만들고 1위 3개·2위 2개·나머지 1개 후보를 준다', async () => {
     await repository.signInTeacher();
     const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 2);
     expect(participants).toHaveLength(5);
@@ -65,38 +59,78 @@ describe('MockEventRepository', () => {
       })),
     };
     const outcome = await repository.finalizeRanking(input);
-    expect(participants.map((participant) => outcome.ticketsByTeam[participant.team.id])).toEqual([
-      3, 2, 1, 1, 1,
+    expect(outcome.awards.map((award) => award.offeredTypes.length)).toEqual([3, 2, 1, 1, 1]);
+    expect(outcome.awards.map((award) => award.status)).toEqual([
+      'pending',
+      'pending',
+      'claimed',
+      'claimed',
+      'claimed',
     ]);
+    for (const award of outcome.awards) {
+      expect(new Set(award.offeredTypes).size).toBe(award.offeredTypes.length);
+    }
+
+    // 다시 누르거나(다른 requestId) 새로고침 뒤 다시 확정해도 보상은 늘지 않는다.
     const again = await repository.finalizeRanking({ ...input, requestId: 'req-2' });
     expect(again.alreadyFinalized).toBe(true);
-    expect(Object.values(again.ticketsByTeam).reduce((sum, count) => sum + count, 0)).toBe(8);
+    expect(again.awards.map((award) => award.id)).toEqual(outcome.awards.map((award) => award.id));
+    const rows = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 2);
+    expect(rows.map((row) => row.award?.id)).toEqual(outcome.awards.map((award) => award.id));
   });
 
-  it('보유량보다 많은 교환은 막고 교환 후 수량을 갱신한다', async () => {
-    await repository.signInTeacher();
-    const rows = await repository.listClassCardRows(EVENT, 4);
-    const [from, to] = rows;
-    const owned = from.counts.thinking;
-    const base = {
+  it('학생은 후보 밖 종류를 고를 수 없고, 같은 보상은 한 번만 받는다', async () => {
+    const [pending] = (await repository.getTeamRewardView(EVENT, DEMO_TEAM_ID)).awards;
+    const claim = {
       eventId: EVENT,
-      fromClassId: from.classInfo.id,
-      toClassId: to.classInfo.id,
-      cardType: 'thinking' as const,
+      teamId: DEMO_TEAM_ID,
+      awardId: pending.id,
+      requestId: 'claim-1',
     };
-
     await expect(
-      repository.createExchange({ ...base, requestId: 'ex-over', quantity: owned + 1 }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'insufficient-cards'));
+      repository.claimCardAward({ ...claim, selectedType: 'verification' }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
+    // 다른 팀이 이 보상을 받을 수 없다.
+    await expect(
+      repository.claimCardAward({
+        ...claim,
+        teamId: toTeamId(4, 2, 1),
+        selectedType: 'thinking',
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-found'));
 
-    if (owned > 0) {
-      await repository.createExchange({ ...base, requestId: 'ex-ok', quantity: 1 });
-      await repository.createExchange({ ...base, requestId: 'ex-ok', quantity: 1 });
-      const after = await repository.listClassCardRows(EVENT, 4);
-      expect(after[0].counts.thinking).toBe(owned - 1);
-      expect(after[1].counts.thinking).toBe(to.counts.thinking + 1);
-      expect(await repository.listExchanges(EVENT, 4)).toHaveLength(1);
-    }
+    const outcome = await repository.claimCardAward({ ...claim, selectedType: 'thinking' });
+    expect(outcome.before).toMatchObject({ pieces: 2 });
+    expect(outcome.after).toMatchObject({ pieces: 3, complete: false });
+    expect(outcome.award.status).toBe('claimed');
+
+    // 같은 요청의 재시도는 같은 결과, 새 요청은 거부
+    const retry = await repository.claimCardAward({ ...claim, selectedType: 'thinking' });
+    expect(retry.after.earned).toBe(3);
+    await expect(
+      repository.claimCardAward({ ...claim, requestId: 'claim-2', selectedType: 'expression' }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'already-claimed'));
+
+    const view = await repository.getTeamRewardView(EVENT, DEMO_TEAM_ID);
+    expect(view.progress.cards.thinking.earned).toBe(3);
+    expect(view.progress.cards.expression.earned).toBe(1);
+  });
+
+  it('학급 카드 진행도는 받은 보상 원장으로 계산한다', async () => {
+    const boards = await repository.listClassCardBoards(EVENT, 3);
+    const byClass = Object.fromEntries(
+      boards.map((board) => [board.classInfo.classNo, board.progress]),
+    );
+    expect(byClass[1].allComplete).toBe(true);
+    expect(byClass[1].cards.command).toMatchObject({ pieces: 4, duplicates: 1 });
+    expect(byClass[2].cards.expression).toMatchObject({ pieces: 3, complete: false });
+    expect(byClass[4].cards.verification.pieces).toBe(0);
+    expect(byClass[4].cards.thinking.duplicates).toBe(4);
+
+    await repository.signInTeacher();
+    const detail = await repository.getTeacherClassCards(EVENT, 'g3-c1');
+    expect(detail.awards).toHaveLength(25);
+    expect(detail.teams.map((team) => team.teamNo)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it('같은 requestId로 다시 제출해도 제출이 중복되지 않는다', async () => {
@@ -192,7 +226,7 @@ describe('MockEventRepository', () => {
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
   });
 
-  it('순위를 고치면 뽑기권을 더 주거나 회수하고, 회수한 뽑기권은 쓸 수 없다', async () => {
+  it('순위를 고치면 고르기 전 보상만 새 순위에 맞추고 받은 보상은 그대로 둔다', async () => {
     await repository.signInTeacher();
     const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 2);
     const base = {
@@ -201,7 +235,7 @@ describe('MockEventRepository', () => {
       grade: 4 as const,
       roundNo: 2 as const,
     };
-    await repository.finalizeRanking({
+    const finalized = await repository.finalizeRanking({
       ...base,
       requestId: 'fin',
       entries: participants.map((participant, index) => ({
@@ -210,6 +244,7 @@ describe('MockEventRepository', () => {
         rank: index + 1,
       })),
     });
+    // 1위 팀은 3종 중 선택 대기, 3위 팀은 자동 배정으로 이미 받았다.
     const outcome = await repository.reviseRanking({
       ...base,
       requestId: 'rev',
@@ -219,18 +254,20 @@ describe('MockEventRepository', () => {
         rank: index === 0 ? 3 : index === 2 ? 1 : index + 1,
       })),
     });
-    expect(outcome).toMatchObject({ added: 2, revoked: 2, revokedClaimed: 0 });
+    expect(outcome).toMatchObject({ reoffered: 1, keptClaimed: 1 });
 
     const after = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 2);
-    expect(after.map((row) => row.ticketCount)).toEqual([1, 2, 3, 1, 1]);
-
-    const firstTeam = participants[0].team.id;
-    const visible = await repository.listTeamTickets(EVENT, firstTeam);
-    const revokedId = `golden-bell__g4__r2__${firstTeam}__3`;
-    expect(visible.some((ticket) => ticket.id === revokedId)).toBe(false);
-    await expect(repository.claimTicket(EVENT, firstTeam, revokedId)).rejects.toSatisfy((error) =>
-      isRepositoryError(error, 'not-found'),
-    );
+    expect(after[0].award).toMatchObject({
+      selectionMode: 'automatic',
+      status: 'claimed',
+      selectedType: finalized.awards[0].offeredTypes[0],
+    });
+    expect(after[2].award).toMatchObject({
+      rank: 1,
+      status: 'claimed',
+      selectedType: finalized.awards[2].selectedType,
+    });
+    expect(after.map((row) => row.award?.id)).toEqual(finalized.awards.map((award) => award.id));
   });
 
   it('그림 파일은 제출과 함께 저장되고 교사만 불러온다', async () => {

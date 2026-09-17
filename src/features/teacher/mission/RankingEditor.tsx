@@ -7,9 +7,13 @@ import { StatusBadge } from '../../../components/StatusBadge';
 import type { FinalizeRankingInput, MissionParticipant } from '../../../data/EventRepository';
 import { toUserMessage } from '../../../data/errors';
 import { useRepository } from '../../../data/RepositoryContext';
-import { previewTicketChange } from '../../../domain/cards';
-import { getTicketCountForRank, rankByScore } from '../../../domain/rewards';
-import type { Grade, Mission, RoundNo } from '../../../domain/types';
+import { CARD_INFO } from '../../../domain/catalog';
+import {
+  getSelectionModeForRank,
+  rankByScore,
+  SELECTION_MODE_LABELS,
+} from '../../../domain/rewards';
+import type { CardAward, Grade, Mission, RoundNo } from '../../../domain/types';
 import { useAction } from '../../../hooks/useAction';
 import { createRequestId } from '../../../lib/random';
 import { formatTimeOfDay } from '../../../lib/time';
@@ -56,7 +60,7 @@ function isSubmitted(participant: MissionParticipant): boolean {
 
 /**
  * 점수·순위 수정과 순위 확정. 자동 순위는 언제든 교사가 바꿀 수 있다.
- * 확정 전에는 제출을 되돌릴 수 있고, 확정 후에는 순위를 고치면 뽑기권 수도 맞춰진다.
+ * 확정 전에는 제출을 되돌릴 수 있고, 확정 후에는 순위를 고치면 고르기 전 카드 보상도 맞춰진다.
  */
 export function RankingEditor({
   eventId,
@@ -135,26 +139,22 @@ export function RankingEditor({
     });
   };
 
-  const changeOf = (participant: MissionParticipant) =>
-    previewTicketChange(
-      participant.ticketCount,
-      participant.claimedTicketCount,
-      getTicketCountForRank(drafts[participant.team.id].rank),
-    );
-  const totalChange = participants.reduce(
-    (sum, participant) => {
-      const change = changeOf(participant);
-      return {
-        added: sum.added + change.added,
-        revoked: sum.revoked + change.revoked,
-        revokedClaimed: sum.revokedClaimed + change.revokedClaimed,
-      };
-    },
-    { added: 0, revoked: 0, revokedClaimed: 0 },
-  );
+  const modeOf = (participant: MissionParticipant) =>
+    getSelectionModeForRank(drafts[participant.team.id].rank);
+  /** 순위 수정으로 선택 방식이 바뀌는 보상 */
+  const modeChanged = (participant: MissionParticipant) =>
+    participant.award !== null && participant.award.selectionMode !== modeOf(participant);
+  const reofferCount = participants.filter(
+    (participant) => modeChanged(participant) && participant.award?.status === 'pending',
+  ).length;
+  const keptCount = participants.filter(
+    (participant) => modeChanged(participant) && participant.award?.status === 'claimed',
+  ).length;
 
   const submittedCount = participants.filter(isSubmitted).length;
-  const totalTickets = participants.reduce((sum, participant) => sum + participant.ticketCount, 0);
+  const claimedCount = participants.filter(
+    (participant) => participant.award?.status === 'claimed',
+  ).length;
   const actionError =
     finalize.status === 'error'
       ? finalize.error
@@ -169,10 +169,10 @@ export function RankingEditor({
       const result = await revise.run();
       setConfirmOpen(false);
       if (result?.ok) {
-        const { added, revoked, revokedClaimed } = result.value;
+        const { reoffered, keptClaimed } = result.value;
         onChanged(
-          `순위를 고쳤어요. 뽑기권 새로 발급 ${added}장, 회수 ${revoked}장` +
-            (revokedClaimed > 0 ? ` (이미 뽑은 카드 ${revokedClaimed}장 포함)` : ''),
+          `순위를 고쳤어요. 후보를 다시 정한 카드 보상 ${reoffered}개` +
+            (keptClaimed > 0 ? `, 이미 받아서 그대로 둔 보상 ${keptClaimed}개` : ''),
         );
       }
       return;
@@ -180,11 +180,7 @@ export function RankingEditor({
     const result = await finalize.run();
     setConfirmOpen(false);
     if (result?.ok) {
-      const count = Object.values(result.value.ticketsByTeam).reduce(
-        (sum, value) => sum + value,
-        0,
-      );
-      onChanged(`순위를 확정했어요. 뽑기권 ${count}장을 만들었어요.`);
+      onChanged(`순위를 확정했어요. 카드 보상 ${result.value.awards.length}개를 만들었어요.`);
     }
   };
 
@@ -202,7 +198,9 @@ export function RankingEditor({
         </h2>
         {finalized ? (
           <StatusBadge tone="success" icon="trophy" size="lg">
-            {editing ? '순위 수정 중' : `순위 확정됨 · 뽑기권 ${totalTickets}장`}
+            {editing
+              ? '순위 수정 중'
+              : `순위 확정됨 · 카드 보상 받음 ${claimedCount}/${participants.length}`}
           </StatusBadge>
         ) : null}
       </div>
@@ -231,9 +229,7 @@ export function RankingEditor({
               <th scope="col" className="data-table__num">
                 점수
               </th>
-              <th scope="col" className="data-table__num">
-                뽑기권
-              </th>
+              <th scope="col">카드 보상</th>
               {!finalized ? <th scope="col">관리</th> : null}
             </tr>
           </thead>
@@ -242,7 +238,6 @@ export function RankingEditor({
               const { team, submission } = participant;
               const draft = drafts[team.id];
               const submitted = isSubmitted(participant);
-              const change = changeOf(participant);
               return (
                 <tr key={team.id} className={submitted ? undefined : 'data-table__row--missing'}>
                   <td className="data-table__num">
@@ -319,34 +314,26 @@ export function RankingEditor({
                       <span className="number">{participant.result?.score}</span>
                     )}
                   </td>
-                  <td className="data-table__num">
+                  <td>
                     {!finalized ? (
-                      <span className="muted">
-                        <Icon name="playing_cards" size="sm" />×{getTicketCountForRank(draft.rank)}{' '}
-                        예정
+                      <span className="award-chip award-chip--planned">
+                        <Icon name="playing_cards" size="sm" />
+                        {SELECTION_MODE_LABELS[modeOf(participant)]} 예정
                       </span>
-                    ) : editing ? (
-                      <span className="ticket-chip">
-                        <Icon name="playing_cards" size="sm" />×{getTicketCountForRank(draft.rank)}
-                        {change.added > 0 ? (
-                          <span className="muted"> (+{change.added})</span>
-                        ) : null}
-                        {change.revoked > 0 ? (
-                          <span className="ticket-chip__revoke">
-                            {' '}
-                            (−{change.revoked}
-                            {change.revokedClaimed > 0
-                              ? `, 뽑은 카드 ${change.revokedClaimed}장`
-                              : ''}
-                            )
+                    ) : editing && participant.award ? (
+                      <span className="award-chip">
+                        <Icon name="playing_cards" size="sm" />
+                        {SELECTION_MODE_LABELS[modeOf(participant)]}
+                        {modeChanged(participant) ? (
+                          <span className="award-chip__note">
+                            {participant.award.status === 'pending'
+                              ? ' (후보 다시 정함)'
+                              : ' (이미 받아 그대로 둠)'}
                           </span>
                         ) : null}
                       </span>
                     ) : (
-                      <span className="ticket-chip">
-                        <Icon name="playing_cards" size="sm" />×{participant.ticketCount}
-                        <span className="muted"> · 뽑음 {participant.claimedTicketCount}</span>
-                      </span>
+                      <AwardSummary award={participant.award} />
                     )}
                   </td>
                   {!finalized ? (
@@ -433,22 +420,23 @@ export function RankingEditor({
       >
         {finalized ? (
           <p>
-            순위에 맞춰 뽑기권을 새로 발급하거나 회수해요. 새로 발급 {totalChange.added}장, 회수{' '}
-            {totalChange.revoked}장
-            {totalChange.revokedClaimed > 0 ? (
-              <strong> · 이미 뽑은 카드 {totalChange.revokedClaimed}장이 카드함에서 빠져요</strong>
-            ) : null}
+            아직 고르지 않은 카드 보상은 새 순위에 맞춰 후보를 다시 정해요({reofferCount}개). 이미
+            받은 보상은 학급 카드가 열린 뒤라 그대로 둬요
+            {keptCount > 0 ? <strong> · 그대로 둘 보상 {keptCount}개</strong> : null}.
           </p>
         ) : (
-          <p>확정하면 순위에 따라 뽑기권이 만들어져요. (1위 3장, 2위 2장, 나머지 1장)</p>
+          <p>
+            확정하면 팀마다 카드 조각 보상이 하나씩 만들어져요. 1위는 3종 중 선택, 2위는 2종 중
+            선택, 나머지는 자동 배정이에요.
+          </p>
         )}
-        <ul className="exchange-log">
+        <ul className="confirm-list">
           {rows.map((participant) => (
-            <li key={participant.team.id} className="exchange-log__item">
+            <li key={participant.team.id} className="confirm-list__item">
               <strong>{drafts[participant.team.id].rank}위</strong> {participant.team.displayName}
-              <span className="ticket-chip">
-                <Icon name="playing_cards" size="sm" />×
-                {getTicketCountForRank(drafts[participant.team.id].rank)}
+              <span className="award-chip">
+                <Icon name="playing_cards" size="sm" />
+                {SELECTION_MODE_LABELS[modeOf(participant)]}
               </span>
             </li>
           ))}
@@ -476,5 +464,30 @@ export function RankingEditor({
         ) : null}
       </ConfirmDialog>
     </section>
+  );
+}
+
+/** 확정된 카드 보상 한 줄 요약: 고르기 전이면 후보, 받았으면 받은 카드 */
+function AwardSummary({ award }: { award: CardAward | null }) {
+  if (!award) return <span className="muted">-</span>;
+  if (award.status === 'pending') {
+    return (
+      <span className="award-chip">
+        <StatusBadge tone="warning" icon="hourglass_top">
+          선택 대기
+        </StatusBadge>
+        <span className="muted">
+          {award.offeredTypes.map((cardType) => CARD_INFO[cardType].name).join('·')}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="award-chip">
+      <StatusBadge tone="success" icon="check_circle">
+        {award.selectedType ? CARD_INFO[award.selectedType].name : '받음'}
+      </StatusBadge>
+      <span className="muted">{SELECTION_MODE_LABELS[award.selectionMode]}</span>
+    </span>
   );
 }

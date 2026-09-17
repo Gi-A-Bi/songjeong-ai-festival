@@ -15,7 +15,7 @@ describe('교사 미션 운영 화면', () => {
   it('골든벨 문제를 등록하면 저장소에 반영된다', async () => {
     const user = userEvent.setup();
     const repository = await signedInRepository();
-    renderApp(`/teacher/${DEFAULT_EVENT_ID}/mission/golden-bell`, repository);
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/golden-bell`, repository);
 
     await user.click(await screen.findByRole('button', { name: /문제 등록 \(7문항\)/ }));
     await user.click(screen.getByRole('button', { name: /문제 추가/ }));
@@ -37,7 +37,7 @@ describe('교사 미션 운영 화면', () => {
 
   it('그리기 미션에서 AI 평가 요청문을 그림 설명과 파일 이름으로 만든다', async () => {
     const repository = await signedInRepository();
-    renderApp(`/teacher/${DEFAULT_EVENT_ID}/mission/drawing`, repository);
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
 
     const prompt = await screen.findByRole<HTMLTextAreaElement>('textbox', {
       name: 'AI 평가 요청문',
@@ -52,7 +52,7 @@ describe('교사 미션 운영 화면', () => {
   it('확정 전 제출은 되돌릴 수 있다', async () => {
     const user = userEvent.setup();
     const repository = await signedInRepository();
-    renderApp(`/teacher/${DEFAULT_EVENT_ID}/mission/drawing`, repository);
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
 
     const [reopen] = await screen.findAllByRole('button', { name: /재제출 허용/ });
     await user.click(reopen);

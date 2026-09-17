@@ -71,7 +71,7 @@ export function AdminPage() {
         </h2>
         <p className="muted">
           3학년 4개 반, 4학년 5개 반, 5학년 6개 반, 6학년 5개 반과 학급당 5팀, 미션 5개를 만듭니다.
-          이미 있으면 덮어쓰지 않습니다.
+          이미 있으면 덮어쓰지 않습니다. 학년별 최종 미션 문제가 없으면 샘플 10문제도 함께 넣습니다.
         </p>
         {summary ? (
           <InlineAlert tone="success">
@@ -109,10 +109,16 @@ export function AdminPage() {
           <li className="rule-list__item">
             <span className="rule-list__no number">3</span>
             Firestore에서 <code>teachers/&#123;UID&#125;</code> 문서를 만들고 displayName, email,
-            role(teacher 또는 admin), active(true)를 넣습니다.
+            role, active(true)를 넣습니다. role은 총괄 <code>admin</code>, 부스{' '}
+            <code>station_teacher</code>(missionId에 담당 미션 ID), 담임{' '}
+            <code>homeroom_teacher</code>(classId에 담당 학급 ID, 예: g4-c2) 중 하나입니다.
           </li>
           <li className="rule-list__item">
             <span className="rule-list__no number">4</span>
+            라운드 제어, 최종 미션 열기·결과 공개·보정은 총괄(admin) 계정만 할 수 있습니다.
+          </li>
+          <li className="rule-list__item">
+            <span className="rule-list__no number">5</span>
             다시 로그인하면 교사 화면을 쓸 수 있습니다. 보안상 앱에서는 교사 등록을 할 수 없습니다.
           </li>
         </ol>

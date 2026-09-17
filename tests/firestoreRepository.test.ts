@@ -159,7 +159,7 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
   });
 
-  it('순위 확정으로 뽑기권이 생기고, 한 장은 한 번만 쓸 수 있다', async () => {
+  it('순위 확정으로 팀마다 카드 보상이 하나씩 생기고, 한 번만 받을 수 있다', async () => {
     await signInAsTeacher();
     await repository.setupEvent(DEFAULT_EVENT_ID);
     await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
@@ -185,10 +185,9 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
         rank: index + 1,
       })),
     });
-    expect(outcome.ticketsByTeam[participants[0].team.id]).toBe(3);
-    expect(outcome.ticketsByTeam[participants[1].team.id]).toBe(2);
+    expect(outcome.awards.map((award) => award.offeredTypes.length)).toEqual([3, 2, 1, 1, 1]);
 
-    // 다시 확정해도 뽑기권이 늘지 않는다
+    // 다시 확정해도 보상이 늘지 않는다
     const again = await repository.finalizeRanking({
       eventId: DEFAULT_EVENT_ID,
       missionId: 'golden-bell',
@@ -198,93 +197,48 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
       entries: [],
     });
     expect(again.alreadyFinalized).toBe(true);
+    expect(again.awards).toHaveLength(5);
 
     await signInAsStudent();
     await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
-    const tickets = await repository.listTeamTickets(DEFAULT_EVENT_ID, TEAM_ID);
-    expect(tickets.length).toBeGreaterThan(0);
-    expect(tickets.every((ticket) => ticket.cardType === null)).toBe(true);
+    const view = await repository.getTeamRewardView(DEFAULT_EVENT_ID, TEAM_ID);
+    const pending = view.awards.find((award) => award.status === 'pending');
+    if (!pending) throw new Error('고르기 전 보상이 없어요');
+    expect(pending.offeredTypes).toHaveLength(3);
 
-    const cardType = await repository.claimTicket(DEFAULT_EVENT_ID, TEAM_ID, tickets[0].id);
-    expect(cardType).toBeTruthy();
+    const outside = (
+      ['thinking', 'observation', 'expression', 'command', 'verification'] as const
+    ).find((cardType) => !pending.offeredTypes.includes(cardType));
+    if (!outside) throw new Error('후보 밖 종류가 없어요');
     await expect(
-      repository.claimTicket(DEFAULT_EVENT_ID, TEAM_ID, tickets[0].id),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'already-claimed'));
-
-    const summary = await repository.getTeamCardSummary(DEFAULT_EVENT_ID, TEAM_ID);
-    expect(summary.team[cardType]).toBe(1);
-  });
-
-  it('보유량보다 많은 교환은 막고, 정상 교환은 학급 수량에 반영된다', async () => {
-    await signInAsTeacher();
-    await repository.setupEvent(DEFAULT_EVENT_ID);
-    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
-    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
-    const participants = await repository.listMissionParticipants(
-      DEFAULT_EVENT_ID,
-      'golden-bell',
-      4,
-      1,
-    );
-    await repository.finalizeRanking({
-      eventId: DEFAULT_EVENT_ID,
-      missionId: 'golden-bell',
-      grade: 4,
-      roundNo: 1,
-      requestId: 'finalize-1',
-      entries: participants.map((participant, index) => ({
-        teamId: participant.team.id,
-        score: 100,
-        rank: index + 1,
-      })),
-    });
-
-    await signInAsStudent();
-    await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
-    const tickets = await repository.listTeamTickets(DEFAULT_EVENT_ID, TEAM_ID);
-    const cardType = await repository.claimTicket(DEFAULT_EVENT_ID, TEAM_ID, tickets[0].id);
-
-    await signInAsTeacher();
-    const rows = await repository.listClassCardRows(DEFAULT_EVENT_ID, 4);
-    const from = rows.find((row) => row.classInfo.id === 'g4-c1');
-    const to = rows.find((row) => row.classInfo.id === 'g4-c2');
-    expect(from?.counts[cardType]).toBe(1);
-
-    await expect(
-      repository.createExchange({
+      repository.claimCardAward({
         eventId: DEFAULT_EVENT_ID,
-        requestId: 'exchange-over',
-        fromClassId: 'g4-c1',
-        toClassId: 'g4-c2',
-        cardType,
-        quantity: 5,
+        teamId: TEAM_ID,
+        awardId: pending.id,
+        selectedType: outside,
+        requestId: 'claim-outside',
       }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'insufficient-cards'));
+    ).rejects.toSatisfy((error) => isRepositoryError(error));
 
-    await repository.createExchange({
+    const selectedType = pending.offeredTypes[0];
+    const claim = {
       eventId: DEFAULT_EVENT_ID,
-      requestId: 'exchange-ok',
-      fromClassId: 'g4-c1',
-      toClassId: 'g4-c2',
-      cardType,
-      quantity: 1,
-    });
-    // 같은 요청 ID로 다시 보내도 기록은 하나만 남는다.
-    await repository.createExchange({
-      eventId: DEFAULT_EVENT_ID,
-      requestId: 'exchange-ok',
-      fromClassId: 'g4-c1',
-      toClassId: 'g4-c2',
-      cardType,
-      quantity: 1,
-    });
-
-    const after = await repository.listClassCardRows(DEFAULT_EVENT_ID, 4);
-    expect(after.find((row) => row.classInfo.id === 'g4-c1')?.counts[cardType]).toBe(0);
-    expect(after.find((row) => row.classInfo.id === 'g4-c2')?.counts[cardType]).toBe(
-      (to?.counts[cardType] ?? 0) + 1,
+      teamId: TEAM_ID,
+      awardId: pending.id,
+      selectedType,
+      requestId: 'claim-1',
+    };
+    const claimed = await repository.claimCardAward(claim);
+    expect(claimed.after.earned).toBe(claimed.before.earned + 1);
+    // 같은 요청을 다시 보내면 같은 결과, 다른 요청은 거부
+    await expect(repository.claimCardAward(claim)).resolves.toBeTruthy();
+    await expect(repository.claimCardAward({ ...claim, requestId: 'claim-2' })).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'already-claimed'),
     );
-    expect(await repository.listExchanges(DEFAULT_EVENT_ID, 4)).toHaveLength(1);
+
+    const boards = await repository.listClassCardBoards(DEFAULT_EVENT_ID, 4);
+    const classBoard = boards.find((board) => board.classInfo.id === 'g4-c1');
+    expect(classBoard?.progress.cards[selectedType].earned).toBe(claimed.after.earned);
   });
 
   it('지금 라운드가 아닌 미션은 제출할 수 없다', async () => {
@@ -394,7 +348,7 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
     expect(again.score).toBe(100);
   });
 
-  it('확정한 순위를 고치면 뽑기권이 모자란 만큼 발급되고 남는 만큼 회수된다', async () => {
+  it('확정한 순위를 고치면 고르기 전 카드 보상의 후보 수가 새 순위에 맞춰진다', async () => {
     await signInAsTeacher();
     await repository.setupEvent(DEFAULT_EVENT_ID);
     await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
@@ -431,12 +385,11 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
         rank: index === 0 ? 2 : index === 1 ? 1 : index + 1,
       })),
     });
-    expect(outcome.added).toBe(1);
-    expect(outcome.revoked).toBe(1);
+    expect(outcome).toMatchObject({ reoffered: 2, keptClaimed: 0 });
 
     const after = await repository.listMissionParticipants(DEFAULT_EVENT_ID, 'golden-bell', 4, 1);
-    expect(after[0].ticketCount).toBe(2);
-    expect(after[1].ticketCount).toBe(3);
+    expect(after[0].award?.offeredTypes).toHaveLength(2);
+    expect(after[1].award?.offeredTypes).toHaveLength(3);
     expect(after[0].result?.rank).toBe(2);
   });
 

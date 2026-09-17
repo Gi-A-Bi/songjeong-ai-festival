@@ -25,3 +25,22 @@ const timeFormatter = new Intl.DateTimeFormat('ko-KR', {
 export function formatTimeOfDay(epochMs: number | null): string {
   return epochMs === null ? '-' : timeFormatter.format(epochMs);
 }
+
+const pad = (value: number) => String(value).padStart(2, '0');
+
+/** 시각 입력 칸(type="time", step=1)에 넣을 “14:31:05”. 값이 없으면 빈 문자열 */
+export function toTimeInputValue(epochMs: number | null): string {
+  if (epochMs === null) return '';
+  const date = new Date(epochMs);
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+/** “14:31:05”를 기준 시각과 같은 날짜의 epoch ms로 바꾼다. 잘못된 값이면 null */
+export function fromTimeInputValue(value: string, baseEpochMs: number): number | null {
+  const match = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
+  if (!match) return null;
+  const [hours, minutes, seconds = '0'] = match.slice(1);
+  const date = new Date(baseEpochMs);
+  date.setHours(Number(hours), Number(minutes), Number(seconds), 0);
+  return date.getTime();
+}

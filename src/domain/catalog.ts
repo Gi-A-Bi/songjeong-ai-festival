@@ -1,7 +1,7 @@
 import type { IconName } from '../components/icons';
 import type { CardType, MissionType } from './types';
 
-/** 카드 5종의 고정 정보(명세 7장) */
+/** 카드 5종의 고정 정보(CARD_FINALE_UPDATE_SPEC 7장). 카드 종류에 따라 힌트 효과가 달라지지 않는다. */
 export const CARD_INFO: Record<
   CardType,
   { name: string; meaning: string; missionType: MissionType }
@@ -12,7 +12,7 @@ export const CARD_INFO: Record<
     meaning: '자세히 보고 차이를 찾는 힘',
     missionType: 'error_hunt',
   },
-  expression: { name: '표현 카드', meaning: '생각을 그림으로 나타내는 힘', missionType: 'drawing' },
+  expression: { name: '표현 카드', meaning: '조건을 이해하고 표현하는 힘', missionType: 'drawing' },
   command: {
     name: '명령 카드',
     meaning: '순서와 규칙으로 움직이게 하는 힘',
@@ -20,7 +20,7 @@ export const CARD_INFO: Record<
   },
   verification: {
     name: '검증 카드',
-    meaning: '근거를 찾아 사실을 확인하는 힘',
+    meaning: '근거로 사실을 확인하는 힘',
     missionType: 'library_check',
   },
 };

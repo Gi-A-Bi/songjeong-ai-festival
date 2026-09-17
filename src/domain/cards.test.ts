@@ -1,120 +1,190 @@
 import { describe, expect, it } from 'vitest';
+import { createSeededRandom } from '../lib/random';
 import {
-  claimTicket,
-  computeClassCardCounts,
-  drawCardType,
-  emptyCardCounts,
-  getMissingCardTypes,
-  isCollectionComplete,
-  nextTicketIndexes,
-  planTicketAdjustment,
-  previewTicketChange,
-  TicketAlreadyClaimedError,
+  CARD_TYPES,
+  CardAwardError,
+  claimCardAward,
+  computeClassCardProgress,
+  createCardAward,
+  drawOfferedTypes,
+  newlyOpenedPiece,
+  reconcileCardProgress,
+  reofferCardAward,
+  toCardProgress,
 } from './cards';
-import type { CardType, DrawTicket } from './types';
+import type { CardAward, CardType } from './types';
 
-function ticket(id: string, cardType: CardType, claimed: boolean, classId = 'c1'): DrawTicket {
-  return {
-    id,
-    teamId: 't1',
-    classId,
-    sourceResultId: 'r1',
-    cardType,
-    claimedAt: claimed ? 1 : null,
-    revokedAt: null,
-    createdAt: 0,
-  };
+const team = { id: 'g4-c2-t3', classId: 'g4-c2' };
+
+function award(rank: number, random: () => number = () => 0): CardAward {
+  return createCardAward({
+    result: { id: `drawing__g4__r1__${team.id}`, missionId: 'drawing', grade: 4, roundNo: 1, rank },
+    team,
+    now: 100,
+    random,
+  });
 }
 
-describe('카드 5종 완성 판정', () => {
-  it('5종을 각각 1장 이상 가지면 완성이다', () => {
-    const counts = { thinking: 1, observation: 2, expression: 1, command: 3, verification: 1 };
-    expect(isCollectionComplete(counts)).toBe(true);
+function claimed(cardType: CardType, classId = 'g4-c2') {
+  return { classId, status: 'claimed' as const, selectedType: cardType };
+}
+
+describe('순위별 카드 보상 후보', () => {
+  it('1위 3개, 2위 2개, 3위 이하 1개의 후보를 만든다', () => {
+    expect([1, 2, 3, 5].map((rank) => award(rank).offeredTypes.length)).toEqual([3, 2, 1, 1]);
   });
 
-  it('한 종류라도 없으면 미완성이고 없는 카드를 알려 준다', () => {
-    const counts = { ...emptyCardCounts(), thinking: 4, observation: 1, expression: 1, command: 1 };
-    expect(isCollectionComplete(counts)).toBe(false);
-    expect(getMissingCardTypes(counts)).toEqual(['verification']);
+  it('한 보상 안의 후보 종류는 중복되지 않는다', () => {
+    const random = createSeededRandom(7);
+    for (let trial = 0; trial < 300; trial += 1) {
+      const offered = drawOfferedTypes(3, random);
+      expect(new Set(offered).size).toBe(3);
+      expect(offered.every((cardType) => CARD_TYPES.includes(cardType))).toBe(true);
+    }
   });
 
-  it('학급 카드 수는 사용한 뽑기권과 교환 기록의 합이다', () => {
-    const tickets = [
-      ticket('1', 'thinking', true),
-      ticket('2', 'thinking', true),
-      ticket('3', 'verification', false),
-      ticket('4', 'command', true, 'c2'),
-    ];
-    const counts = computeClassCardCounts('c1', tickets, [
-      { fromClassId: 'c1', toClassId: 'c2', cardType: 'thinking', quantity: 1 },
-      { fromClassId: 'c2', toClassId: 'c1', cardType: 'command', quantity: 1 },
-    ]);
-    expect(counts).toEqual({ ...emptyCardCounts(), thinking: 1, command: 1 });
-  });
-});
-
-describe('사용한 뽑기권 재사용 차단', () => {
-  it('처음 사용하면 claimedAt이 기록되고, 다시 사용하면 거부한다', () => {
-    const first = claimTicket(ticket('1', 'observation', false), 1234);
-    expect(first.claimedAt).toBe(1234);
-    expect(() => claimTicket(first, 5678)).toThrow(TicketAlreadyClaimedError);
-  });
-});
-
-describe('카드 종류 추첨', () => {
-  it('난수 범위 전체에서 5종 중 하나를 고른다', () => {
-    expect(drawCardType(() => 0)).toBe('thinking');
-    expect(drawCardType(() => 0.999999)).toBe('verification');
-    expect(drawCardType(() => 0.4)).toBe('expression');
-  });
-});
-
-describe('순위 수정 때 뽑기권 맞추기', () => {
-  const tickets = [
-    { id: 'r1__1', claimedAt: 10, revokedAt: null },
-    { id: 'r1__2', claimedAt: null, revokedAt: null },
-    { id: 'r1__3', claimedAt: null, revokedAt: null },
-  ];
-
-  it('모자라면 새로 만들 수를 알려 주고 번호는 기존 다음부터 쓴다', () => {
-    expect(planTicketAdjustment(tickets.slice(0, 1), 3)).toEqual({
-      createCount: 2,
-      revokeIds: [],
-      revokedClaimed: 0,
-    });
-    expect(nextTicketIndexes(['r1__1', 'r1__4'], 2)).toEqual([5, 6]);
-  });
-
-  it('남으면 안 뽑은 뽑기권부터, 번호가 큰 것부터 회수한다', () => {
-    expect(planTicketAdjustment(tickets, 2)).toEqual({
-      createCount: 0,
-      revokeIds: ['r1__3'],
-      revokedClaimed: 0,
-    });
-    expect(planTicketAdjustment(tickets, 0)).toEqual({
-      createCount: 0,
-      revokeIds: ['r1__3', 'r1__2', 'r1__1'],
-      revokedClaimed: 1,
-    });
-  });
-
-  it('이미 회수한 뽑기권은 세지 않는다', () => {
-    const withRevoked = [...tickets, { id: 'r1__4', claimedAt: null, revokedAt: 5 }];
-    expect(planTicketAdjustment(withRevoked, 3).createCount).toBe(0);
-    expect(planTicketAdjustment(withRevoked, 3).revokeIds).toEqual([]);
-  });
-
-  it('회수한 카드는 학급 카드 수에서 빠진다', () => {
-    const counts = computeClassCardCounts(
-      'c1',
-      [{ ...ticket('1', 'thinking', true), revokedAt: 99 }, ticket('2', 'thinking', true)],
-      [],
+  it('다섯 종류가 후보에 고르게 나온다', () => {
+    const random = createSeededRandom(2026);
+    const seen: Record<string, number> = Object.fromEntries(
+      CARD_TYPES.map((cardType) => [cardType, 0]),
     );
-    expect(counts.thinking).toBe(1);
+    for (let trial = 0; trial < 5000; trial += 1) {
+      seen[drawOfferedTypes(1, random)[0]] += 1;
+    }
+    for (const cardType of CARD_TYPES) {
+      expect(seen[cardType]).toBeGreaterThan(850);
+      expect(seen[cardType]).toBeLessThan(1150);
+    }
   });
 
-  it('미리보기: 사용 수만으로 회수될 뽑은 카드 수를 계산한다', () => {
-    expect(previewTicketChange(3, 2, 1)).toEqual({ added: 0, revoked: 2, revokedClaimed: 1 });
-    expect(previewTicketChange(1, 1, 3)).toEqual({ added: 2, revoked: 0, revokedClaimed: 0 });
+  it('자동 배정은 만들 때 종류가 정해지고 받은 상태가 된다', () => {
+    const automatic = award(4);
+    expect(automatic).toMatchObject({
+      selectionMode: 'automatic',
+      status: 'claimed',
+      selectedType: automatic.offeredTypes[0],
+      claimedAt: 100,
+    });
+    expect(award(1)).toMatchObject({ selectionMode: 'choose_three', status: 'pending' });
+  });
+
+  it('보상 ID는 순위 결과 ID와 같아 결과 하나당 하나만 생긴다', () => {
+    const first = award(1);
+    expect(first.id).toBe(first.resultId);
+  });
+});
+
+describe('카드 보상 받기', () => {
+  it('후보 안의 종류만 고를 수 있다', () => {
+    const pending = award(2);
+    const outside = CARD_TYPES.find((cardType) => !pending.offeredTypes.includes(cardType));
+    expect(() => claimCardAward(pending, outside as CardType, 200)).toThrow(CardAwardError);
+    const taken = claimCardAward(pending, pending.offeredTypes[1], 200);
+    expect(taken).toMatchObject({ status: 'claimed', selectedType: pending.offeredTypes[1] });
+  });
+
+  it('이미 받은 보상은 다시 받을 수 없다', () => {
+    const pending = award(1);
+    const taken = claimCardAward(pending, pending.offeredTypes[0], 200);
+    expect(() => claimCardAward(taken, pending.offeredTypes[0], 300)).toThrow(
+      expect.objectContaining({ reason: 'already-claimed' }),
+    );
+    const automatic = award(3);
+    expect(() => claimCardAward(automatic, automatic.offeredTypes[0], 300)).toThrow(CardAwardError);
+  });
+});
+
+describe('순위 수정과 카드 보상', () => {
+  it('고르기 전 보상은 새 순위의 후보 수로 맞추고 기존 후보를 유지한다', () => {
+    const pending = award(1);
+    const toSecond = reofferCardAward(pending, 2, 500, () => 0);
+    expect(toSecond.award.offeredTypes).toEqual(pending.offeredTypes.slice(0, 2));
+    expect(toSecond.award).toMatchObject({ selectionMode: 'choose_two', status: 'pending' });
+
+    const toThird = reofferCardAward(pending, 3, 500, () => 0);
+    expect(toThird.award).toMatchObject({ status: 'claimed', selectedType: 'thinking' });
+
+    const up = reofferCardAward(award(3), 1, 500, () => 0);
+    expect(up.keptClaimed).toBe(true);
+    expect(up.award.status).toBe('claimed');
+    expect(up.award.offeredTypes).toHaveLength(1);
+  });
+
+  it('2위에서 1위로 올라가면 겹치지 않는 후보를 하나 더한다', () => {
+    const pending = award(2, createSeededRandom(3));
+    const result = reofferCardAward(pending, 1, 500, createSeededRandom(4));
+    expect(result.award.offeredTypes.slice(0, 2)).toEqual(pending.offeredTypes);
+    expect(new Set(result.award.offeredTypes).size).toBe(3);
+  });
+});
+
+describe('네 조각 카드 성장', () => {
+  it('0~4회는 0/4~4/4, 이후는 4/4와 중복 +N으로 계산한다', () => {
+    expect([0, 1, 2, 3, 4, 5, 7].map((earned) => toCardProgress('command', earned))).toEqual([
+      { cardType: 'command', earned: 0, pieces: 0, duplicates: 0, complete: false },
+      { cardType: 'command', earned: 1, pieces: 1, duplicates: 0, complete: false },
+      { cardType: 'command', earned: 2, pieces: 2, duplicates: 0, complete: false },
+      { cardType: 'command', earned: 3, pieces: 3, duplicates: 0, complete: false },
+      { cardType: 'command', earned: 4, pieces: 4, duplicates: 0, complete: true },
+      { cardType: 'command', earned: 5, pieces: 4, duplicates: 1, complete: true },
+      { cardType: 'command', earned: 7, pieces: 4, duplicates: 3, complete: true },
+    ]);
+  });
+
+  it('학급 진행도는 받은 보상만 세고 다른 학급·고르기 전 보상은 빼고 센다', () => {
+    const progress = computeClassCardProgress('g4-c2', [
+      claimed('thinking'),
+      claimed('thinking'),
+      claimed('thinking', 'g4-c1'),
+      { classId: 'g4-c2', status: 'pending', selectedType: null },
+    ]);
+    expect(progress.cards.thinking).toMatchObject({ earned: 2, pieces: 2 });
+    expect(progress.cards.observation.pieces).toBe(0);
+  });
+
+  it('카드 종류별로 완성을 판정하고 5종 모두 4/4일 때만 전체 완성이다', () => {
+    const counts: [CardType, number][] = [
+      ['thinking', 4],
+      ['observation', 6],
+      ['expression', 3],
+      ['command', 4],
+      ['verification', 4],
+    ];
+    const awards = counts.flatMap(([cardType, count]) =>
+      Array.from({ length: count }, () => claimed(cardType)),
+    );
+    const partial = computeClassCardProgress('g4-c2', awards);
+    expect(CARD_TYPES.filter((cardType) => partial.cards[cardType].complete)).toEqual([
+      'thinking',
+      'observation',
+      'command',
+      'verification',
+    ]);
+    expect(partial.completedCount).toBe(4);
+    expect(partial.allComplete).toBe(false);
+    expect(partial.cards.observation.duplicates).toBe(2);
+
+    const full = computeClassCardProgress('g4-c2', [...awards, claimed('expression')]);
+    expect(full.completedCount).toBe(5);
+    expect(full.allComplete).toBe(true);
+  });
+
+  it('새로 받은 종류는 다음 조각 하나만 열고 완성 뒤에는 조각이 열리지 않는다', () => {
+    expect(newlyOpenedPiece(toCardProgress('expression', 1), toCardProgress('expression', 2))).toBe(
+      2,
+    );
+    expect(
+      newlyOpenedPiece(toCardProgress('expression', 4), toCardProgress('expression', 5)),
+    ).toBeNull();
+  });
+
+  it('진행도 캐시가 원장과 다르면 원장을 우선한다', () => {
+    const ledger = computeClassCardProgress('g4-c2', [claimed('verification')]);
+    const cached = computeClassCardProgress('g4-c2', [
+      claimed('verification'),
+      claimed('thinking'),
+    ]);
+    expect(reconcileCardProgress(cached, ledger)).toEqual({ progress: ledger, stale: true });
+    expect(reconcileCardProgress(ledger, ledger).stale).toBe(false);
   });
 });

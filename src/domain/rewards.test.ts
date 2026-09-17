@@ -1,28 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { getTicketCountForRank, rankByScore } from './rewards';
+import { getSelectionModeForRank, OFFER_COUNT_BY_MODE, rankByScore } from './rewards';
 import { calculateErrorHuntScore } from './scoring';
 
-describe('순위에 따른 뽑기권 수', () => {
-  it('1위 3장, 2위 2장, 3위 이하 1장', () => {
-    expect(getTicketCountForRank(1)).toBe(3);
-    expect(getTicketCountForRank(2)).toBe(2);
-    expect([3, 4, 5, 6].map(getTicketCountForRank)).toEqual([1, 1, 1, 1]);
+describe('순위에 따른 카드 종류 선택권', () => {
+  it('1위는 3종 중 선택, 2위는 2종 중 선택, 3위 이하는 자동 배정', () => {
+    expect(getSelectionModeForRank(1)).toBe('choose_three');
+    expect(getSelectionModeForRank(2)).toBe('choose_two');
+    expect([3, 4, 5, 6].map(getSelectionModeForRank)).toEqual([
+      'automatic',
+      'automatic',
+      'automatic',
+      'automatic',
+    ]);
   });
 
-  it('참가 팀이 4~6팀이어도 같은 규칙으로 합계가 정해진다', () => {
-    const total = (teams: number) =>
-      Array.from({ length: teams }, (_, index) => getTicketCountForRank(index + 1)).reduce(
-        (sum, count) => sum + count,
-        0,
-      );
-    expect(total(4)).toBe(7);
-    expect(total(5)).toBe(8);
-    expect(total(6)).toBe(9);
+  it('선택 방식별 후보 개수는 3·2·1개이고, 4~6팀 어디서나 팀마다 조각은 하나다', () => {
+    expect([1, 2, 3, 6].map((rank) => OFFER_COUNT_BY_MODE[getSelectionModeForRank(rank)])).toEqual([
+      3, 2, 1, 1,
+    ]);
   });
 
   it('잘못된 순위는 거부한다', () => {
-    expect(() => getTicketCountForRank(0)).toThrow(RangeError);
-    expect(() => getTicketCountForRank(1.5)).toThrow(RangeError);
+    expect(() => getSelectionModeForRank(0)).toThrow(RangeError);
+    expect(() => getSelectionModeForRank(1.5)).toThrow(RangeError);
   });
 });
 

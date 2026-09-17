@@ -1,9 +1,12 @@
 rules_version = '2';
 
 // 송정 AI 페스티벌 보안 규칙
-// - 학생: 익명 로그인. 자기 팀 제출물만 만들고 고칠 수 있다.
+// - 학생: 익명 로그인. 자기 팀 제출물과 자기 팀의 교실 QR 체크인만 기록할 수 있다.
 // - 교사: Google 로그인. teachers/{uid}에 등록되고 active가 true여야 한다.
-// - 순위, 카드 종류, 교환 기록은 학생이 바꿀 수 없다.
+//   role은 admin(총괄), station_teacher(부스, missionId로 담당 지정),
+//   homeroom_teacher(담임, classId로 담당 지정)이다. 예전 값 teacher는 담당 없는 부스 교사로 본다.
+// - 순위, 카드 보상 후보, 최종 미션 기록은 학생이 바꿀 수 없다.
+// - 최종 미션 정답은 총괄 운영자만 읽는다. 채점은 결과를 공개할 때 총괄 운영자 기기에서 한다.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -23,6 +26,23 @@ service cloud.firestore {
 
     function isAdmin() {
       return isTeacher() && teacherDoc().role == 'admin';
+    }
+
+    // 총괄 운영자 또는 그 미션 담당. 담당 미션이 비어 있는 부스 교사는 모든 부스를 맡을 수 있다.
+    function isStationTeacherOf(missionId) {
+      return isTeacher()
+        && (teacherDoc().role == 'admin'
+          || (teacherDoc().role in ['station_teacher', 'teacher']
+            && (teacherDoc().get('missionId', null) == null
+              || teacherDoc().get('missionId', null) == missionId)));
+    }
+
+    // 총괄 운영자 또는 그 학급 담임
+    function isHomeroomOf(classId) {
+      return isTeacher()
+        && (teacherDoc().role == 'admin'
+          || (teacherDoc().role == 'homeroom_teacher'
+            && teacherDoc().get('classId', null) == classId));
     }
 
     // 이 기기가 잠근 팀. 첫 입장 때 sessions/{uid} 문서로 기록한다.
@@ -48,33 +68,120 @@ service cloud.firestore {
 
     match /events/{eventId} {
       // 행사 상태, 학급, 팀, 미션, 라운드는 로그인한 사람이면 읽을 수 있다.
+      // 행사 구조와 라운드 진행은 총괄 운영자만 바꾼다.
       allow read: if isSignedIn();
-      allow write: if isTeacher();
+      allow write: if isAdmin();
 
       match /classes/{classId} {
         allow read: if isSignedIn();
-        allow write: if isTeacher();
+        allow write: if isAdmin();
       }
 
       match /teams/{teamId} {
         allow read: if isSignedIn();
-        allow write: if isTeacher();
+        allow write: if isAdmin();
       }
 
+      // 미션 문제 같은 설정은 그 미션 담당 교사도 고칠 수 있다.
       match /missions/{missionId} {
         allow read: if isSignedIn();
-        allow write: if isTeacher();
+        allow create, delete: if isAdmin();
+        allow update: if isStationTeacherOf(missionId);
       }
 
       match /rounds/{roundId} {
         allow read: if isSignedIn();
-        allow write: if isTeacher();
+        allow write: if isAdmin();
       }
 
       // 미션별 진행 상태(정답 공개 여부 등)
       match /missionStates/{stateId} {
         allow read: if isSignedIn();
-        allow write: if isTeacher();
+        allow create, update: if isStationTeacherOf(request.resource.data.missionId);
+        allow delete: if isAdmin();
+      }
+
+      // 기기 시계와 서버 시계의 차이를 재는 문서. 자기 문서에 서버 시각만 적을 수 있다.
+      match /clockSync/{uid} {
+        allow get: if isSignedIn() && request.auth.uid == uid;
+        allow create, update: if isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['at'])
+          && request.resource.data.at == request.time;
+        allow list, delete: if false;
+      }
+
+      // 팀 이동(교실 QR 체크인). 학급·팀·라운드별 고정 ID라 다시 찍어도 문서가 늘지 않는다.
+      // 진행 중·완료 여부는 저장하지 않고 부스 문서와 순위 결과로 계산한다.
+      match /teamMissionStates/{stateId} {
+        function incoming() {
+          return request.resource.data;
+        }
+        function idMatches() {
+          return stateId == incoming().classId + '_' + string(incoming().teamNo) + '_' + string(incoming().roundNo);
+        }
+        // 학년·학급·팀 번호는 팀 문서로, 가야 할 교실은 미션 번호 규칙으로 다시 확인한다.
+        function matchesTeamAndMission() {
+          let team = get(/databases/$(database)/documents/events/$(eventId)/teams/$(incoming().teamId)).data;
+          let mission = get(/databases/$(database)/documents/events/$(eventId)/missions/$(incoming().expectedMissionId)).data;
+          return incoming().grade == team.grade
+            && incoming().classId == team.classId
+            && incoming().teamNo == team.teamNo
+            && incoming().roundNo is int
+            && incoming().roundNo >= 1
+            && incoming().roundNo <= 5
+            && mission.no == (team.teamNo - 1 + incoming().roundNo - 1) % 5 + 1;
+        }
+        // 활동 중에는 지금 라운드, 이동 시간에는 다음 라운드에만 입장할 수 있다.
+        function checkInRoundOpen() {
+          let event = get(/databases/$(database)/documents/events/$(eventId)).data;
+          return event.activeGrade == incoming().grade
+            && (event.activeRound == 0
+              ? incoming().roundNo == 1
+              : (event.status in ['active', 'paused']
+                ? incoming().roundNo == event.activeRound
+                : incoming().roundNo == event.activeRound + 1));
+        }
+        function notYetCheckedIn() {
+          return resource == null || resource.data.checkedInAt == null;
+        }
+        // 올바른 교실 입장: 입장 시각은 서버 시각이어야 한다.
+        function validArrival() {
+          return incoming().checkedInAt == request.time
+            && incoming().actualMissionId == incoming().expectedMissionId
+            && incoming().wrongStationId == null;
+        }
+        // 다른 교실 QR: 입장으로 치지 않고 잘못 찍은 교실만 남긴다.
+        function validWrongScan() {
+          return incoming().checkedInAt == null
+            && incoming().wrongStationId is string
+            && incoming().wrongStationId != incoming().expectedMissionId
+            && incoming().actualMissionId == incoming().wrongStationId;
+        }
+        function studentCheckIn() {
+          return isTeamMember(eventId, incoming().teamId)
+            && idMatches()
+            && matchesTeamAndMission()
+            && checkInRoundOpen()
+            && notYetCheckedIn()
+            && incoming().manualReview == false
+            && ((validArrival() && incoming().checkedInBy == 'team')
+              || (validWrongScan() && incoming().checkedInBy == null));
+        }
+
+        allow read: if isSignedIn();
+        allow create, update: if isStationTeacherOf(incoming().expectedMissionId) || studentCheckIn();
+        allow delete: if isAdmin();
+      }
+
+      // 부스(미션 교실)의 라운드별 상태: 미션 시작과 결과 확정
+      match /missionRoundStates/{boothId} {
+        allow read: if isSignedIn();
+        allow create, update: if isStationTeacherOf(request.resource.data.missionId)
+          && boothId == request.resource.data.missionId
+            + '_g' + string(request.resource.data.grade)
+            + '_r' + string(request.resource.data.roundNo);
+        allow delete: if isAdmin();
       }
 
       // 팀 세션: 한 기기(uid)는 한 팀에만 묶인다. 잠금 해제는 교사만.
@@ -133,10 +240,10 @@ service cloud.firestore {
         }
 
         allow read: if isSignedIn();
-        allow create: if isTeacher()
+        allow create: if isStationTeacherOf(incoming().missionId)
           || (isOwnSubmission() && idMatches() && statusAllowed() && scoreUntouched()
             && matchesTeamAndRound() && rankingOpen() && roundOpen());
-        allow update: if isTeacher()
+        allow update: if isStationTeacherOf(incoming().missionId)
           || (isOwnSubmission()
             && idMatches()
             && unchanged('teamId')
@@ -172,40 +279,148 @@ service cloud.firestore {
         allow delete: if isAdmin();
       }
 
-      // 순위는 교사만 확정한다. 학생은 읽기만 한다.
+      // 순위는 그 미션 담당 교사와 총괄 운영자만 확정한다. 학생은 읽기만 한다.
       match /results/{resultId} {
         allow read: if isSignedIn();
-        allow write: if isTeacher();
+        allow create, update: if isStationTeacherOf(request.resource.data.missionId);
+        allow delete: if isAdmin();
       }
 
-      // 뽑기권: 학생은 자기 팀 것을 읽고, 사용 표시(claimedAt)만 할 수 있다.
-      // 교사가 순위를 고쳐 회수한 뽑기권(revokedAt)은 쓸 수 없다.
-      match /drawTickets/{ticketId} {
+      // 카드 보상: 교사가 순위를 확정할 때 결과 하나당 하나(고정 ID)를 만든다.
+      // 학생은 자기 팀의 고르기 전 보상에서 제시된 후보 하나만 골라 받을 수 있다.
+      match /cardAwards/{awardId} {
         allow read: if isSignedIn();
-        allow create, delete: if isTeacher();
-        allow update: if isTeacher()
+        allow create: if isStationTeacherOf(request.resource.data.missionId);
+        allow delete: if isAdmin();
+        allow update: if isStationTeacherOf(resource.data.missionId)
           || (isTeamMember(eventId, resource.data.teamId)
-            && resource.data.claimedAt == null
-            && resource.data.get('revokedAt', null) == null
-            && request.resource.data.get('revokedAt', null) == null
+            && resource.data.status == 'pending'
+            && request.resource.data.status == 'claimed'
+            && request.resource.data.selectedType in resource.data.offeredTypes
             && request.resource.data.claimedAt == request.time
-            && unchanged('teamId')
-            && unchanged('classId')
-            && unchanged('cardType')
-            && unchanged('sourceResultId')
-            && unchanged('createdAt'));
+            && request.resource.data.claimRequestId is string
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'selectedType', 'claimedAt', 'claimRequestId']));
       }
 
-      // 카드 교환은 교사만 기록한다. 잘못된 교환은 지우지 않고 반대 기록으로 바로잡는다.
-      match /exchanges/{exchangeId} {
-        allow read: if isSignedIn();
-        allow create: if isTeacher()
-          && request.resource.data.quantity is int
-          && request.resource.data.quantity > 0
-          && request.resource.data.fromClassId != request.resource.data.toClassId
-          && request.resource.data.status == 'completed';
-        allow update: if isTeacher() && unchanged('quantity') && unchanged('cardType');
-        allow delete: if false;
+      // ---- 학급 전체 최종 미션(교사만 접근한다) ----
+
+      // 학년 세션: 총괄 운영자가 열고, 제한 시간을 정하고, 결과를 공개한다.
+      match /finalSessions/{grade} {
+        allow read: if isTeacher();
+        allow write: if isAdmin();
+      }
+
+      // 문제와 보기, 힌트로 지울 오답. 정답은 들어 있지 않다.
+      match /finalQuestionSets/{grade} {
+        allow read: if isTeacher();
+        allow write: if isAdmin();
+      }
+
+      // 정답은 총괄 운영자만 읽는다. 담임교사 기기에는 내려가지 않는다.
+      match /finalAnswerKeys/{grade} {
+        allow read, write: if isAdmin();
+      }
+
+      // 학급 상태: 시작·진행·제출. 점수와 순위는 총괄 운영자만 기록한다.
+      match /finalClassStates/{classId} {
+        function incoming() {
+          return request.resource.data;
+        }
+        function changedKeys() {
+          return incoming().diff(resource.data).affectedKeys();
+        }
+        function deadline() {
+          return resource.data.startedAt + duration.value(resource.data.durationLimitSec, 's');
+        }
+        // 시작: 학년이 열려 있어야 하고, 시작 시각은 서버 시각이며, 점수 칸은 비어 있어야 한다.
+        function validStart() {
+          let session = get(/databases/$(database)/documents/events/$(eventId)/finalSessions/$(string(incoming().grade))).data;
+          let classDoc = get(/databases/$(database)/documents/events/$(eventId)/classes/$(classId)).data;
+          return session.status == 'open'
+            && incoming().classId == classId
+            && incoming().grade == classDoc.grade
+            && incoming().status == 'active'
+            && incoming().startedAt == request.time
+            && incoming().currentQuestionIndex == 0
+            && incoming().hintUsed == 0
+            && incoming().hintTotal is int
+            && incoming().hintTotal >= 0
+            && incoming().hintTotal <= 5
+            && incoming().hintTotal == incoming().completedCardTypeCountSnapshot
+            && incoming().allFiveCardsCompletedSnapshot == (incoming().completedCardTypeCountSnapshot == 5)
+            && incoming().questionCount == session.questionCount
+            && incoming().durationLimitSec == session.durationLimitSec
+            && incoming().submittedAt == null
+            && incoming().durationMs == null
+            && incoming().correctCount == null
+            && incoming().finalRank == null
+            && incoming().manualOverride == false;
+        }
+        // 진행: 문제 번호와 힌트 사용 수만 하나씩 늘릴 수 있다.
+        function validProgress() {
+          return resource.data.status == 'active'
+            && changedKeys().hasOnly(['currentQuestionIndex', 'hintUsed', 'updatedAt'])
+            && incoming().currentQuestionIndex >= resource.data.currentQuestionIndex
+            && incoming().currentQuestionIndex <= resource.data.currentQuestionIndex + 1
+            && incoming().currentQuestionIndex < resource.data.questionCount
+            && incoming().hintUsed >= resource.data.hintUsed
+            && incoming().hintUsed <= resource.data.hintUsed + 1
+            && incoming().hintUsed <= resource.data.hintTotal
+            && request.time < deadline() + duration.value(30, 's');
+        }
+        // 제출: 마지막 문제를 확정할 때만, 제한 시간 안에. 제출 시각은 서버 시각이다.
+        function validSubmit() {
+          return resource.data.status == 'active'
+            && incoming().status == 'submitted'
+            && changedKeys().hasOnly(['status', 'submittedAt', 'currentQuestionIndex', 'updatedAt'])
+            && resource.data.currentQuestionIndex == resource.data.questionCount - 1
+            && incoming().currentQuestionIndex == resource.data.questionCount
+            && incoming().submittedAt == request.time
+            && request.time < deadline() + duration.value(30, 's');
+        }
+        // 시간 마감: 제한 시간이 지난 뒤에만 기록할 수 있다.
+        function validTimeout() {
+          return resource.data.status == 'active'
+            && incoming().status == 'timeout'
+            && changedKeys().hasOnly(['status', 'submittedAt', 'updatedAt'])
+            && incoming().submittedAt == request.time
+            && request.time >= deadline();
+        }
+
+        allow read: if isTeacher();
+        allow create: if isAdmin() || (isHomeroomOf(classId) && validStart());
+        allow update: if isAdmin()
+          || (isHomeroomOf(classId) && (validProgress() || validSubmit() || validTimeout()));
+        allow delete: if isAdmin();
+      }
+
+      // 학급 응답: 문서 하나에 문제 번호("0"~"9")별로 모은다.
+      // 지금 푸는 번호만 바꿀 수 있어서, 확정하고 넘어간 답은 나중에 고칠 수 없다.
+      match /finalResponses/{classId} {
+        function state() {
+          return get(/databases/$(database)/documents/events/$(eventId)/finalClassStates/$(classId)).data;
+        }
+        function classIsActive() {
+          return state().status == 'active'
+            && request.time < state().startedAt + duration.value(state().durationLimitSec + 30, 's');
+        }
+        function currentKey() {
+          return [string(state().currentQuestionIndex)];
+        }
+
+        allow read: if isHomeroomOf(classId);
+        allow create: if isAdmin()
+          || (isHomeroomOf(classId)
+            && classIsActive()
+            && request.resource.data.classId == classId
+            && request.resource.data.answers.keys().hasOnly(currentKey()));
+        allow update: if isAdmin()
+          || (isHomeroomOf(classId)
+            && classIsActive()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answers', 'updatedAt'])
+            && request.resource.data.answers.diff(resource.data.answers).affectedKeys().hasOnly(currentKey()));
+        allow delete: if isAdmin();
       }
     }
 

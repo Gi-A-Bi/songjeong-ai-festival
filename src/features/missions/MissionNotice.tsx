@@ -46,7 +46,7 @@ export function MissionNotice({ phase, event, view, error }: MissionNoticeProps)
       return (
         <NoticeBox tone="success" icon="trophy" mascot="mascotCardEarned">
           순위가 확정됐어요.{' '}
-          <Link to={paths.cards(event.id, view.team.id)}>카드함에서 뽑기권을 확인해요</Link>
+          <Link to={paths.reward(event.id, view.team.id)}>카드 보상을 확인해요</Link>
         </NoticeBox>
       );
     case 'active':

@@ -16,14 +16,17 @@ import { MISSION_TYPE_INFO } from '../../domain/catalog';
 import type { Grade } from '../../domain/types';
 import { useAction } from '../../hooks/useAction';
 import { useAsyncData } from '../../hooks/useAsyncData';
+import { OpsBoard } from './dashboard/OpsBoard';
 import { EVENT_STATUS_BADGES, useTeacherContext } from './teacherContext';
 
 const GRADES: Grade[] = [3, 4, 5, 6];
 
 export function TeacherDashboardPage() {
-  const { eventId, event } = useTeacherContext();
+  const { eventId, event, teacher } = useTeacherContext();
   const repository = useRepository();
   const devTools = useDevTools();
+  const isAdmin = teacher.role === 'admin';
+  const liveOps = repository.capabilities.liveOps;
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
 
@@ -34,15 +37,16 @@ export function TeacherDashboardPage() {
   const missions = useAsyncData(loadMissions);
 
   const loadProgress = useCallback(async () => {
+    // 운영 상황판을 쓰는 모드에서는 라운드 상태만 있으면 된다.
     if (grade === null || round === 0) return null;
     const [progress, roundStatus] = await Promise.all([
-      repository.getRoundProgress(eventId, grade, round),
+      liveOps ? [] : repository.getRoundProgress(eventId, grade, round),
       repository.getRoundStatus(eventId, grade, round),
     ]);
     return { progress, roundStatus };
     // 라운드 상태가 바뀔 때마다 제출 현황을 다시 읽는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repository, eventId, grade, round, event.status]);
+  }, [repository, eventId, grade, round, event.status, liveOps]);
   const progress = useAsyncData(loadProgress);
 
   const control = useAction(
@@ -77,10 +81,12 @@ export function TeacherDashboardPage() {
   return (
     <>
       <div className="teacher-title">
-        <h1 className="page__title">운영 대시보드</h1>
-        <Button variant="secondary" icon="refresh" onClick={progress.reload}>
-          제출 현황 새로고침
-        </Button>
+        <h1 className="page__title">실시간 운영 대시보드</h1>
+        {liveOps ? null : (
+          <Button variant="secondary" icon="refresh" onClick={progress.reload}>
+            제출 현황 새로고침
+          </Button>
+        )}
       </div>
 
       <section className="panel control-bar" aria-label="행사 진행">
@@ -102,7 +108,7 @@ export function TeacherDashboardPage() {
                 id="active-grade"
                 className="text-input control-bar__select"
                 value={grade ?? ''}
-                disabled={running || changeGrade.isPending}
+                disabled={!isAdmin || running || changeGrade.isPending}
                 onChange={(change) => void changeGrade.run(Number(change.target.value) as Grade)}
               >
                 {grade === null ? <option value="">선택</option> : null}
@@ -135,7 +141,7 @@ export function TeacherDashboardPage() {
           <Button
             size="lg"
             icon="play_arrow"
-            disabled={startDisabled}
+            disabled={!isAdmin || startDisabled}
             loading={control.isPending}
             onClick={() => void control.run('start')}
           >
@@ -145,7 +151,7 @@ export function TeacherDashboardPage() {
             size="lg"
             variant="secondary"
             icon="pause"
-            disabled={event.status !== 'active' || control.isPending}
+            disabled={!isAdmin || event.status !== 'active' || control.isPending}
             onClick={() => void control.run('pause')}
           >
             일시정지
@@ -154,13 +160,18 @@ export function TeacherDashboardPage() {
             size="lg"
             variant="danger"
             icon="stop_circle"
-            disabled={!running || control.isPending}
+            disabled={!isAdmin || !running || control.isPending}
             onClick={() => setConfirmEnd(true)}
           >
             라운드 종료
           </Button>
         </div>
-        {running ? null : (
+        {!isAdmin ? (
+          <p className="control-bar__hint muted">
+            <Icon name="visibility" size="sm" /> 전체 현황은 읽기 전용이에요. 라운드 제어는 총괄
+            선생님만 할 수 있어요.
+          </p>
+        ) : running ? null : (
           <p className="control-bar__hint muted">
             <Icon name="info" size="sm" /> 학년은 라운드가 멈춰 있을 때만 바꿀 수 있어요.
           </p>
@@ -168,7 +179,14 @@ export function TeacherDashboardPage() {
         {actionError ? <InlineAlert tone="danger">{toUserMessage(actionError)}</InlineAlert> : null}
       </section>
 
-      <section className="stack" aria-labelledby="mission-cards-title">
+      {liveOps && grade !== null ? (
+        <OpsBoard eventId={eventId} grade={grade} event={event} />
+      ) : null}
+      {liveOps && grade === null ? (
+        <EmptyView title="진행할 학년을 먼저 골라 주세요" icon="school" />
+      ) : null}
+
+      <section className="stack" aria-labelledby="mission-cards-title" hidden={liveOps}>
         <h2 id="mission-cards-title" className="section-title">
           <Icon name="leaderboard" />
           {grade && round ? `${grade}학년 ${round}라운드 미션 현황` : '미션 현황'}
@@ -238,7 +256,7 @@ export function TeacherDashboardPage() {
                       <p className="muted">라운드를 시작하면 제출 현황이 보여요.</p>
                     )}
                     <ButtonLink
-                      to={paths.teacherMission(eventId, mission.id)}
+                      to={paths.teacherStation(eventId, mission.id)}
                       variant="secondary"
                       iconEnd="arrow_forward"
                       fullWidth
@@ -267,15 +285,27 @@ export function TeacherDashboardPage() {
       </section>
 
       <section className="panel teacher-shortcuts" aria-label="바로 가기">
-        <AssetImage asset="sceneCardExchange" decorative className="teacher-shortcuts__image" />
+        <AssetImage asset="sceneFinale" decorative className="teacher-shortcuts__image" />
         <div className="stack">
           <h2 className="section-title">
-            <Icon name="swap_horiz" /> 학급 카드 교환
+            <Icon name="trophy" /> 카드 성장과 학급 최종 미션
           </h2>
-          <p className="muted">투어가 끝나면 학급별 카드 현황을 보고 교환을 기록해요.</p>
-          <Link to={paths.exchange(eventId)} className="teacher-shortcuts__link">
-            카드 교환 화면으로 <Icon name="arrow_forward" size="sm" />
-          </Link>
+          <p className="muted">
+            학급별 네 조각 카드 진행도를 확인해요. 투어가 끝나면 총괄 선생님이 최종 미션을 열고, 각
+            반은 준비되면 전자칠판에서 10문제를 시작해요.
+          </p>
+          <div className="cluster">
+            <Link to={paths.teacherCards(eventId)} className="teacher-shortcuts__link">
+              학급 카드 현황 <Icon name="arrow_forward" size="sm" />
+            </Link>
+            {repository.capabilities.classFinal ? (
+              <Link to={paths.finalResults(eventId)} className="teacher-shortcuts__link">
+                최종 미션 현황 <Icon name="arrow_forward" size="sm" />
+              </Link>
+            ) : (
+              <span className="muted">최종 미션은 Firebase 연결 뒤 열려요.</span>
+            )}
+          </div>
         </div>
       </section>
 
@@ -328,7 +358,7 @@ export function TeacherDashboardPage() {
           progress.reload();
         }}
       >
-        <p>이번 접속에서 바꾼 제출·순위·카드·교환 기록이 모두 지워져요.</p>
+        <p>이번 접속에서 바꾼 제출·순위·체크인·카드 보상·최종 미션 기록이 모두 지워져요.</p>
       </ConfirmDialog>
     </>
   );

@@ -116,6 +116,16 @@
   --accent-library-check-ink: var(--green-700);
   --accent-library-check-soft: var(--green-100);
 
+  /* 네 조각 카드 */
+  --card-piece-hidden: rgb(17 29 66 / 86%);
+  --card-piece-seam: rgb(255 255 255 / 35%);
+  --card-piece-flash: rgb(255 201 51 / 55%);
+  --card-complete-glow: 0 0 0 4px var(--gold-400), 0 0 24px rgb(255 201 51 / 60%);
+
+  /* 학급 최종 미션 */
+  --final-hero-shade: rgb(11 21 51 / 82%);
+  --final-highlight-dim: rgb(11 21 51 / 45%);
+
   /* 간격 */
   --space-1: 4px;
   --space-2: 8px;

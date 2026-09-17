@@ -1,15 +1,9 @@
 export type RepositoryErrorCode =
-  | 'not-found'
-  | 'already-claimed'
-  | 'insufficient-cards'
-  | 'invalid-input'
-  | 'not-allowed'
-  | 'unavailable';
+  'not-found' | 'already-claimed' | 'invalid-input' | 'not-allowed' | 'unavailable';
 
 const DEFAULT_MESSAGES: Record<RepositoryErrorCode, string> = {
   'not-found': '정보를 찾을 수 없어요. 주소를 다시 확인해 주세요.',
-  'already-claimed': '이미 사용한 뽑기권이에요.',
-  'insufficient-cards': '가진 카드보다 많이 보낼 수 없어요.',
+  'already-claimed': '이미 받았거나 사용한 항목이에요.',
   'invalid-input': '입력한 내용을 다시 확인해 주세요.',
   'not-allowed': '지금은 할 수 없는 동작이에요.',
   unavailable: '연결이 잠시 불안정해요. 입력한 내용은 그대로 있으니 다시 시도해 주세요.',

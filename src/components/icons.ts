@@ -11,6 +11,7 @@ import arrowUpward from '@material-symbols/svg-400/rounded/arrow_upward.svg?raw'
 import bolt from '@material-symbols/svg-400/rounded/bolt.svg?raw';
 import brush from '@material-symbols/svg-400/rounded/brush.svg?raw';
 import celebration from '@material-symbols/svg-400/rounded/celebration.svg?raw';
+import centerFocusStrong from '@material-symbols/svg-400/rounded/center_focus_strong.svg?raw';
 import check from '@material-symbols/svg-400/rounded/check.svg?raw';
 import checkCircle from '@material-symbols/svg-400/rounded/check_circle.svg?raw';
 import close from '@material-symbols/svg-400/rounded/close.svg?raw';
@@ -18,24 +19,32 @@ import contentCopy from '@material-symbols/svg-400/rounded/content_copy.svg?raw'
 import dashboard from '@material-symbols/svg-400/rounded/dashboard.svg?raw';
 import deleteIcon from '@material-symbols/svg-400/rounded/delete.svg?raw';
 import directionsWalk from '@material-symbols/svg-400/rounded/directions_walk.svg?raw';
+import doNotDisturbOn from '@material-symbols/svg-400/rounded/do_not_disturb_on.svg?raw';
 import download from '@material-symbols/svg-400/rounded/download.svg?raw';
 import edit from '@material-symbols/svg-400/rounded/edit.svg?raw';
+import editNote from '@material-symbols/svg-400/rounded/edit_note.svg?raw';
 import error from '@material-symbols/svg-400/rounded/error.svg?raw';
+import factCheck from '@material-symbols/svg-400/rounded/fact_check.svg?raw';
 import flag from '@material-symbols/svg-400/rounded/flag.svg?raw';
 import folderZip from '@material-symbols/svg-400/rounded/folder_zip.svg?raw';
 import formatListNumbered from '@material-symbols/svg-400/rounded/format_list_numbered.svg?raw';
+import formatQuote from '@material-symbols/svg-400/rounded/format_quote.svg?raw';
 import fullscreen from '@material-symbols/svg-400/rounded/fullscreen.svg?raw';
 import fullscreenExit from '@material-symbols/svg-400/rounded/fullscreen_exit.svg?raw';
 import groups from '@material-symbols/svg-400/rounded/groups.svg?raw';
 import help from '@material-symbols/svg-400/rounded/help.svg?raw';
 import home from '@material-symbols/svg-400/rounded/home.svg?raw';
 import hourglassTop from '@material-symbols/svg-400/rounded/hourglass_top.svg?raw';
+import imageIcon from '@material-symbols/svg-400/rounded/image.svg?raw';
 import info from '@material-symbols/svg-400/rounded/info.svg?raw';
 import inkEraser from '@material-symbols/svg-400/rounded/ink_eraser.svg?raw';
+import keep from '@material-symbols/svg-400/rounded/keep.svg?raw';
+import key from '@material-symbols/svg-400/rounded/key.svg?raw';
 import leaderboard from '@material-symbols/svg-400/rounded/leaderboard.svg?raw';
 import lightbulb from '@material-symbols/svg-400/rounded/lightbulb.svg?raw';
 import lineWeight from '@material-symbols/svg-400/rounded/line_weight.svg?raw';
 import lock from '@material-symbols/svg-400/rounded/lock.svg?raw';
+import lockOpen from '@material-symbols/svg-400/rounded/lock_open.svg?raw';
 import login from '@material-symbols/svg-400/rounded/login.svg?raw';
 import logout from '@material-symbols/svg-400/rounded/logout.svg?raw';
 import meetingRoom from '@material-symbols/svg-400/rounded/meeting_room.svg?raw';
@@ -46,6 +55,7 @@ import pause from '@material-symbols/svg-400/rounded/pause.svg?raw';
 import pending from '@material-symbols/svg-400/rounded/pending.svg?raw';
 import playArrow from '@material-symbols/svg-400/rounded/play_arrow.svg?raw';
 import playingCards from '@material-symbols/svg-400/rounded/playing_cards.svg?raw';
+import psychology from '@material-symbols/svg-400/rounded/psychology.svg?raw';
 import qrCodeScanner from '@material-symbols/svg-400/rounded/qr_code_scanner.svg?raw';
 import quiz from '@material-symbols/svg-400/rounded/quiz.svg?raw';
 import refresh from '@material-symbols/svg-400/rounded/refresh.svg?raw';
@@ -62,18 +72,21 @@ import sort from '@material-symbols/svg-400/rounded/sort.svg?raw';
 import stars from '@material-symbols/svg-400/rounded/stars.svg?raw';
 import stopCircle from '@material-symbols/svg-400/rounded/stop_circle.svg?raw';
 import style from '@material-symbols/svg-400/rounded/style.svg?raw';
-import swapHoriz from '@material-symbols/svg-400/rounded/swap_horiz.svg?raw';
 import taskAlt from '@material-symbols/svg-400/rounded/task_alt.svg?raw';
 import timer from '@material-symbols/svg-400/rounded/timer.svg?raw';
+import timerOff from '@material-symbols/svg-400/rounded/timer_off.svg?raw';
 import touchApp from '@material-symbols/svg-400/rounded/touch_app.svg?raw';
 import trophy from '@material-symbols/svg-400/rounded/trophy.svg?raw';
 import undo from '@material-symbols/svg-400/rounded/undo.svg?raw';
 import visibility from '@material-symbols/svg-400/rounded/visibility.svg?raw';
+import visibilityOff from '@material-symbols/svg-400/rounded/visibility_off.svg?raw';
 import volumeOff from '@material-symbols/svg-400/rounded/volume_off.svg?raw';
 import volumeUp from '@material-symbols/svg-400/rounded/volume_up.svg?raw';
+import wandStars from '@material-symbols/svg-400/rounded/wand_stars.svg?raw';
 import warning from '@material-symbols/svg-400/rounded/warning.svg?raw';
 import wifi from '@material-symbols/svg-400/rounded/wifi.svg?raw';
 import wifiOff from '@material-symbols/svg-400/rounded/wifi_off.svg?raw';
+import workspacePremium from '@material-symbols/svg-400/rounded/workspace_premium.svg?raw';
 
 const RAW_ICONS = {
   add,
@@ -84,6 +97,7 @@ const RAW_ICONS = {
   bolt,
   brush,
   celebration,
+  center_focus_strong: centerFocusStrong,
   check,
   check_circle: checkCircle,
   close,
@@ -91,24 +105,32 @@ const RAW_ICONS = {
   dashboard,
   delete: deleteIcon,
   directions_walk: directionsWalk,
+  do_not_disturb_on: doNotDisturbOn,
   download,
   edit,
+  edit_note: editNote,
   error,
+  fact_check: factCheck,
   flag,
   folder_zip: folderZip,
   format_list_numbered: formatListNumbered,
+  format_quote: formatQuote,
   fullscreen,
   fullscreen_exit: fullscreenExit,
   groups,
   help,
   home,
   hourglass_top: hourglassTop,
+  image: imageIcon,
   info,
   ink_eraser: inkEraser,
+  keep,
+  key,
   leaderboard,
   lightbulb,
   line_weight: lineWeight,
   lock,
+  lock_open: lockOpen,
   login,
   logout,
   meeting_room: meetingRoom,
@@ -119,6 +141,7 @@ const RAW_ICONS = {
   pending,
   play_arrow: playArrow,
   playing_cards: playingCards,
+  psychology,
   qr_code_scanner: qrCodeScanner,
   quiz,
   refresh,
@@ -135,18 +158,21 @@ const RAW_ICONS = {
   stars,
   stop_circle: stopCircle,
   style,
-  swap_horiz: swapHoriz,
   task_alt: taskAlt,
   timer,
+  timer_off: timerOff,
   touch_app: touchApp,
   trophy,
   undo,
   visibility,
+  visibility_off: visibilityOff,
   volume_off: volumeOff,
   volume_up: volumeUp,
+  wand_stars: wandStars,
   warning,
   wifi,
   wifi_off: wifiOff,
+  workspace_premium: workspacePremium,
 } as const;
 
 export type IconName = keyof typeof RAW_ICONS;

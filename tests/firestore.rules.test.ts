@@ -67,31 +67,32 @@ beforeEach(async () => {
       });
     }
     await setDoc(doc(db, `${EVENT}/sessions/student-a`), { uid: 'student-a', teamId: 't1' });
-    await setDoc(doc(db, `${EVENT}/drawTickets/tk1`), {
-      teamId: 't1',
+    const award = {
+      resultId: 'golden-bell__g4__r1__t1',
+      grade: 4,
       classId: 'g4-c1',
-      sourceResultId: 'golden-bell__g4__r1__t1',
-      cardType: 'thinking',
-      claimedAt: null,
+      teamId: 't1',
+      missionId: 'golden-bell',
+      roundNo: 1,
+      rank: 1,
+      selectionMode: 'choose_three',
+      offeredTypes: ['thinking', 'observation', 'command'],
+      selectedType: null,
+      status: 'pending',
       createdAt: 1,
-    });
-    await setDoc(doc(db, `${EVENT}/drawTickets/tk-used`), {
-      teamId: 't1',
-      classId: 'g4-c1',
-      sourceResultId: 'golden-bell__g4__r1__t1',
-      cardType: 'observation',
+      claimedAt: null,
+    };
+    await setDoc(doc(db, `${EVENT}/cardAwards/award-pending`), award);
+    await setDoc(doc(db, `${EVENT}/cardAwards/award-claimed`), {
+      ...award,
+      rank: 4,
+      selectionMode: 'automatic',
+      offeredTypes: ['observation'],
+      selectedType: 'observation',
+      status: 'claimed',
       claimedAt: new Date(),
-      createdAt: 1,
     });
-    await setDoc(doc(db, `${EVENT}/drawTickets/tk-revoked`), {
-      teamId: 't1',
-      classId: 'g4-c1',
-      sourceResultId: 'golden-bell__g4__r1__t1',
-      cardType: 'command',
-      claimedAt: null,
-      revokedAt: new Date(),
-      createdAt: 1,
-    });
+    await setDoc(doc(db, `${EVENT}/cardAwards/award-other`), { ...award, teamId: 't2' });
   });
 });
 
@@ -274,96 +275,74 @@ describe('순위와 카드', () => {
     await assertFails(setDoc(doc(inactive, `${EVENT}/results/golden-bell__g4__r1__t1`), result));
   });
 
-  it('학생은 뽑기권을 사용 표시만 할 수 있다', async () => {
-    const db = studentDb();
+  const claim = (selectedType: string, extra: Record<string, unknown> = {}) => ({
+    status: 'claimed',
+    selectedType,
+    claimedAt: serverTimestamp(),
+    claimRequestId: 'req-1',
+    ...extra,
+  });
+
+  it('학생은 자기 팀 보상에서 제시된 후보 하나를 골라 받을 수 있다', async () => {
     await assertSucceeds(
-      updateDoc(doc(db, `${EVENT}/drawTickets/tk1`), { claimedAt: serverTimestamp() }),
+      updateDoc(doc(studentDb(), `${EVENT}/cardAwards/award-pending`), claim('observation')),
     );
   });
 
-  it('학생은 카드 종류를 바꿀 수 없다', async () => {
-    const db = studentDb();
+  it('학생은 후보에 없는 카드 종류를 고를 수 없다', async () => {
     await assertFails(
-      updateDoc(doc(db, `${EVENT}/drawTickets/tk1`), {
-        claimedAt: serverTimestamp(),
-        cardType: 'verification',
-      }),
+      updateDoc(doc(studentDb(), `${EVENT}/cardAwards/award-pending`), claim('verification')),
     );
   });
 
-  it('교사가 회수한 뽑기권은 쓸 수 없다', async () => {
+  it('학생은 후보나 순위를 바꿀 수 없다', async () => {
     await assertFails(
-      updateDoc(doc(studentDb(), `${EVENT}/drawTickets/tk-revoked`), {
-        claimedAt: serverTimestamp(),
-      }),
+      updateDoc(
+        doc(studentDb(), `${EVENT}/cardAwards/award-pending`),
+        claim('verification', { offeredTypes: ['verification'] }),
+      ),
     );
-  });
-
-  it('학생은 뽑기권 회수 표시를 지울 수 없다', async () => {
     await assertFails(
-      updateDoc(doc(studentDb(), `${EVENT}/drawTickets/tk-revoked`), {
-        claimedAt: serverTimestamp(),
-        revokedAt: null,
-      }),
+      updateDoc(
+        doc(studentDb(), `${EVENT}/cardAwards/award-pending`),
+        claim('thinking', { rank: 2 }),
+      ),
     );
   });
 
-  it('이미 사용한 뽑기권은 다시 쓸 수 없다', async () => {
-    const db = studentDb();
+  it('이미 받은 보상은 다시 받을 수 없다', async () => {
     await assertFails(
-      updateDoc(doc(db, `${EVENT}/drawTickets/tk-used`), { claimedAt: serverTimestamp() }),
+      updateDoc(doc(studentDb(), `${EVENT}/cardAwards/award-claimed`), claim('observation')),
     );
   });
 
-  it('뽑기권은 교사만 만들 수 있다', async () => {
-    const ticket = {
-      teamId: 't1',
+  it('다른 팀의 보상은 받을 수 없다', async () => {
+    await assertFails(
+      updateDoc(doc(studentDb(), `${EVENT}/cardAwards/award-other`), claim('thinking')),
+    );
+    await assertFails(
+      updateDoc(doc(otherStudentDb(), `${EVENT}/cardAwards/award-pending`), claim('thinking')),
+    );
+  });
+
+  it('카드 보상은 교사만 만들 수 있다', async () => {
+    const award = {
+      resultId: 'golden-bell__g4__r1__t2',
+      grade: 4,
       classId: 'g4-c1',
-      sourceResultId: 'golden-bell__g4__r1__t1',
-      cardType: 'thinking',
-      claimedAt: null,
+      teamId: 't2',
+      missionId: 'golden-bell',
+      roundNo: 1,
+      rank: 3,
+      selectionMode: 'automatic',
+      offeredTypes: ['thinking'],
+      selectedType: 'thinking',
+      status: 'claimed',
       createdAt: 1,
+      claimedAt: 1,
     };
-    await assertFails(setDoc(doc(studentDb(), `${EVENT}/drawTickets/new1`), ticket));
-    await assertSucceeds(setDoc(doc(teacherDb(), `${EVENT}/drawTickets/new2`), ticket));
-  });
-});
-
-describe('카드 교환', () => {
-  const exchange = {
-    requestId: 'req-1',
-    fromClassId: 'g4-c1',
-    toClassId: 'g4-c2',
-    cardType: 'thinking',
-    quantity: 1,
-    status: 'completed',
-    createdBy: 'teacher-1',
-    createdAt: serverTimestamp(),
-  };
-
-  it('교사만 교환을 기록할 수 있다', async () => {
-    await assertFails(setDoc(doc(studentDb(), `${EVENT}/exchanges/x1`), exchange));
-    await assertSucceeds(setDoc(doc(teacherDb(), `${EVENT}/exchanges/x2`), exchange));
-  });
-
-  it('0장 이하 교환과 같은 학급 교환은 막는다', async () => {
-    await assertFails(
-      setDoc(doc(teacherDb(), `${EVENT}/exchanges/x3`), { ...exchange, quantity: 0 }),
-    );
-    await assertFails(
-      setDoc(doc(teacherDb(), `${EVENT}/exchanges/x4`), { ...exchange, toClassId: 'g4-c1' }),
-    );
-  });
-
-  it('교환 기록은 지울 수 없다', async () => {
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      await setDoc(doc(context.firestore(), `${EVENT}/exchanges/x5`), {
-        ...exchange,
-        createdAt: 1,
-      });
-    });
-    const { deleteDoc } = await import('firebase/firestore');
-    await assertFails(deleteDoc(doc(teacherDb(), `${EVENT}/exchanges/x5`)));
+    await assertFails(setDoc(doc(studentDb(), `${EVENT}/cardAwards/new1`), award));
+    await assertSucceeds(setDoc(doc(teacherDb(), `${EVENT}/cardAwards/new2`), award));
   });
 });
 

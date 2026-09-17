@@ -213,6 +213,7 @@
   font-weight: var(--font-weight-bold);
 }
 
+.round-picker__button--active,
 .round-picker__button[aria-pressed='true'] {
   border-color: var(--color-primary);
   background: var(--color-primary-soft);
@@ -299,11 +300,19 @@
   text-align: center;
 }
 
-.ticket-chip {
+.award-chip {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
   font-weight: var(--font-weight-bold);
+}
+
+.award-chip--planned {
+  color: var(--color-text-muted);
+}
+
+.award-chip__note {
   color: var(--color-accent-orange-strong);
 }
 
@@ -320,58 +329,40 @@
   gap: var(--space-3);
 }
 
-/* 카드 교환 */
-.exchange-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(360px, 1fr);
-  gap: var(--space-4);
-  align-items: start;
+/* 학급 카드 현황 */
+.progress-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--font-weight-bold);
 }
 
-.exchange-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+.progress-cell--complete {
+  color: var(--color-success);
 }
 
-.exchange-form__row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
+.progress-cell__dup {
+  color: var(--color-accent-purple-strong);
+  font-size: var(--font-size-sm);
 }
 
-.exchange-preview {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
-}
-
-.exchange-preview__side {
-  padding: var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-muted);
-}
-
-.exchange-preview__value {
+.progress-cell__master {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-heavy);
+  gap: 2px;
+  color: var(--accent-golden-bell-ink);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
 }
 
-.exchange-preview__value--negative {
-  color: var(--color-danger);
-}
-
-.exchange-log {
+.confirm-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   list-style: none;
 }
 
-.exchange-log__item {
+.confirm-list__item {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -382,30 +373,9 @@
   font-size: var(--font-size-sm);
 }
 
-.card-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-weight: var(--font-weight-bold);
-}
-
-.card-cell--zero {
-  color: var(--color-text-subtle);
-}
-
-.card-cell__thumb {
-  width: 24px;
-  height: auto;
-  border-radius: 3px;
-}
-
 @media (max-width: 1100px) {
   .mission-cards {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .exchange-layout {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -578,10 +548,6 @@
   line-height: 1.6;
 }
 
-.ticket-chip__revoke {
-  color: var(--color-danger);
-}
-
 .answer-list {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -597,4 +563,44 @@
 .answer-list dd {
   margin: 0;
   color: var(--color-text);
+}
+
+/* 부스 화면: 교실 QR 주소 */
+.station-qr {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.station-qr summary,
+.teacher-login__rehearsal summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch-min);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.station-qr__field {
+  width: 100%;
+  font-size: var(--font-size-sm);
+  resize: none;
+}
+
+/* 목업 로그인: 리허설용 역할 선택 */
+.teacher-login__rehearsal {
+  width: 100%;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.teacher-login__role {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
 }

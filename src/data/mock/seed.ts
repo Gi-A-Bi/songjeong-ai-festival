@@ -1,18 +1,38 @@
 import { DEFAULT_EVENT_ID } from '../../config';
-import { drawCardType } from '../../domain/cards';
-import { getTicketCountForRank } from '../../domain/rewards';
+import { CARD_TYPES, drawOfferedTypes } from '../../domain/cards';
+import { getSelectionModeForRank, OFFER_COUNT_BY_MODE } from '../../domain/rewards';
+import {
+  emptyFinalClassState,
+  emptyFinalResponse,
+  emptyFinalSession,
+  finishFinal,
+  scoreResponses,
+  snapshotCards,
+} from '../../domain/finalMission';
+import { computeClassCardProgress } from '../../domain/cards';
 import { getTeamNoForMission, ROUND_NUMBERS, TEAM_NUMBERS } from '../../domain/rotation';
+import {
+  emptyTeamMissionRecord,
+  missionRoundStateId,
+  type TeamMissionRecord,
+} from '../../domain/tour';
 import type {
+  ActivityEvent,
+  CardAward,
   CardType,
+  ClassCardProgress,
   ClassInfo,
   DrawingFile,
-  DrawTicket,
-  Exchange,
   FestivalEvent,
+  FinalClassState,
+  FinalQuestionSet,
+  FinalResponse,
+  FinalSession,
   GoldenBellQuestion,
   Grade,
   Mission,
   MissionResult,
+  MissionRoundState,
   RoundNo,
   RoundStatus,
   Submission,
@@ -21,6 +41,7 @@ import type {
   TeacherProfile,
 } from '../../domain/types';
 import { createSeededRandom } from '../../lib/random';
+import { createSampleFinalQuestionSet } from './finalQuestions';
 import { resultId, resultKey, roundKey, submissionId, toClassId, toTeamId } from './keys';
 
 export const GRADES: readonly Grade[] = [3, 4, 5, 6];
@@ -29,13 +50,17 @@ export const TEAMS_PER_CLASS = TEAM_NUMBERS.length;
 
 export const DEV_TEACHER: TeacherProfile = {
   uid: 'dev-teacher',
-  displayName: '개발용 교사',
+  displayName: '개발용 총괄 선생님',
   role: 'admin',
+  missionId: null,
+  classId: null,
 };
 
-/** 명세 23장: 4학년 2반 3팀이 2라운드 참여 중이며 카드 2장을 가진 상태 */
+/** 명세 23장: 4학년 2반 3팀이 2라운드 참여 중이며 1라운드 1위 카드 보상을 고르기 전인 상태 */
 export const DEMO_TEAM_ID = toTeamId(4, 2, 3);
 const DEMO_GRADE: Grade = 4;
+/** 미션 투어를 마치고 학급 최종 미션 중인 학년. 카드 성장·힌트·최종 미션 상태를 확인하는 샘플이다. */
+export const FINAL_DEMO_GRADE: Grade = 3;
 const MINUTE = 60_000;
 
 export interface MockState {
@@ -50,8 +75,26 @@ export interface MockState {
   /** 팀별 그림 파일 */
   drawings: Record<string, DrawingFile>;
   results: MissionResult[];
-  tickets: DrawTicket[];
-  exchanges: Exchange[];
+  /** 카드 보상 원장. 진행도의 원본이다. */
+  cardAwards: CardAward[];
+  /** 화면 편의용 학급 카드 진행도 캐시. 원장과 다르면 원장을 우선한다. */
+  cardProgressCache: Record<string, ClassCardProgress>;
+  /** 팀 이동 기록(`${classId}_${teamNo}_${roundNo}`). 없으면 입장 전으로 본다. */
+  teamMissionRecords: Record<string, TeamMissionRecord>;
+  /** 부스의 학년·라운드별 상태 */
+  missionRoundStates: Record<string, MissionRoundState>;
+  /** 활동 기록. ID가 같으면 한 번만 남는다. */
+  activityEvents: Record<string, ActivityEvent>;
+  /** 이 기기가 마지막으로 입장한 팀(미션 교실 QR 체크인에 쓴다) */
+  deviceTeamId: string | null;
+  /** 학년별 최종 미션 세션 */
+  finalSessions: Partial<Record<Grade, FinalSession>>;
+  /** 학년별 최종 미션 문제(정답·힌트 제거 대상 포함). 화면에는 문제만 보낸다. */
+  finalQuestionSets: Partial<Record<Grade, FinalQuestionSet>>;
+  /** classId → 학급 최종 미션 상태 */
+  finalClassStates: Record<string, FinalClassState>;
+  /** `${classId}_${questionId}` → 문제별 응답 */
+  finalResponses: Record<string, FinalResponse>;
   sessions: Record<string, number>;
   /** requestId → 처리된 문서 ID(멱등 처리용) */
   processedRequests: Record<string, string>;
@@ -289,17 +332,81 @@ function sampleAnswer(mission: Mission, variant: number): SubmissionAnswer {
 }
 
 /**
- * 4학년 2반은 검증 카드만 없는 상태로 시작한다.
- * 3팀의 미사용 뽑기권에 검증 카드가 있어 카드를 뽑으면 컬렉션 완성을 확인할 수 있다.
+ * 4학년 2반 1라운드 카드 보상. 3팀(1위)은 아직 고르지 않아 보상 선택 화면을 바로 확인할 수 있다.
+ * 표현 카드를 고르면 2/4, 생각 카드를 고르면 3/4로 다음 조각이 열린다.
  */
-const DEMO_CLASS_CARDS: Record<string, CardType[]> = {
-  [toTeamId(4, 2, 1)]: ['thinking'],
-  [toTeamId(4, 2, 2)]: ['observation'],
-  [toTeamId(4, 2, 3)]: ['observation', 'verification', 'thinking'],
-  [toTeamId(4, 2, 4)]: ['expression', 'command'],
-  [toTeamId(4, 2, 5)]: ['thinking'],
+const DEMO_CLASS_AWARDS: Record<string, { offered: CardType[]; selected: CardType | null }> = {
+  [toTeamId(4, 2, 1)]: { offered: ['thinking'], selected: 'thinking' },
+  [toTeamId(4, 2, 2)]: { offered: ['observation'], selected: 'observation' },
+  [toTeamId(4, 2, 3)]: { offered: ['expression', 'command', 'thinking'], selected: null },
+  [toTeamId(4, 2, 4)]: { offered: ['thinking', 'verification'], selected: 'thinking' },
+  [toTeamId(4, 2, 5)]: { offered: ['expression'], selected: 'expression' },
 };
-const DEMO_STARTING_CARDS: CardType[] = ['command', 'expression'];
+
+/**
+ * 최종 미션 샘플 학년(3학년)의 반별 카드 획득 수(생각·관찰·표현·명령·검증 순, 합계 25).
+ * - 1반: 5종 모두 완성, 종류마다 중복 +1 → 힌트 5개(중복은 힌트를 늘리지 않는다)
+ * - 2반: 표현 카드 3/4 → 완성 4종, 힌트 4개
+ * - 3반: 관찰 카드 2/4 → 완성 4종, 힌트 4개
+ * - 4반: 검증 카드 0/4, 생각 카드 중복 +4 → 완성 4종, 힌트 4개
+ */
+const FINAL_DEMO_CARD_COUNTS: Record<number, [number, number, number, number, number]> = {
+  1: [5, 5, 5, 5, 5],
+  2: [6, 4, 3, 7, 5],
+  3: [7, 2, 4, 6, 6],
+  4: [8, 7, 6, 4, 0],
+};
+
+/** 종류별 획득 수를 번갈아 늘어놓아 라운드마다 받은 종류가 섞이게 한다. */
+function interleaveCardTypes(counts: readonly number[]): CardType[] {
+  const remaining = [...counts];
+  const order: CardType[] = [];
+  while (remaining.some((count) => count > 0)) {
+    CARD_TYPES.forEach((cardType, index) => {
+      if (remaining[index] > 0) {
+        order.push(cardType);
+        remaining[index] -= 1;
+      }
+    });
+  }
+  return order;
+}
+
+/** 샘플용 카드 보상. selected가 있으면 받은 상태, 없으면 고르기 전 상태다. */
+function seedAward(
+  result: MissionResult,
+  classId: string,
+  offered: CardType[],
+  selected: CardType | null,
+  claimedAt: number,
+): CardAward {
+  const selectionMode = getSelectionModeForRank(result.rank);
+  if (offered.length !== OFFER_COUNT_BY_MODE[selectionMode]) {
+    throw new Error(`샘플 카드 보상 후보 수가 순위와 맞지 않아요: ${result.id}`);
+  }
+  return {
+    id: result.id,
+    resultId: result.id,
+    grade: result.grade,
+    classId,
+    teamId: result.teamId,
+    missionId: result.missionId,
+    roundNo: result.roundNo,
+    rank: result.rank,
+    selectionMode,
+    offeredTypes: offered,
+    selectedType: selected,
+    status: selected ? 'claimed' : 'pending',
+    createdAt: result.finalizedAt,
+    claimedAt: selected ? claimedAt : null,
+  };
+}
+
+/** 받은 종류를 먼저 두고 나머지 후보를 겹치지 않게 채운다. */
+function offersIncluding(selected: CardType, rank: number, random: () => number): CardType[] {
+  const count = OFFER_COUNT_BY_MODE[getSelectionModeForRank(rank)];
+  return [selected, ...drawOfferedTypes(count - 1, random, [selected])];
+}
 
 export interface SampleEventStructure {
   event: FestivalEvent;
@@ -348,6 +455,7 @@ export function buildSampleEvent(eventId: string, now: number): SampleEventStruc
       activeRound: 0,
       roundEndsAt: null,
       pausedRemainingMs: null,
+      roundEndedAt: null,
       roundDurationMs: 8 * MINUTE,
       moveDurationMs: 2 * MINUTE,
       updatedAt: now,
@@ -372,7 +480,8 @@ export function createSeedState(now: number): MockState {
         grade,
         classNo,
         displayName: `${grade}학년 ${classNo}반`,
-        status: grade === DEMO_GRADE ? 'touring' : 'ready',
+        status:
+          grade === DEMO_GRADE ? 'touring' : grade === FINAL_DEMO_GRADE ? 'final_active' : 'ready',
       });
       for (const teamNo of TEAM_NUMBERS) {
         teams.push({
@@ -382,7 +491,8 @@ export function createSeedState(now: number): MockState {
           classNo,
           teamNo,
           displayName: `${grade}학년 ${classNo}반 ${teamNo}팀`,
-          status: grade === DEMO_GRADE ? 'active' : 'ready',
+          status:
+            grade === DEMO_GRADE ? 'active' : grade === FINAL_DEMO_GRADE ? 'finished' : 'ready',
         });
       }
     }
@@ -394,8 +504,11 @@ export function createSeedState(now: number): MockState {
   }
   roundStatuses[roundKey(DEMO_GRADE, 1)] = 'closed';
   roundStatuses[roundKey(DEMO_GRADE, 2)] = 'active';
+  for (const roundNo of ROUND_NUMBERS)
+    roundStatuses[roundKey(FINAL_DEMO_GRADE, roundNo)] = 'closed';
 
-  const round2StartedAt = now - 1.5 * MINUTE;
+  // 2라운드를 시작한 지 2분 30초: 체크인하지 않은 팀은 미도착 경고가 보인다.
+  const round2StartedAt = now - 2.5 * MINUTE;
   const round1StartedAt = round2StartedAt - 10 * MINUTE;
   const round1FinalizedAt = round1StartedAt + 9 * MINUTE;
 
@@ -408,6 +521,7 @@ export function createSeedState(now: number): MockState {
     activeRound: 2,
     roundEndsAt: round2StartedAt + 8 * MINUTE,
     pausedRemainingMs: null,
+    roundEndedAt: null,
     roundDurationMs: 8 * MINUTE,
     moveDurationMs: 2 * MINUTE,
     updatedAt: now,
@@ -415,7 +529,7 @@ export function createSeedState(now: number): MockState {
 
   const submissions: Record<string, Submission> = {};
   const results: MissionResult[] = [];
-  const tickets: DrawTicket[] = [];
+  const cardAwards: CardAward[] = [];
   const classCount = GRADE_CLASS_COUNTS[DEMO_GRADE];
 
   for (const mission of missions) {
@@ -443,9 +557,8 @@ export function createSeedState(now: number): MockState {
         submittedAt,
         updatedAt: round1FinalizedAt,
       };
-      const rId = resultId(resultKey(mission.id, DEMO_GRADE, round1), team1Id);
-      results.push({
-        id: rId,
+      const result1: MissionResult = {
+        id: resultId(resultKey(mission.id, DEMO_GRADE, round1), team1Id),
         missionId: mission.id,
         grade: DEMO_GRADE,
         roundNo: round1,
@@ -454,22 +567,28 @@ export function createSeedState(now: number): MockState {
         rank,
         finalizedBy: DEV_TEACHER.uid,
         finalizedAt: round1FinalizedAt,
-      });
-      const cardTypes =
-        DEMO_CLASS_CARDS[team1Id] ??
-        Array.from({ length: getTicketCountForRank(rank) }, () => drawCardType(random));
-      cardTypes.forEach((cardType, index) => {
-        tickets.push({
-          id: `${rId}__${index + 1}`,
-          teamId: team1Id,
-          classId,
-          sourceResultId: rId,
-          cardType,
-          claimedAt: team1Id === DEMO_TEAM_ID ? null : round1FinalizedAt + MINUTE,
-          revokedAt: null,
-          createdAt: round1FinalizedAt,
-        });
-      });
+      };
+      results.push(result1);
+      const demoAward = DEMO_CLASS_AWARDS[team1Id];
+      if (demoAward) {
+        cardAwards.push(
+          seedAward(
+            result1,
+            classId,
+            demoAward.offered,
+            demoAward.selected,
+            round1FinalizedAt + MINUTE,
+          ),
+        );
+      } else {
+        const offered = drawOfferedTypes(
+          OFFER_COUNT_BY_MODE[getSelectionModeForRank(rank)],
+          random,
+        );
+        cardAwards.push(
+          seedAward(result1, classId, offered, offered[0], round1FinalizedAt + MINUTE),
+        );
+      }
 
       // 2라운드: 진행 중, 절반 정도의 팀이 제출한 상태
       const round2: RoundNo = 2;
@@ -496,17 +615,241 @@ export function createSeedState(now: number): MockState {
     }
   }
 
-  DEMO_STARTING_CARDS.forEach((cardType, index) => {
-    tickets.push({
-      id: `dev-start__${DEMO_TEAM_ID}__${index + 1}`,
-      teamId: DEMO_TEAM_ID,
-      classId: toClassId(DEMO_GRADE, 2),
-      sourceResultId: 'dev-start',
-      cardType,
-      claimedAt: round1StartedAt,
-      revokedAt: null,
-      createdAt: round1StartedAt,
+  // 3학년: 5라운드 투어를 모두 마치고 학급 최종 미션 중인 상태
+  const finalClassCount = GRADE_CLASS_COUNTS[FINAL_DEMO_GRADE];
+  const tourStartedAt = now - 90 * MINUTE;
+  for (let classNo = 1; classNo <= finalClassCount; classNo += 1) {
+    const classId = toClassId(FINAL_DEMO_GRADE, classNo);
+    const cardOrder = interleaveCardTypes(FINAL_DEMO_CARD_COUNTS[classNo]);
+    let awardIndex = 0;
+    for (const roundNo of ROUND_NUMBERS) {
+      const roundStartedAt = tourStartedAt + (roundNo - 1) * 10 * MINUTE;
+      const finalizedAt = roundStartedAt + 9 * MINUTE;
+      for (const mission of missions) {
+        const teamId = toTeamId(
+          FINAL_DEMO_GRADE,
+          classNo,
+          getTeamNoForMission(mission.no, roundNo),
+        );
+        const rank = ((classNo + mission.no + roundNo) % finalClassCount) + 1;
+        const score = (finalClassCount + 1 - rank) * 100;
+        const id = submissionId(mission.id, teamId);
+        submissions[id] = {
+          id,
+          teamId,
+          classId,
+          missionId: mission.id,
+          grade: FINAL_DEMO_GRADE,
+          roundNo,
+          status: 'verified',
+          answer: sampleAnswer(mission, classNo + roundNo),
+          score,
+          reopened: false,
+          submittedAt: roundStartedAt + (2 + rank) * MINUTE,
+          updatedAt: finalizedAt,
+        };
+        const result: MissionResult = {
+          id: resultId(resultKey(mission.id, FINAL_DEMO_GRADE, roundNo), teamId),
+          missionId: mission.id,
+          grade: FINAL_DEMO_GRADE,
+          roundNo,
+          teamId,
+          score,
+          rank,
+          finalizedBy: DEV_TEACHER.uid,
+          finalizedAt,
+        };
+        results.push(result);
+        const selected = cardOrder[awardIndex];
+        awardIndex += 1;
+        cardAwards.push(
+          seedAward(
+            result,
+            classId,
+            offersIncluding(selected, rank, random),
+            selected,
+            finalizedAt + MINUTE,
+          ),
+        );
+      }
+    }
+  }
+
+  // ---- 4학년 2라운드 팀 이동 샘플 ----
+  // 골든벨·틀린그림 부스는 미션을 시작했고, 나머지는 입장만 받은 상태다.
+  // 미도착: 4학년 2반 3팀(샘플 팀, 직접 체크인해 볼 수 있다), 4학년 4반 5팀
+  // 잘못된 교실: 4학년 5반 4팀이 도서관 대신 과학실 QR을 찍었다.
+  const teamMissionRecords: Record<string, TeamMissionRecord> = {};
+  const missionRoundStates: Record<string, MissionRoundState> = {};
+  const activityEvents: Record<string, ActivityEvent> = {};
+  const startedMissionIds = ['golden-bell', 'error-hunt'];
+  const notArrived = new Set([DEMO_TEAM_ID, toTeamId(DEMO_GRADE, 4, 5)]);
+  const wrongStationTeamId = toTeamId(DEMO_GRADE, 5, 4);
+  const demoRound: RoundNo = 2;
+  for (const mission of missions) {
+    const boothStartedAt = startedMissionIds.includes(mission.id) ? round2StartedAt + 30_000 : null;
+    if (boothStartedAt !== null) {
+      const id = missionRoundStateId(mission.id, DEMO_GRADE, demoRound);
+      missionRoundStates[id] = {
+        id,
+        grade: DEMO_GRADE,
+        missionId: mission.id,
+        roundNo: demoRound,
+        status: 'active',
+        startedAt: boothStartedAt,
+        completedAt: null,
+        resultFinalizedAt: null,
+        updatedBy: DEV_TEACHER.uid,
+      };
+    }
+    for (let classNo = 1; classNo <= classCount; classNo += 1) {
+      const teamNo = getTeamNoForMission(mission.no, demoRound);
+      const teamId = toTeamId(DEMO_GRADE, classNo, teamNo);
+      if (notArrived.has(teamId)) continue;
+      const record = emptyTeamMissionRecord({
+        grade: DEMO_GRADE,
+        classId: toClassId(DEMO_GRADE, classNo),
+        teamId,
+        teamNo,
+        roundNo: demoRound,
+        expectedMissionId: mission.id,
+      });
+      const checkedInAt = round2StartedAt - 40_000 + classNo * 5_000;
+      teamMissionRecords[record.id] =
+        teamId === wrongStationTeamId
+          ? {
+              ...record,
+              actualMissionId: 'ozobot',
+              wrongStationId: 'ozobot',
+              updatedAt: checkedInAt,
+            }
+          : {
+              ...record,
+              actualMissionId: mission.id,
+              checkedInAt,
+              startedAt: boothStartedAt,
+              updatedAt: boothStartedAt ?? checkedInAt,
+            };
+    }
+  }
+  const seedActivity = (event: ActivityEvent) => {
+    activityEvents[event.id] = event;
+  };
+  seedActivity({
+    id: `round__g${DEMO_GRADE}__r2__start__${round2StartedAt}`,
+    grade: DEMO_GRADE,
+    type: 'round_changed',
+    message: `${DEMO_GRADE}학년 2라운드 시작`,
+    classId: null,
+    teamId: null,
+    missionId: null,
+    roundNo: 2,
+    at: round2StartedAt,
+  });
+  seedActivity({
+    id: `wrong__${toClassId(DEMO_GRADE, 5)}_4_2__ozobot`,
+    grade: DEMO_GRADE,
+    type: 'wrong_station',
+    message: `${DEMO_GRADE}학년 5반 4팀 · 과학실에 잘못 입장(가야 할 곳: 도서관)`,
+    classId: toClassId(DEMO_GRADE, 5),
+    teamId: wrongStationTeamId,
+    missionId: 'ozobot',
+    roundNo: 2,
+    at: round2StartedAt - 15_000,
+  });
+
+  // ---- 3학년 최종 미션 샘플 ----
+  // 총괄 운영자가 10분 전에 열었고, 반마다 따로 시작했다. 결과는 아직 공개 전이다.
+  // 1반: 5종 완성(힌트 5개) · 3분 전에 시작해 4번 문제를 푸는 중 · 힌트 1개 사용
+  // 2반: 제출 완료(8문제 정답, 6분 10초) · 3반: 제출 완료(8문제 정답, 7분 30초)
+  // 4반: 아직 시작하지 않음
+  const finalSessions: Partial<Record<Grade, FinalSession>> = {
+    [FINAL_DEMO_GRADE]: {
+      ...emptyFinalSession(FINAL_DEMO_GRADE),
+      status: 'open',
+      openedAt: now - 10 * MINUTE,
+      openedBy: DEV_TEACHER.uid,
+    },
+  };
+  const finalQuestionSets = Object.fromEntries(
+    GRADES.map((grade) => [grade, createSampleFinalQuestionSet(grade)]),
+  ) as Partial<Record<Grade, FinalQuestionSet>>;
+  const finalClassStates: Record<string, FinalClassState> = {};
+  const finalResponses: Record<string, FinalResponse> = {};
+  const finalSet = createSampleFinalQuestionSet(FINAL_DEMO_GRADE);
+  const finalSession = finalSessions[FINAL_DEMO_GRADE] ?? emptyFinalSession(FINAL_DEMO_GRADE);
+
+  /** 앞에서부터 answered문제를 확정한다. wrong에 든 문제 번호(0부터)는 오답을 고른다. */
+  const seedFinal = (input: {
+    classNo: number;
+    startedAt: number;
+    answered: number;
+    wrong: number[];
+    hintOn: number[];
+    submittedAfterMs: number | null;
+  }) => {
+    const classId = toClassId(FINAL_DEMO_GRADE, input.classNo);
+    const progress = computeClassCardProgress(classId, cardAwards);
+    let state: FinalClassState = {
+      ...emptyFinalClassState(classId, FINAL_DEMO_GRADE, input.startedAt),
+      ...snapshotCards(progress),
+      status: 'active',
+      startedAt: input.startedAt,
+      currentQuestionIndex: input.answered,
+      hintUsed: input.hintOn.length,
+    };
+    const responses: FinalResponse[] = [];
+    finalSet.questions.slice(0, input.answered).forEach((config, index) => {
+      const wrongChoice = config.question.choices.find(
+        (choice) => choice.id !== config.answerChoiceId && choice.id !== config.hintRemoveChoiceId,
+      );
+      const confirmedAt = input.startedAt + (index + 1) * 35_000;
+      const response: FinalResponse = {
+        ...emptyFinalResponse(classId, FINAL_DEMO_GRADE, config.question.id, confirmedAt),
+        selectedChoiceId: input.wrong.includes(index)
+          ? (wrongChoice?.id ?? null)
+          : config.answerChoiceId,
+        hintUsed: input.hintOn.includes(index),
+        removedChoiceId: input.hintOn.includes(index) ? config.hintRemoveChoiceId : null,
+        confirmedAt,
+      };
+      responses.push(response);
+      finalResponses[response.id] = response;
     });
+    if (input.submittedAfterMs !== null) {
+      state = finishFinal(
+        finalSession,
+        state,
+        scoreResponses(finalSet, responses),
+        input.startedAt + input.submittedAfterMs,
+        'completed',
+      );
+    }
+    finalClassStates[classId] = state;
+  };
+  seedFinal({
+    classNo: 1,
+    startedAt: now - 3 * MINUTE,
+    answered: 3,
+    wrong: [],
+    hintOn: [1],
+    submittedAfterMs: null,
+  });
+  seedFinal({
+    classNo: 2,
+    startedAt: now - 9 * MINUTE,
+    answered: 10,
+    wrong: [3, 7],
+    hintOn: [0, 4],
+    submittedAfterMs: 6 * MINUTE + 10_000,
+  });
+  seedFinal({
+    classNo: 3,
+    startedAt: now - 8.5 * MINUTE,
+    answered: 10,
+    wrong: [1, 8],
+    hintOn: [2],
+    submittedAfterMs: 7.5 * MINUTE,
   });
 
   return {
@@ -519,8 +862,16 @@ export function createSeedState(now: number): MockState {
     missionStates: {},
     drawings: {},
     results,
-    tickets,
-    exchanges: [],
+    cardAwards,
+    cardProgressCache: {},
+    teamMissionRecords,
+    missionRoundStates,
+    activityEvents,
+    deviceTeamId: null,
+    finalSessions,
+    finalQuestionSets,
+    finalClassStates,
+    finalResponses,
     sessions: {},
     processedRequests: {},
   };
