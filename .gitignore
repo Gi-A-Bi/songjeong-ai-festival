@@ -16,3 +16,6 @@ serviceAccount*.json
 
 .DS_Store
 Thumbs.db
+
+# 실제 문항과 정답. 공개 저장소에 올리지 않는다(빈 양식은 content/양식에 있다).
+content/작성/

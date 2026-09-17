@@ -256,7 +256,8 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--accent);
+  /* 미션 색이 없는 화면(행사 설정)에서는 기본 초록을 쓴다. */
+  background: var(--accent, var(--color-primary));
   color: var(--color-text-inverse);
   font-weight: var(--font-weight-heavy);
 }

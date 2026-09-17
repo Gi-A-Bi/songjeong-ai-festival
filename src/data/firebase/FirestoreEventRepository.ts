@@ -114,6 +114,7 @@ import { buildSampleEvent } from '../mock/seed';
 import { getFirebase } from './firebaseApp';
 import type { FirestoreStoreContext } from './firestoreContext';
 import { FirestoreFinalStore } from './firestoreFinal';
+import { FirestoreStationStore } from './firestoreStation';
 import { FirestoreTourStore } from './firestoreTour';
 import {
   isCompleteSubmission,
@@ -192,6 +193,7 @@ export class FirestoreEventRepository implements EventRepository {
   private teacher: TeacherProfile | null = null;
   private readonly tour: FirestoreTourStore;
   private readonly final: FirestoreFinalStore;
+  private readonly station: FirestoreStationStore;
   private readonly staticCache = new Map<string, Cached<unknown>>();
   /** 구독 중인 행사 상태. 대시보드·체크인이 행사 문서를 다시 읽지 않게 한다. */
   private readonly liveEvents = new Map<string, { count: number; event: FestivalEvent | null }>();
@@ -203,6 +205,7 @@ export class FirestoreEventRepository implements EventRepository {
     const context = this.createContext();
     this.tour = new FirestoreTourStore(context);
     this.final = new FirestoreFinalStore(context);
+    this.station = new FirestoreStationStore(context);
   }
 
   /** 서버 기준 현재 시각 추정값. 기기 시계가 틀려도 타이머와 마감 판정이 서버 시각을 따른다. */
@@ -370,6 +373,7 @@ export class FirestoreEventRepository implements EventRepository {
     // 교사 권한으로 붙인 구독은 로그아웃하면 거부되므로 먼저 끊는다.
     this.tour.stopAll();
     this.final.stopAll();
+    this.station.stopAll();
     await signOut(getFirebase().auth);
   }
 
@@ -1097,22 +1101,28 @@ export class FirestoreEventRepository implements EventRepository {
     missionId: string,
     grade: Grade,
     roundNo: RoundNo,
+    options: { fresh?: boolean } = {},
   ): Promise<MissionParticipant[]> {
     return run(async () => {
       await this.ensureUser();
       const mission = await this.getMission(eventId, missionId);
       const teamNo = getTeamNoForMission(mission.no, roundNo);
       const teams = (await this.listTeams(eventId, grade)).filter((team) => team.teamNo === teamNo);
+      // 부스 제출을 구독 중이면 그 캐시로 만들고(읽기 없음), 아니면 한 번 읽는다.
+      const cached = options.fresh
+        ? null
+        : await this.station.cachedSubmissions(eventId, missionId, grade, roundNo);
       const [submissions, results] = await Promise.all([
-        this.fetchAll(
-          query(
-            this.sub(eventId, 'submissions'),
-            where('grade', '==', grade),
-            where('roundNo', '==', roundNo),
-            where('missionId', '==', missionId),
+        cached ??
+          this.fetchAll(
+            query(
+              this.sub(eventId, 'submissions'),
+              where('grade', '==', grade),
+              where('roundNo', '==', roundNo),
+              where('missionId', '==', missionId),
+            ),
+            mapSubmission,
           ),
-          mapSubmission,
-        ),
         this.fetchAll(
           query(
             this.sub(eventId, 'results'),
@@ -1143,6 +1153,19 @@ export class FirestoreEventRepository implements EventRepository {
         };
       });
     });
+  }
+
+  subscribeStationSubmissions(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+    onChange: (revision: number) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe {
+    return this.station.subscribe(eventId, missionId, grade, roundNo, onChange, (error) =>
+      onError(toRepositoryError(error)),
+    );
   }
 
   async setAnswerRevealed(

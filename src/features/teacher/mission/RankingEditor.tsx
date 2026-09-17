@@ -18,6 +18,14 @@ import { useAction } from '../../../hooks/useAction';
 import { createRequestId } from '../../../lib/random';
 import { formatTimeOfDay } from '../../../lib/time';
 import { AnswerSummary } from './answerSummary';
+import {
+  initialDrafts,
+  mergeDrafts,
+  NO_DRAFT_EDITS,
+  submissionSignature,
+  type DraftEdits,
+  type RowDraft,
+} from './rankingDrafts';
 
 interface RankingEditorProps {
   eventId: string;
@@ -28,30 +36,8 @@ interface RankingEditorProps {
   finalized: boolean;
   /** 저장이 끝나면 화면 위쪽에 보여 줄 안내와 함께 다시 불러온다. */
   onChanged: (message: string) => void;
-}
-
-interface RowDraft {
-  score: string;
-  rank: number;
-}
-
-function initialDrafts(participants: MissionParticipant[]): Record<string, RowDraft> {
-  const ranked = rankByScore(
-    participants.map((participant) => ({
-      teamId: participant.team.id,
-      score: participant.result?.score ?? participant.submission?.score ?? 0,
-      submittedAt: participant.submission?.submittedAt ?? null,
-    })),
-  );
-  return Object.fromEntries(
-    ranked.map((entry) => {
-      const participant = participants.find((item) => item.team.id === entry.teamId);
-      return [
-        entry.teamId,
-        { score: String(entry.score), rank: participant?.result?.rank ?? entry.rank },
-      ];
-    }),
-  );
+  /** 확정하려는 순간 화면이 아직 받지 못한 제출을 발견했을 때. 목록을 서버에서 다시 읽어야 한다. */
+  onStale: () => void;
 }
 
 function isSubmitted(participant: MissionParticipant): boolean {
@@ -70,9 +56,17 @@ export function RankingEditor({
   participants,
   finalized,
   onChanged,
+  onStale,
 }: RankingEditorProps) {
   const repository = useRepository();
   const [drafts, setDrafts] = useState(() => initialDrafts(participants));
+  const [edits, setEdits] = useState<DraftEdits>(NO_DRAFT_EDITS);
+  // 학생 제출이 새로 들어와 참가 팀 자료가 바뀌면, 교사가 입력하던 점수·순위는 두고 나머지만 맞춘다.
+  const [seenParticipants, setSeenParticipants] = useState(participants);
+  if (seenParticipants !== participants) {
+    setSeenParticipants(participants);
+    setDrafts((previous) => mergeDrafts(previous, participants, edits));
+  }
   const [requestId] = useState(createRequestId);
   const [editing, setEditing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -95,7 +89,14 @@ export function RankingEditor({
   );
 
   const finalize = useAction(
-    useCallback(() => repository.finalizeRanking(buildInput()), [repository, buildInput]),
+    useCallback(async () => {
+      // 화면이 받지 못한 제출이 있는 채로 확정하지 않도록, 확정 직전에 서버에서 한 번 더 확인한다.
+      const latest = await repository.listMissionParticipants(eventId, mission.id, grade, round, {
+        fresh: true,
+      });
+      if (submissionSignature(latest) !== submissionSignature(participants)) return null;
+      return repository.finalizeRanking(buildInput());
+    }, [repository, eventId, mission.id, grade, round, participants, buildInput]),
   );
   const revise = useAction(
     useCallback(() => repository.reviseRanking(buildInput()), [repository, buildInput]),
@@ -121,8 +122,16 @@ export function RankingEditor({
     (a, b) => drafts[a.team.id].rank - drafts[b.team.id].rank || a.team.classNo - b.team.classNo,
   );
 
-  const updateDraft = (teamId: string, patch: Partial<RowDraft>) =>
+  const updateDraft = (teamId: string, patch: Partial<RowDraft>) => {
     setDrafts((previous) => ({ ...previous, [teamId]: { ...previous[teamId], ...patch } }));
+    setEdits((previous) => ({
+      scoreTeamIds:
+        patch.score === undefined
+          ? previous.scoreTeamIds
+          : new Set([...previous.scoreTeamIds, teamId]),
+      ranks: previous.ranks || patch.rank !== undefined,
+    }));
+  };
 
   const autoRank = () => {
     const ranked = rankByScore(
@@ -137,6 +146,8 @@ export function RankingEditor({
       for (const entry of ranked) next[entry.teamId] = { ...next[entry.teamId], rank: entry.rank };
       return next;
     });
+    // 다시 점수 순이 되었으므로, 새 제출이 들어오면 또 점수 순으로 맞춘다.
+    setEdits((previous) => ({ ...previous, ranks: false }));
   };
 
   const modeOf = (participant: MissionParticipant) =>
@@ -179,9 +190,12 @@ export function RankingEditor({
     }
     const result = await finalize.run();
     setConfirmOpen(false);
-    if (result?.ok) {
-      onChanged(`순위를 확정했어요. 카드 보상 ${result.value.awards.length}개를 만들었어요.`);
+    if (!result?.ok) return;
+    if (result.value === null) {
+      onStale();
+      return;
     }
+    onChanged(`순위를 확정했어요. 카드 보상 ${result.value.awards.length}개를 만들었어요.`);
   };
 
   return (
@@ -387,6 +401,7 @@ export function RankingEditor({
             icon="close"
             onClick={() => {
               setDrafts(initialDrafts(participants));
+              setEdits(NO_DRAFT_EDITS);
               setEditing(false);
             }}
           >

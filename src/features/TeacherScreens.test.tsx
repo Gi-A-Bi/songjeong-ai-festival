@@ -1,7 +1,8 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../config';
+import { toTeamId } from '../data/mock/keys';
 import { MockEventRepository } from '../data/mock/MockEventRepository';
 import { renderApp } from '../test/renderApp';
 
@@ -60,5 +61,115 @@ describe('교사 미션 운영 화면', () => {
     await user.click(within(dialog).getByRole('button', { name: /재제출 허용/ }));
     expect(await screen.findByText(/다시 제출할 수 있어요/)).toBeInTheDocument();
     expect(screen.getByText('재제출 대기')).toBeInTheDocument();
+  });
+});
+
+describe('부스 화면의 실시간 제출과 라운드 따라가기', () => {
+  // 샘플 데이터: 4학년 2라운드 골든벨은 5팀이 오고 3팀이 제출했다. 2반 5팀은 아직 제출 전이다.
+  const stationPath = `/teacher/${DEFAULT_EVENT_ID}/station/golden-bell`;
+  const submitLate = (repository: MockEventRepository) =>
+    repository.saveSubmission({
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      teamId: toTeamId(4, 2, 5),
+      answer: { type: 'golden_bell', selections: { q1: 1, q2: 2 } },
+      requestId: 'late-submit',
+    });
+
+  it('학생이 제출하면 새로고침 없이 목록에 나타나고, 입력하던 점수는 지워지지 않는다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(stationPath, repository);
+
+    expect(await screen.findByText('제출 3/5')).toBeInTheDocument();
+    const score = screen.getByRole<HTMLInputElement>('textbox', { name: '4학년 5반 5팀 점수' });
+    await user.clear(score);
+    await user.type(score, '150');
+
+    await submitLate(repository);
+
+    expect(await screen.findByText('제출 4/5')).toBeInTheDocument();
+    expect(
+      screen.getByRole<HTMLInputElement>('textbox', { name: '4학년 5반 5팀 점수' }).value,
+    ).toBe('150');
+    expect(
+      screen.getByRole<HTMLInputElement>('textbox', { name: '4학년 2반 5팀 점수' }).value,
+    ).toBe('200');
+  });
+
+  it('화면이 받지 못한 제출이 있으면 순위를 확정하지 않고 목록을 다시 불러온다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    // 구독이 끊긴 상황: 제출 알림이 화면에 오지 않는다.
+    vi.spyOn(repository, 'subscribeStationSubmissions').mockReturnValue(() => undefined);
+    renderApp(stationPath, repository);
+
+    expect(await screen.findByText('제출 3/5')).toBeInTheDocument();
+    await submitLate(repository);
+    expect(screen.getByText('제출 3/5')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '순위 확정' }));
+    const dialog = await screen.findByRole('dialog', { name: /순위를 확정할까요/ });
+    await user.click(within(dialog).getByRole('button', { name: '순위 확정' }));
+
+    expect(await screen.findByText(/새 제출이 들어와서 확정하지 않았어요/)).toBeInTheDocument();
+    expect(await screen.findByText('제출 4/5')).toBeInTheDocument();
+    const participants = await repository.listMissionParticipants(
+      DEFAULT_EVENT_ID,
+      'golden-bell',
+      4,
+      2,
+    );
+    expect(participants.every((participant) => participant.result === null)).toBe(true);
+  });
+
+  it('순위를 확정한 뒤 라운드가 끝나면 다음 라운드 화면으로 저절로 넘어간다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(stationPath, repository);
+
+    await user.click(await screen.findByRole('button', { name: '순위 확정' }));
+    const dialog = await screen.findByRole('dialog', { name: /순위를 확정할까요/ });
+    await user.click(within(dialog).getByRole('button', { name: '순위 확정' }));
+    expect(await screen.findByText(/순위를 확정했어요/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /2라운드 참가 팀/ })).toBeInTheDocument();
+
+    await repository.controlRound(DEFAULT_EVENT_ID, 'end');
+
+    expect(await screen.findByRole('heading', { name: /3라운드 참가 팀/ })).toBeInTheDocument();
+    expect(screen.queryByText(/지금 팀이 들어오는 라운드는/)).not.toBeInTheDocument();
+  });
+
+  it('확정 전에 라운드가 끝나면 화면을 옮기지 않고 안내를 띄운다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(stationPath, repository);
+    expect(await screen.findByRole('heading', { name: /2라운드 참가 팀/ })).toBeInTheDocument();
+
+    await repository.controlRound(DEFAULT_EVENT_ID, 'end');
+
+    expect(await screen.findByText(/지금 팀이 들어오는 라운드는/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2라운드 순위를 확정하면 3라운드로 자동으로 넘어가요/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /2라운드 참가 팀/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /3라운드로 이동/ }));
+    expect(await screen.findByRole('heading', { name: /3라운드 참가 팀/ })).toBeInTheDocument();
+    expect(screen.queryByText(/지금 팀이 들어오는 라운드는/)).not.toBeInTheDocument();
+  });
+
+  it('지난 라운드를 직접 고르면 확정된 라운드여도 그대로 머문다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(stationPath, repository);
+    await screen.findByRole('heading', { name: /2라운드 참가 팀/ });
+
+    await user.click(screen.getByRole('button', { name: '1' }));
+
+    expect(await screen.findByRole('heading', { name: /1라운드 참가 팀/ })).toBeInTheDocument();
+    expect(await screen.findByText(/순위 확정됨/)).toBeInTheDocument();
+    expect(screen.getByText(/지금 팀이 들어오는 라운드는/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /1라운드 참가 팀/ })).toBeInTheDocument();
   });
 });
