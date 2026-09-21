@@ -51,7 +51,7 @@ beforeEach(async () => {
       active: false,
     });
     await setDoc(doc(db, EVENT), {
-      title: '2026 송정 AI 페스티벌',
+      title: '2026 송정 AI 미션 챌린지',
       status: 'active',
       activeGrade: 4,
       activeRound: 1,

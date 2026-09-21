@@ -17,7 +17,7 @@ export function StartPage() {
           <h1 className="start__title">
             2026
             <br />
-            송정 AI 페스티벌
+            송정 AI 미션 챌린지
           </h1>
           <p className="start__lead">5개 미션 교실을 돌며 AI 능력 카드를 모아요!</p>
           <ButtonLink

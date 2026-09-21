@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-이 저장소는 서울송정초등학교의 “송정 AI 페스티벌” 운영 웹앱이다. 작업을 시작하기 전에 `AI_FESTIVAL_SPEC.md`와 `CARD_FINALE_UPDATE_SPEC.md` 전체를 읽는다. 실시간 운영 대시보드, QR 체크인, 카드 성장, 공통 힌트, 학급 최종 미션, 최종 순위에 관한 충돌은 `CARD_FINALE_UPDATE_SPEC.md` 버전 3.0을 최신 제품 요구사항으로 사용한다.
+이 저장소는 서울송정초등학교의 “송정 AI 미션 챌린지” 운영 웹앱이다. 작업을 시작하기 전에 `AI_FESTIVAL_SPEC.md`와 `CARD_FINALE_UPDATE_SPEC.md` 전체를 읽는다. 실시간 운영 대시보드, QR 체크인, 카드 성장, 공통 힌트, 학급 최종 미션, 최종 순위에 관한 충돌은 `CARD_FINALE_UPDATE_SPEC.md` 버전 3.0을 최신 제품 요구사항으로 사용한다.
 
 ## 프로젝트 목표
 

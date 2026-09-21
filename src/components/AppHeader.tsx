@@ -35,7 +35,7 @@ export function AppHeader({ backTo, subtitle, variant = 'student', nav }: AppHea
             <AssetImage asset="schoolLogo" className="app-header__logo" loading="eager" />
             <div className="app-header__titles">
               <span className="app-header__title">
-                {variant === 'teacher' ? '송정 AI 페스티벌 운영' : '송정 AI 페스티벌'}
+                {variant === 'teacher' ? '송정 AI 미션 챌린지 운영' : '송정 AI 미션 챌린지'}
               </span>
               {subtitle ? <span className="app-header__subtitle">{subtitle}</span> : null}
             </div>

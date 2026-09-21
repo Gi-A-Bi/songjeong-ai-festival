@@ -470,7 +470,7 @@ export function buildSampleEvent(eventId: string, now: number): SampleEventStruc
   return {
     event: {
       id: eventId,
-      title: '2026 송정 AI 페스티벌',
+      title: '2026 송정 AI 미션 챌린지',
       schoolName: '서울송정초등학교',
       status: 'ready',
       activeGrade: null,
@@ -536,7 +536,7 @@ export function createSeedState(now: number): MockState {
 
   const event: FestivalEvent = {
     id: DEFAULT_EVENT_ID,
-    title: '2026 송정 AI 페스티벌',
+    title: '2026 송정 AI 미션 챌린지',
     schoolName: '서울송정초등학교',
     status: 'active',
     activeGrade: DEMO_GRADE,
