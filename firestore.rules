@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// 송정 AI 페스티벌 보안 규칙
+// 송정 AI 미션 챌린지 보안 규칙
 // - 학생: 익명 로그인. 자기 팀 제출물과 자기 팀의 교실 QR 체크인만 기록할 수 있다.
 // - 교사: Google 로그인. teachers/{uid}에 등록되고 active가 true여야 한다.
 //   role은 admin(총괄), station_teacher(부스, missionId로 담당 지정),

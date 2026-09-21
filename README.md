@@ -1,4 +1,4 @@
-# 송정 AI 페스티벌
+# 송정 AI 미션 챌린지
 
 서울송정초등학교 3~6학년 AI 미션 투어 운영 웹앱입니다. 제품 요구사항은 [AI_FESTIVAL_SPEC.md](AI_FESTIVAL_SPEC.md), 작업 규칙은 [CLAUDE.md](CLAUDE.md)에 있습니다.
 
