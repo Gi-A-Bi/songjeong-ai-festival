@@ -278,13 +278,24 @@ function QuestionPanel({
     <section className="final-question" aria-labelledby="final-question-text">
       <p className="final-question__area">
         <StatusBadge tone="accent" icon="quiz" size="lg">
-          {CARD_INFO[question.area].name.replace(' 카드', '')} 영역
+          {question.category ?? `${CARD_INFO[question.area].name.replace(' 카드', '')} 영역`}
         </StatusBadge>
       </p>
       <h2 id="final-question-text" className="final-question__text">
         {question.text}
       </h2>
       {question.passage ? <p className="final-question__passage">{question.passage}</p> : null}
+      {question.image ? (
+        <figure className="final-question__figure">
+          {/* 보기 번호가 그림 안에 있는 문제가 많아 이미지는 원본 비율로 크게 보여 준다. */}
+          <img
+            className="final-question__image"
+            src={question.image.src}
+            alt={question.image.alt}
+            decoding="async"
+          />
+        </figure>
+      ) : null}
 
       <fieldset className="final-choices" disabled={!canRunFinal}>
         <legend className="visually-hidden">보기 고르기</legend>

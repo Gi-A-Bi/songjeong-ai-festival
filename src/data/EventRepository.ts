@@ -12,6 +12,8 @@ import type {
   FinalClassState,
   FinalClassStatus,
   FinalQuestion,
+  FinalQuestionSet,
+  FinalQuestionSource,
   FinalResponse,
   FinalSession,
   Grade,
@@ -421,6 +423,25 @@ export interface EventSetupSummary {
   missions: number;
 }
 
+/** 학년별 최종 미션 문제가 지금 어떤 상태인지(총괄 설정 화면용). 정답은 들어 있지 않다. */
+export interface FinalQuestionSetSummary {
+  grade: Grade;
+  /** 문제가 아직 없으면 0 */
+  questionCount: number;
+  imageCount: number;
+  /** 문제가 없으면 null */
+  source: FinalQuestionSource | null;
+  updatedAt: number | null;
+  /** 지금 문제를 바꿀 수 없는 이유. 바꿀 수 있으면 null */
+  replaceBlocker: string | null;
+}
+
+export interface UploadFinalQuestionSetsInput {
+  eventId: string;
+  /** 학년별 문제 묶음(정답 포함). 총괄 운영자 기기에서만 만든다. */
+  sets: FinalQuestionSet[];
+}
+
 /**
  * 화면과 데이터 저장소 사이의 경계.
  * 1단계는 MockEventRepository, 2단계부터 FirestoreEventRepository가 구현한다.
@@ -606,6 +627,13 @@ export interface EventRepository {
   adjustFinalResult(input: AdjustFinalResultInput): Promise<FinalClassState>;
   /** 총괄 운영자가 학급 최종 미션을 시작 전으로 되돌린다. 다시 시작하면 새 스냅샷을 만든다. */
   resetClassFinal(input: FinalAdminActionInput): Promise<FinalClassState>;
+  /** 학년별 최종 미션 문제의 상태(개수·그림·출처·바꿀 수 있는지). 교사면 누구나 본다. */
+  listFinalQuestionSets(eventId: string): Promise<FinalQuestionSetSummary[]>;
+  /**
+   * 총괄 운영자가 학년별 문제와 정답을 한 번에 넣는다. 정답은 총괄만 읽는 문서에 따로 둔다.
+   * 이미 연 학년이나 시작한 반이 있는 학년은 거부하며, 한 학년이라도 막히면 아무것도 바꾸지 않는다.
+   */
+  uploadFinalQuestionSets(input: UploadFinalQuestionSetsInput): Promise<FinalQuestionSetSummary[]>;
 
   // 교사 인증
   getCurrentTeacher(): TeacherProfile | null;

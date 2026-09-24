@@ -83,10 +83,18 @@ npm run test:emulator
 
 ### 최종 미션 문제 넣기
 
-"행사 구조 만들기"를 누르면(또는 총괄이 학년의 최종 미션을 열 때) 문제가 없는 학년에 샘플 10문제가 들어갑니다. 실제 문제는 행사 전에 Firebase 콘솔에서 두 문서를 고쳐 넣습니다. 문제 편집 화면은 아직 없습니다.
+"행사 구조 만들기"를 누르면(또는 총괄이 학년의 최종 미션을 열 때) 문제가 없는 학년에 샘플 10문제가 들어갑니다. 실제 문제는 행사 전에 총괄 계정으로 **행사 설정 → 최종 미션 문제 올리기**에서 넣습니다.
 
-- `events/{eventId}/finalQuestionSets/{학년}`: `questions` 배열(10개). 각 항목은 `id`, `area`(thinking·observation·expression·command·verification), `text`, `passage`(없으면 null), `choices`(`{id, label}` 4개), `hintRemoveChoiceId`(힌트로 지울 오답 보기 ID)
-- `events/{eventId}/finalAnswerKeys/{학년}`: `answers` 맵(`문제 id → 정답 보기 id`). 이 문서는 총괄 계정만 읽을 수 있어 담임 선생님 기기에는 정답이 내려가지 않습니다. 채점은 총괄 화면에서 하고, 결과를 공개할 때 학급 상태에 기록됩니다.
+1. 학년별 원고 `content/작성/06-최종미션-N학년.md`(정답 포함, 저장소에 올라가지 않음)를 완성하고 맨 위에 `[x] 작성 완료`를 표시합니다. 그림은 `content/작성/images/final/`에 1280px 이하 WebP/JPG로 두고 원고에서 `![설명](images/final/파일.webp)`로 가리킵니다.
+2. `npm run final:build`를 실행하면 `content/작성/최종미션-업로드.json`이 만들어집니다(그림은 파일째 들어가므로 1MB 안팎). 형식이 틀린 곳은 학년·번호와 함께 알려 줍니다.
+3. 배포된 사이트에 총괄(admin) 계정으로 로그인해 행사 설정 화면에서 그 파일을 고르고 "문제 올리기"를 누릅니다. 미리보기에서 문제 수·그림 수를 확인할 수 있고, 이미 연 학년이나 시작한 반이 있는 학년은 건너뜁니다.
+
+저장되는 문서는 두 개이며, 정답은 총괄 계정만 읽을 수 있어 담임 선생님 기기에는 내려가지 않습니다.
+
+- `events/{eventId}/finalQuestionSets/{학년}`: `source`(sample·upload), `questions` 배열(10개). 각 항목은 `id`, `area`(thinking·observation·expression·command·verification), `category`(배지에 보이는 유형 이름, 없으면 null), `text`, `passage`(없으면 null), `image`(`{src, alt}` 또는 null. src는 data URL), `choices`(`{id, label}` 4개), `hintRemoveChoiceId`(힌트로 지울 오답 보기 ID). 그림이 든 문제는 보기 번호가 그림 안에 있으므로 보기 순서를 섞지 않습니다.
+- `events/{eventId}/finalAnswerKeys/{학년}`: `answers` 맵(`문제 id → 정답 보기 id`)과 `explanations` 맵(교사용 해설). 채점은 총괄 화면에서 하고, 결과를 공개할 때 학급 상태에 기록됩니다.
+
+`firestore.indexes.json`은 그림이 든 `questions` 배열을 색인에서 빼 두었으므로, 문제를 올리기 전에 `firebase deploy --only firestore:indexes`를 한 번 실행합니다.
 
 ### 무료 사용량(읽기)을 아끼는 방식
 

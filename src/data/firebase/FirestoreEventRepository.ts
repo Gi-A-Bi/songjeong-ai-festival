@@ -86,6 +86,7 @@ import type {
   FinalizeRankingInput,
   FinalizeRankingOutcome,
   FinalQuestionActionInput,
+  FinalQuestionSetSummary,
   MarkArrivedInput,
   MissionLiveState,
   MissionParticipant,
@@ -107,6 +108,7 @@ import type {
   TeamSession,
   TeamTourStatus,
   Unsubscribe,
+  UploadFinalQuestionSetsInput,
 } from '../EventRepository';
 import { RepositoryError } from '../errors';
 // 샘플 행사 구조는 mock과 Firestore가 같은 정의를 쓴다.
@@ -1918,5 +1920,15 @@ export class FirestoreEventRepository implements EventRepository {
 
   async resetClassFinal(input: FinalAdminActionInput): Promise<FinalClassState> {
     return run(() => this.final.reset(input));
+  }
+
+  async listFinalQuestionSets(eventId: string): Promise<FinalQuestionSetSummary[]> {
+    return run(() => this.final.summaries(eventId));
+  }
+
+  async uploadFinalQuestionSets(
+    input: UploadFinalQuestionSetsInput,
+  ): Promise<FinalQuestionSetSummary[]> {
+    return run(() => this.final.upload(input.eventId, input.sets));
   }
 }

@@ -119,6 +119,23 @@
   word-break: keep-all;
 }
 
+/* 문제 그림: 전자칠판에서 보기 번호까지 읽히도록 크게, 화면 높이의 절반 안에 맞춘다. */
+.final-question__figure {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+}
+
+.final-question__image {
+  display: block;
+  max-width: 100%;
+  max-height: min(52vh, 640px);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  object-fit: contain;
+}
+
 .final-choices {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

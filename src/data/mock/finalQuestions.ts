@@ -124,8 +124,10 @@ export function createSampleFinalQuestionSet(grade: Grade): FinalQuestionSet {
     question: {
       id: `q${index + 1}`,
       area: sample.area,
+      category: null,
       text: sample.text,
       passage: sample.passage ?? null,
+      image: null,
       choices: sample.choices.map((label, choiceIndex) => ({
         id: CHOICE_IDS[choiceIndex],
         label,
@@ -133,6 +135,7 @@ export function createSampleFinalQuestionSet(grade: Grade): FinalQuestionSet {
     },
     answerChoiceId: sample.answer,
     hintRemoveChoiceId: sample.remove,
+    explanation: null,
   }));
-  return { grade, questions };
+  return { grade, questions, source: 'sample', updatedAt: null };
 }

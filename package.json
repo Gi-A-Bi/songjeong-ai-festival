@@ -12,6 +12,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest",
+    "final:build": "node scripts/build-final-upload.mjs",
     "test:emulator": "firebase emulators:exec --only auth,firestore --project demo-songjeong \"vitest run --config vitest.rules.config.ts\"",
     "emulators": "firebase emulators:start --only auth,firestore --project demo-songjeong"
   },

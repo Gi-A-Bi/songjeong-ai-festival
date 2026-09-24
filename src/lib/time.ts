@@ -26,6 +26,18 @@ export function formatTimeOfDay(epochMs: number | null): string {
   return epochMs === null ? '-' : timeFormatter.format(epochMs);
 }
 
+const dateTimeFormatter = new Intl.DateTimeFormat('ko-KR', {
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+/** 날짜가 다를 수 있는 기록 시각: “9. 24. 오후 10:15” */
+export function formatDateTime(epochMs: number | null): string {
+  return epochMs === null ? '-' : dateTimeFormatter.format(epochMs);
+}
+
 const pad = (value: number) => String(value).padStart(2, '0');
 
 /** 시각 입력 칸(type="time", step=1)에 넣을 “14:31:05”. 값이 없으면 빈 문자열 */

@@ -33,11 +33,13 @@ import {
   scoreResponses,
   snapshotCards,
 } from '../../domain/finalMission';
+import { FINAL_GRADES, getQuestionReplaceBlocker } from '../../domain/finalQuestionUpload';
 import type {
   ClassInfo,
   FinalClassState,
   FinalQuestion,
   FinalQuestionSet,
+  FinalQuestionSource,
   FinalResponse,
   FinalSession,
   Grade,
@@ -51,6 +53,7 @@ import type {
   FinalBoard,
   FinalOpenChecklist,
   FinalQuestionActionInput,
+  FinalQuestionSetSummary,
   OpenFinalInput,
   SelectFinalChoiceInput,
   StartClassFinalInput,
@@ -59,7 +62,7 @@ import type {
 import { createSampleFinalQuestionSet } from '../mock/finalQuestions';
 import { isPermissionDenied, LiveGroup, type FirestoreStoreContext } from './firestoreContext';
 import { LiveDoc, LiveQuery } from './liveQuery';
-import { mapFinalClassState, mapFinalResponses, mapFinalSession } from './mappers';
+import { mapFinalClassState, mapFinalResponses, mapFinalSession, toMillis } from './mappers';
 
 /** 서버 시각과 기기 추정 시각의 차이를 감안해, 마감 기록은 제한 시간이 이만큼 지난 뒤에 보낸다. */
 const CLOSE_MARGIN_MS = 1500;
@@ -69,6 +72,46 @@ const QUESTION_SET_TTL_MS = 5 * 60_000;
 /** 담임교사 기기까지 내려가는 문제. 정답은 들어 있지 않다(정답 문서는 총괄 운영자만 읽는다). */
 interface PublicQuestion extends FinalQuestion {
   hintRemoveChoiceId: string;
+}
+
+/** finalQuestionSets/{학년} 문서를 읽어 둔 것. 행사 중에는 바뀌지 않으므로 잠깐 메모리에 둔다. */
+interface CachedQuestionSet {
+  at: number;
+  questions: PublicQuestion[];
+  source: FinalQuestionSource;
+  updatedAt: number | null;
+}
+
+function questionSetDocId(grade: Grade): string {
+  return String(grade);
+}
+
+/** 문서의 questions 배열을 화면용 문제로 바꾼다. 형식이 어긋난 값은 빈 값으로 둔다. */
+function mapPublicQuestion(item: DocumentData): PublicQuestion {
+  const image = item.image;
+  return {
+    id: String(item.id),
+    area: item.area,
+    category:
+      typeof item.category === 'string' && item.category.trim().length > 0 ? item.category : null,
+    text: String(item.text ?? ''),
+    passage: typeof item.passage === 'string' ? item.passage : null,
+    image:
+      image && typeof image.src === 'string' && image.src.length > 0
+        ? { src: image.src, alt: typeof image.alt === 'string' ? image.alt : '문제 그림' }
+        : null,
+    choices: Array.isArray(item.choices)
+      ? item.choices.map((choice: DocumentData) => ({
+          id: String(choice.id),
+          label: String(choice.label ?? ''),
+        }))
+      : [],
+    hintRemoveChoiceId: String(item.hintRemoveChoiceId ?? ''),
+  };
+}
+
+function mapQuestionSource(value: unknown): FinalQuestionSource {
+  return value === 'upload' ? 'upload' : 'sample';
 }
 
 function sessionDocId(grade: Grade): string {
@@ -131,7 +174,7 @@ export class FirestoreFinalStore {
   private readonly ctx: FirestoreStoreContext;
   private readonly gradeLives = new Map<string, FinalGradeLive>();
   private readonly classLives = new Set<FinalClassLive>();
-  private readonly questionSets = new Map<string, { at: number; questions: PublicQuestion[] }>();
+  private readonly questionSets = new Map<string, CachedQuestionSet>();
   private readonly checklists = new Map<string, { at: number; value: FinalOpenChecklist }>();
   /** 제출을 마친 학급의 채점 결과. 다시 시작하면 시작 시각이 달라져 새로 채점한다. */
   private readonly scores = new Map<string, number>();
@@ -248,37 +291,49 @@ export class FirestoreFinalStore {
     );
   }
 
-  /** 문제(정답 제외). 행사 중에는 바뀌지 않으므로 잠깐 메모리에 둔다. */
+  private questionSetRef(eventId: string, grade: Grade) {
+    return doc(this.ctx.sub(eventId, 'finalQuestionSets'), questionSetDocId(grade));
+  }
+
+  private answerKeyRef(eventId: string, grade: Grade) {
+    return doc(this.ctx.sub(eventId, 'finalAnswerKeys'), questionSetDocId(grade));
+  }
+
+  /** 문제 묶음 문서(정답 제외). 행사 중에는 바뀌지 않으므로 잠깐 메모리에 둔다. */
+  private async questionSetOf(
+    eventId: string,
+    grade: Grade,
+    questionCount: number,
+  ): Promise<CachedQuestionSet> {
+    const key = `${eventId}|${grade}`;
+    const cached = this.questionSets.get(key);
+    if (cached && Date.now() - cached.at < QUESTION_SET_TTL_MS) return cached;
+    const snapshot = await getDoc(this.questionSetRef(eventId, grade));
+    const data = snapshot.data();
+    const raw = data?.questions;
+    if (!Array.isArray(raw)) {
+      throw new RepositoryError('not-found', '최종 미션 문제가 아직 준비되지 않았어요.');
+    }
+    const questions = raw.map(mapPublicQuestion);
+    const error = this.publicSetError(questions, questionCount);
+    if (error) throw new RepositoryError('invalid-input', error);
+    const entry: CachedQuestionSet = {
+      at: Date.now(),
+      questions,
+      source: mapQuestionSource(data?.source),
+      updatedAt: toMillis(data?.updatedAt),
+    };
+    this.questionSets.set(key, entry);
+    return entry;
+  }
+
+  /** 문제(정답 제외) */
   private async questionsOf(
     eventId: string,
     grade: Grade,
     questionCount: number,
   ): Promise<PublicQuestion[]> {
-    const key = `${eventId}|${grade}`;
-    const cached = this.questionSets.get(key);
-    if (cached && Date.now() - cached.at < QUESTION_SET_TTL_MS) return cached.questions;
-    const snapshot = await getDoc(doc(this.ctx.sub(eventId, 'finalQuestionSets'), String(grade)));
-    const raw = snapshot.data()?.questions;
-    if (!Array.isArray(raw)) {
-      throw new RepositoryError('not-found', '최종 미션 문제가 아직 준비되지 않았어요.');
-    }
-    const questions = raw.map((item: DocumentData): PublicQuestion => ({
-      id: String(item.id),
-      area: item.area,
-      text: String(item.text ?? ''),
-      passage: typeof item.passage === 'string' ? item.passage : null,
-      choices: Array.isArray(item.choices)
-        ? item.choices.map((choice: DocumentData) => ({
-            id: String(choice.id),
-            label: String(choice.label ?? ''),
-          }))
-        : [],
-      hintRemoveChoiceId: String(item.hintRemoveChoiceId ?? ''),
-    }));
-    const error = this.publicSetError(questions, questionCount);
-    if (error) throw new RepositoryError('invalid-input', error);
-    this.questionSets.set(key, { at: Date.now(), questions });
-    return questions;
+    return (await this.questionSetOf(eventId, grade, questionCount)).questions;
   }
 
   /** 정답 없이 확인할 수 있는 문제 형식 검사 */
@@ -302,8 +357,10 @@ export class FirestoreFinalStore {
     return {
       id: question.id,
       area: question.area,
+      category: question.category,
       text: question.text,
       passage: question.passage,
+      image: question.image,
       choices: question.choices,
     };
   }
@@ -314,53 +371,148 @@ export class FirestoreFinalStore {
     grade: Grade,
     questionCount: number,
   ): Promise<FinalQuestionSet> {
-    const [questions, keySnap] = await Promise.all([
-      this.questionsOf(eventId, grade, questionCount),
-      getDoc(doc(this.ctx.sub(eventId, 'finalAnswerKeys'), String(grade))),
+    const [cached, keySnap] = await Promise.all([
+      this.questionSetOf(eventId, grade, questionCount),
+      getDoc(this.answerKeyRef(eventId, grade)),
     ]);
-    const answers = (keySnap.data()?.answers ?? {}) as Record<string, unknown>;
+    const keyData = keySnap.data();
+    const answers = (keyData?.answers ?? {}) as Record<string, unknown>;
+    const explanations = (keyData?.explanations ?? {}) as Record<string, unknown>;
     const set: FinalQuestionSet = {
       grade,
-      questions: questions.map((question) => ({
+      questions: cached.questions.map((question) => ({
         question: this.toQuestion(question),
         answerChoiceId: String(answers[question.id] ?? ''),
         hintRemoveChoiceId: question.hintRemoveChoiceId,
+        explanation:
+          typeof explanations[question.id] === 'string'
+            ? (explanations[question.id] as string)
+            : null,
       })),
+      source: cached.source,
+      updatedAt: cached.updatedAt,
     };
     const error = getQuestionSetError(set, questionCount);
     if (error) throw new RepositoryError('invalid-input', error);
     return set;
   }
 
-  /**
-   * 문제가 아직 없으면 샘플 10문제로 만든다. 실제 문제는 행사 전에
-   * finalQuestionSets/{학년}과 finalAnswerKeys/{학년} 문서를 고쳐 넣는다.
-   */
-  async ensureQuestionSet(eventId: string, grade: Grade): Promise<boolean> {
-    const setRef = doc(this.ctx.sub(eventId, 'finalQuestionSets'), String(grade));
-    const keyRef = doc(this.ctx.sub(eventId, 'finalAnswerKeys'), String(grade));
-    const [setSnap, keySnap] = await Promise.all([getDoc(setRef), getDoc(keyRef)]);
-    if (setSnap.exists() && keySnap.exists()) return false;
-    const sample = createSampleFinalQuestionSet(grade);
-    const batch = writeBatch(this.ctx.db);
-    batch.set(setRef, {
-      grade,
-      questions: sample.questions.map((config) => ({
+  /** 문제 묶음 하나를 두 문서로 나눠 쓴다: 문제(교사 모두 읽음)와 정답·해설(총괄만 읽음). */
+  private writeQuestionSet(
+    batch: ReturnType<typeof writeBatch>,
+    eventId: string,
+    set: FinalQuestionSet,
+    source: FinalQuestionSource,
+  ) {
+    batch.set(this.questionSetRef(eventId, set.grade), {
+      grade: set.grade,
+      source,
+      questions: set.questions.map((config) => ({
         ...config.question,
         hintRemoveChoiceId: config.hintRemoveChoiceId,
       })),
       updatedAt: serverTimestamp(),
     });
-    batch.set(keyRef, {
-      grade,
+    batch.set(this.answerKeyRef(eventId, set.grade), {
+      grade: set.grade,
+      source,
       answers: Object.fromEntries(
-        sample.questions.map((config) => [config.question.id, config.answerChoiceId]),
+        set.questions.map((config) => [config.question.id, config.answerChoiceId]),
+      ),
+      explanations: Object.fromEntries(
+        set.questions
+          .filter((config) => config.explanation !== null)
+          .map((config) => [config.question.id, config.explanation]),
       ),
       updatedAt: serverTimestamp(),
     });
+  }
+
+  /**
+   * 문제가 아직 없으면 샘플 10문제로 만든다. 실제 문제는 행사 전에
+   * 총괄 설정 화면의 "최종 미션 문제 올리기"로 넣는다.
+   */
+  async ensureQuestionSet(eventId: string, grade: Grade): Promise<boolean> {
+    const [setSnap, keySnap] = await Promise.all([
+      getDoc(this.questionSetRef(eventId, grade)),
+      getDoc(this.answerKeyRef(eventId, grade)),
+    ]);
+    if (setSnap.exists() && keySnap.exists()) return false;
+    const batch = writeBatch(this.ctx.db);
+    this.writeQuestionSet(batch, eventId, createSampleFinalQuestionSet(grade), 'sample');
     await batch.commit();
     this.questionSets.delete(`${eventId}|${grade}`);
     return true;
+  }
+
+  // ---- 문제 넣기(총괄 운영자) ----
+
+  /** 학년의 학급 상태 문서를 한 번 읽는다(설정 화면용. 구독하지 않는다). */
+  private async statesOf(
+    eventId: string,
+    grade: Grade,
+    session: FinalSession,
+  ): Promise<FinalClassState[]> {
+    const snapshot = await getDocs(
+      query(this.ctx.sub(eventId, 'finalClassStates'), where('grade', '==', grade)),
+    );
+    return snapshot.docs.map((item) =>
+      mapFinalClassState(
+        item.id,
+        item.data({ serverTimestamps: 'estimate' }),
+        session.durationLimitSec,
+      ),
+    );
+  }
+
+  private async summaryOf(eventId: string, grade: Grade): Promise<FinalQuestionSetSummary> {
+    const session = await this.sessionOf(eventId, grade);
+    const [setSnap, states] = await Promise.all([
+      getDoc(this.questionSetRef(eventId, grade)),
+      this.statesOf(eventId, grade, session),
+    ]);
+    const data = setSnap.data();
+    const questions: unknown[] | null = Array.isArray(data?.questions) ? data.questions : null;
+    return {
+      grade,
+      questionCount: questions?.length ?? 0,
+      imageCount:
+        questions?.filter((item) => {
+          const image = (item as DocumentData | null)?.image;
+          return typeof image?.src === 'string' && image.src.length > 0;
+        }).length ?? 0,
+      source: questions ? mapQuestionSource(data?.source) : null,
+      updatedAt: questions ? toMillis(data?.updatedAt) : null,
+      replaceBlocker: getQuestionReplaceBlocker(session, states),
+    };
+  }
+
+  async summaries(eventId: string): Promise<FinalQuestionSetSummary[]> {
+    await this.ctx.ensureUser();
+    this.ctx.requireTeacher();
+    return Promise.all(FINAL_GRADES.map((grade) => this.summaryOf(eventId, grade)));
+  }
+
+  /** 모든 학년을 먼저 검사하고 한 번의 batch로 쓴다. 하나라도 막히면 아무것도 바꾸지 않는다. */
+  async upload(eventId: string, sets: readonly FinalQuestionSet[]) {
+    await this.ctx.ensureUser();
+    this.ctx.requireAdmin();
+    if (sets.length === 0) {
+      throw new RepositoryError('invalid-input', '올릴 학년별 문제가 없어요.');
+    }
+    for (const set of sets) {
+      const session = await this.sessionOf(eventId, set.grade);
+      const states = await this.statesOf(eventId, set.grade, session);
+      const blocker = getQuestionReplaceBlocker(session, states);
+      if (blocker) throw new RepositoryError('not-allowed', blocker);
+      const error = getQuestionSetError(set, session.questionCount);
+      if (error) throw new RepositoryError('invalid-input', `${set.grade}학년: ${error}`);
+    }
+    const batch = writeBatch(this.ctx.db);
+    for (const set of sets) this.writeQuestionSet(batch, eventId, set, 'upload');
+    await batch.commit();
+    for (const set of sets) this.questionSets.delete(`${eventId}|${set.grade}`);
+    return this.summaries(eventId);
   }
 
   private viewerCanSeeResults(session: FinalSession): boolean {

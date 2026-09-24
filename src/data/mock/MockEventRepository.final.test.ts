@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../../config';
+import { parseFinalQuestionUpload } from '../../domain/finalQuestionUpload';
+import { buildUploadFile, FIXTURE_IMAGE } from '../../test/finalUploadFixture';
 import { isRepositoryError } from '../errors';
 import type { ClassFinalView } from '../EventRepository';
 import { createSampleFinalQuestionSet } from './finalQuestions';
@@ -431,5 +433,87 @@ describe('MockEventRepository 학급 최종 미션', () => {
       isRepositoryError(error, 'not-allowed'),
     );
     expect((await repository.setFinalDuration(EVENT, 5, 600)).durationLimitSec).toBe(600);
+  });
+
+  describe('문제 올리기', () => {
+    const parsed = () => parseFinalQuestionUpload(buildUploadFile([4, 5])).sets;
+
+    it('처음에는 모든 학년이 샘플이고, 열린 3학년만 바꿀 수 없다', async () => {
+      const summaries = await repository.listFinalQuestionSets(EVENT);
+      expect(summaries.map((item) => item.grade)).toEqual([3, 4, 5, 6]);
+      expect(summaries.every((item) => item.source === 'sample')).toBe(true);
+      expect(summaries.every((item) => item.questionCount === 10)).toBe(true);
+      expect(summaries[0].replaceBlocker).toMatch(/이미 열려 있어/);
+      expect(summaries.slice(1).every((item) => item.replaceBlocker === null)).toBe(true);
+    });
+
+    it('총괄 운영자가 올리면 그 학년의 문제·정답·해설이 바뀌고 화면에는 유형과 그림만 간다', async () => {
+      const summaries = await repository.uploadFinalQuestionSets({
+        eventId: EVENT,
+        sets: parsed(),
+      });
+      expect(summaries.find((item) => item.grade === 4)).toMatchObject({
+        source: 'upload',
+        questionCount: 10,
+        imageCount: 1,
+        updatedAt: START,
+      });
+      expect(summaries.find((item) => item.grade === 3)?.source).toBe('sample');
+
+      await repository.openFinal({ eventId: EVENT, grade: 4, force: true, reason: '리허설' });
+      const view = await repository.startClassFinal({
+        eventId: EVENT,
+        classId: 'g4-c1',
+        requestId: 'start',
+      });
+      expect(view.question).toMatchObject({
+        id: 'q1',
+        category: '4학년 유형 1',
+        text: '4학년 1번 문제입니다.',
+        image: null,
+      });
+      expect(JSON.stringify(view)).not.toMatch(/answerChoiceId|hintRemoveChoiceId|해설/);
+
+      // 3번 문제의 그림이 함께 간다.
+      let current = view;
+      for (let step = 1; step <= 2; step += 1) {
+        await repository.selectFinalChoice({
+          eventId: EVENT,
+          classId: 'g4-c1',
+          questionId: current.question?.id ?? '',
+          choiceId: 'b',
+        });
+        current = await repository.confirmFinalAnswer({
+          eventId: EVENT,
+          classId: 'g4-c1',
+          questionId: current.question?.id ?? '',
+          requestId: `confirm-${step}`,
+        });
+      }
+      expect(current.question).toMatchObject({
+        id: 'q3',
+        image: { src: FIXTURE_IMAGE, alt: '4학년 3번 그림' },
+      });
+    });
+
+    it('열린 학년이나 시작한 반이 있으면 아무 학년도 바꾸지 않는다', async () => {
+      const before = await repository.listFinalQuestionSets(EVENT);
+      await expect(
+        repository.uploadFinalQuestionSets({
+          eventId: EVENT,
+          sets: parseFinalQuestionUpload(buildUploadFile([3, 4])).sets,
+        }),
+      ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+      expect(await repository.listFinalQuestionSets(EVENT)).toEqual(before);
+    });
+
+    it('담임·부스 선생님은 올릴 수 없다', async () => {
+      repository.signInAs('homeroom_teacher', { classId: 'g4-c1' });
+      await expect(
+        repository.uploadFinalQuestionSets({ eventId: EVENT, sets: parsed() }),
+      ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+      // 문제 상태는 볼 수 있다.
+      expect((await repository.listFinalQuestionSets(EVENT)).length).toBe(4);
+    });
   });
 });

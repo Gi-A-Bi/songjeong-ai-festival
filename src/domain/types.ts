@@ -399,14 +399,25 @@ export interface FinalChoice {
   label: string;
 }
 
+/** 문제와 함께 전자칠판에 띄우는 그림. src는 data URL이거나 앱 안의 경로다. */
+export interface FinalQuestionImage {
+  src: string;
+  /** 한국어 대체 텍스트. 정답을 드러내면 안 된다. */
+  alt: string;
+}
+
 /** 화면에 보내는 문제. 정답과 힌트 제거 대상은 들어 있지 않다. */
 export interface FinalQuestion {
   id: string;
   /** 문제 영역(생각·관찰·표현·명령·검증) */
   area: CardType;
+  /** 화면 배지에 쓰는 문제 유형 이름(예: "넌센스"). 없으면 영역 이름을 쓴다. */
+  category: string | null;
   text: string;
   /** 함께 보여 줄 자료 글. 없으면 null */
   passage: string | null;
+  /** 함께 보여 줄 그림. 보기 번호가 그림 안에 있으면 보기 순서를 섞으면 안 된다. */
+  image: FinalQuestionImage | null;
   choices: FinalChoice[];
 }
 
@@ -416,10 +427,18 @@ export interface FinalQuestionConfig {
   answerChoiceId: string;
   /** 힌트를 쓰면 지울 오답 보기. 정답이면 안 된다. */
   hintRemoveChoiceId: string;
+  /** 교사용 해설. 정답과 함께 총괄 운영자만 읽는다. */
+  explanation: string | null;
 }
+
+/** 문제 묶음의 출처. 샘플은 행사 구조를 만들 때 자동으로 들어간 것이다. */
+export type FinalQuestionSource = 'sample' | 'upload';
 
 /** 학년별 최종 미션 문제 묶음. 같은 학년의 모든 학급이 같은 문제를 푼다. */
 export interface FinalQuestionSet {
   grade: Grade;
   questions: FinalQuestionConfig[];
+  source: FinalQuestionSource;
+  /** 마지막으로 넣거나 바꾼 시각. 모르면 null */
+  updatedAt: number | null;
 }

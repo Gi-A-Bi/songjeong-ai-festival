@@ -9,6 +9,7 @@ import type { EventSetupSummary } from '../../data/EventRepository';
 import { toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
 import { useAction } from '../../hooks/useAction';
+import { FinalQuestionUploadPanel } from './FinalQuestionUploadPanel';
 import { EVENT_STATUS_BADGES, useTeacherContext } from './teacherContext';
 
 /** 행사 설정 화면. 처음 한 번 행사·학급·팀·미션 문서를 만든다. */
@@ -93,6 +94,8 @@ export function AdminPage() {
           행사 구조 만들기
         </Button>
       </section>
+
+      <FinalQuestionUploadPanel eventId={eventId} />
 
       <section className="panel stack" aria-labelledby="admin-qr-title">
         <h2 id="admin-qr-title" className="section-title">

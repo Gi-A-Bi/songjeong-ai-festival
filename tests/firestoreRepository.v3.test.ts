@@ -5,7 +5,9 @@ import { FirestoreEventRepository } from '../src/data/firebase/FirestoreEventRep
 import { getFirebase } from '../src/data/firebase/firebaseApp';
 import { isRepositoryError } from '../src/data/errors';
 import type { ClassFinalView } from '../src/data/EventRepository';
+import { parseFinalQuestionUpload } from '../src/domain/finalQuestionUpload';
 import type { TeacherRole } from '../src/domain/types';
+import { buildUploadFile, FIXTURE_IMAGE } from '../src/test/finalUploadFixture';
 
 /*
  * v3 기능의 Firestore 저장소 동작: 교실 QR 체크인, 부스, 운영 대시보드, 학급 전체 최종 미션.
@@ -820,5 +822,86 @@ describe('부스 화면의 제출 구독 (에뮬레이터)', () => {
     await vi.waitFor(() => expect(errors.length).toBeGreaterThan(0));
     expect(isRepositoryError(errors[0], 'not-allowed')).toBe(true);
     stop();
+  });
+});
+
+describe('최종 미션 문제 올리기 (에뮬레이터)', () => {
+  const CLASS_ID = 'g3-c1';
+
+  it('총괄이 올린 문제는 담임에게 그림·유형까지 보이고, 정답은 내려가지 않으며, 연 학년은 바꿀 수 없다', async () => {
+    await signInAsAdmin();
+    await repository.setupEvent(EVENT);
+    let summaries = await repository.listFinalQuestionSets(EVENT);
+    expect(summaries.map((item) => item.source)).toEqual(['sample', 'sample', 'sample', 'sample']);
+    expect(summaries.every((item) => item.replaceBlocker === null)).toBe(true);
+
+    const { sets, errors } = parseFinalQuestionUpload(buildUploadFile([3, 4]));
+    expect(errors).toEqual([]);
+    summaries = await repository.uploadFinalQuestionSets({ eventId: EVENT, sets });
+    expect(summaries.find((item) => item.grade === 3)).toMatchObject({
+      source: 'upload',
+      questionCount: 10,
+      imageCount: 1,
+    });
+    expect(summaries.find((item) => item.grade === 3)?.updatedAt).toEqual(expect.any(Number));
+    expect(summaries.find((item) => item.grade === 5)?.source).toBe('sample');
+
+    // 담임은 올릴 수 없고 상태만 본다.
+    await signInAs('homeroom-1', 'homeroom_teacher', { classId: CLASS_ID });
+    await expect(repository.uploadFinalQuestionSets({ eventId: EVENT, sets })).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed'),
+    );
+    expect((await repository.listFinalQuestionSets(EVENT)).length).toBe(4);
+
+    await signInAsAdmin();
+    await repository.openFinal({ eventId: EVENT, grade: 3, force: true, reason: '리허설' });
+    await signInAs('homeroom-1', 'homeroom_teacher', { classId: CLASS_ID });
+    let view = await repository.startClassFinal({
+      eventId: EVENT,
+      classId: CLASS_ID,
+      requestId: 'start-1',
+    });
+    expect(view.question).toMatchObject({
+      id: 'q1',
+      category: '3학년 유형 1',
+      text: '3학년 1번 문제입니다.',
+      image: null,
+    });
+    expect(JSON.stringify(view)).not.toMatch(/answerChoiceId|hintRemoveChoiceId|explanation/);
+    for (const step of [1, 2]) {
+      const questionId = view.question?.id ?? '';
+      await repository.selectFinalChoice({
+        eventId: EVENT,
+        classId: CLASS_ID,
+        questionId,
+        choiceId: 'b',
+      });
+      view = await repository.confirmFinalAnswer({
+        eventId: EVENT,
+        classId: CLASS_ID,
+        questionId,
+        requestId: `confirm-${step}`,
+      });
+    }
+    expect(view.question).toMatchObject({
+      id: 'q3',
+      image: { src: FIXTURE_IMAGE, alt: '3학년 3번 그림' },
+    });
+
+    // 이미 연 학년이 끼어 있으면 아무 학년도 바꾸지 않는다.
+    await signInAsAdmin();
+    await expect(repository.uploadFinalQuestionSets({ eventId: EVENT, sets })).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed'),
+    );
+    expect(
+      (await repository.listFinalQuestionSets(EVENT)).find((item) => item.grade === 4)?.source,
+    ).toBe('upload');
+    await repository.uploadFinalQuestionSets({
+      eventId: EVENT,
+      sets: parseFinalQuestionUpload(buildUploadFile([5])).sets,
+    });
+    expect(
+      (await repository.listFinalQuestionSets(EVENT)).find((item) => item.grade === 5)?.source,
+    ).toBe('upload');
   });
 });
