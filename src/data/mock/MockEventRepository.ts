@@ -61,6 +61,7 @@ import type {
   FinalizeRankingInput,
   FinalizeRankingOutcome,
   FinalQuestionActionInput,
+  FinalQuestionSetSummary,
   MarkArrivedInput,
   MissionLiveState,
   MissionParticipant,
@@ -82,6 +83,7 @@ import type {
   TeamSession,
   TeamTourStatus,
   Unsubscribe,
+  UploadFinalQuestionSetsInput,
 } from '../EventRepository';
 import { resultId, resultKey, roundKey, submissionId, toTeamId } from './keys';
 import type { MockStoreContext } from './mockContext';
@@ -1113,6 +1115,20 @@ export class MockEventRepository implements EventRepository, DevTools {
     await this.request();
     this.assertEvent(input.eventId);
     return clone(this.final.reset(input));
+  }
+
+  async listFinalQuestionSets(eventId: string): Promise<FinalQuestionSetSummary[]> {
+    await this.request();
+    this.assertEvent(eventId);
+    return clone(this.final.summaries());
+  }
+
+  async uploadFinalQuestionSets(
+    input: UploadFinalQuestionSetsInput,
+  ): Promise<FinalQuestionSetSummary[]> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    return clone(this.final.upload(input.sets));
   }
 
   // ---- 교사 인증(목업) ----

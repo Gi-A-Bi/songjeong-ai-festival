@@ -23,6 +23,11 @@ import {
   scoreResponses,
   snapshotCards,
 } from '../../domain/finalMission';
+import {
+  FINAL_GRADES,
+  getQuestionReplaceBlocker,
+  summarizeFinalQuestionSet,
+} from '../../domain/finalQuestionUpload';
 import type {
   ClassInfo,
   FinalClassState,
@@ -41,6 +46,7 @@ import type {
   FinalBoard,
   FinalOpenChecklist,
   FinalQuestionActionInput,
+  FinalQuestionSetSummary,
   OpenFinalInput,
   SelectFinalChoiceInput,
   StartClassFinalInput,
@@ -75,6 +81,59 @@ export class MockFinalStore {
     const error = getQuestionSetError(set, this.sessionOf(grade).questionCount);
     if (error) throw new RepositoryError('invalid-input', error);
     return set;
+  }
+
+  // ---- 문제 넣기(총괄 운영자) ----
+
+  private replaceBlocker(grade: Grade): string | null {
+    return getQuestionReplaceBlocker(
+      this.sessionOf(grade),
+      this.ctx.classesOf(grade).map((classInfo) => this.stateOf(classInfo)),
+    );
+  }
+
+  summaries(): FinalQuestionSetSummary[] {
+    this.ctx.requireTeacher();
+    return FINAL_GRADES.map((grade) => {
+      const set = this.ctx.state().finalQuestionSets[grade];
+      const stats = set ? summarizeFinalQuestionSet(set) : null;
+      return {
+        grade,
+        questionCount: stats?.questionCount ?? 0,
+        imageCount: stats?.imageCount ?? 0,
+        source: set?.source ?? null,
+        updatedAt: set?.updatedAt ?? null,
+        replaceBlocker: this.replaceBlocker(grade),
+      };
+    });
+  }
+
+  /** 모든 학년을 먼저 검사하고 나서 한꺼번에 바꾼다. 하나라도 막히면 아무것도 바꾸지 않는다. */
+  upload(sets: readonly FinalQuestionSet[]): FinalQuestionSetSummary[] {
+    this.ctx.requireAdmin();
+    if (sets.length === 0) {
+      throw new RepositoryError('invalid-input', '올릴 학년별 문제가 없어요.');
+    }
+    for (const set of sets) {
+      const blocker = this.replaceBlocker(set.grade);
+      if (blocker) throw new RepositoryError('not-allowed', blocker);
+      const error = getQuestionSetError(set, this.sessionOf(set.grade).questionCount);
+      if (error) throw new RepositoryError('invalid-input', `${set.grade}학년: ${error}`);
+    }
+    const now = this.ctx.now();
+    for (const set of sets) {
+      this.ctx.state().finalQuestionSets[set.grade] = {
+        ...set,
+        questions: set.questions.map((config) => ({
+          ...config,
+          question: { ...config.question, choices: config.question.choices.map((c) => ({ ...c })) },
+        })),
+        source: 'upload',
+        updatedAt: now,
+      };
+      this.ctx.notifyFinal(set.grade);
+    }
+    return this.summaries();
   }
 
   private responsesOf(classId: string): FinalResponse[] {

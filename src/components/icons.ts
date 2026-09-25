@@ -79,6 +79,7 @@ import timerOff from '@material-symbols/svg-400/rounded/timer_off.svg?raw';
 import touchApp from '@material-symbols/svg-400/rounded/touch_app.svg?raw';
 import trophy from '@material-symbols/svg-400/rounded/trophy.svg?raw';
 import undo from '@material-symbols/svg-400/rounded/undo.svg?raw';
+import uploadFile from '@material-symbols/svg-400/rounded/upload_file.svg?raw';
 import visibility from '@material-symbols/svg-400/rounded/visibility.svg?raw';
 import visibilityOff from '@material-symbols/svg-400/rounded/visibility_off.svg?raw';
 import volumeOff from '@material-symbols/svg-400/rounded/volume_off.svg?raw';
@@ -166,6 +167,7 @@ const RAW_ICONS = {
   touch_app: touchApp,
   trophy,
   undo,
+  upload_file: uploadFile,
   visibility,
   visibility_off: visibilityOff,
   volume_off: volumeOff,
