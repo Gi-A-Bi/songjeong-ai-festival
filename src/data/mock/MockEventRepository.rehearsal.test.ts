@@ -185,3 +185,37 @@ describe('MockEventRepository 연습 기록 지우기', () => {
     expect((await repository.getRehearsalSummary(EVENT, 4)).counts.results).toBe(25);
   });
 });
+
+describe('MockEventRepository 건너뛴 라운드와 최종 미션 점검', () => {
+  it('모든 라운드를 건너뛰면 결과가 없어도 최종 미션을 열 수 있다', async () => {
+    const repository = new MockEventRepository({ now: () => 5_000_000, random: () => 0 });
+    repository.signInAs('admin');
+    await repository.setActiveGrade(EVENT, 4);
+    await repository.resetRehearsal({ eventId: EVENT, grade: 4 });
+
+    const missions = await repository.listMissions(EVENT);
+    const before = await repository.getFinalBoard(EVENT, 4);
+    expect(before.checklist).toMatchObject({ roundsClosed: false, missingResults: 25 });
+
+    for (const mission of missions) {
+      for (const roundNo of [1, 2, 3, 4, 5] as const) {
+        await repository.skipStationRound({
+          eventId: EVENT,
+          missionId: mission.id,
+          grade: 4,
+          roundNo,
+        });
+      }
+    }
+    const after = await repository.getFinalBoard(EVENT, 4);
+    expect(after.checklist).toMatchObject({
+      roundsClosed: true,
+      missingResults: 0,
+      pendingAwards: 0,
+      blockers: [],
+    });
+    await expect(
+      repository.openFinal({ eventId: EVENT, grade: 4, force: false, reason: '' }),
+    ).resolves.toMatchObject({ status: 'open' });
+  });
+});

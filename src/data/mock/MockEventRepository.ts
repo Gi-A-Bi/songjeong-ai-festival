@@ -421,12 +421,14 @@ export class MockEventRepository implements EventRepository, DevTools {
     const roundNo = getRoundForMission(team.teamNo, mission.no);
     const key = resultKey(mission.id, team.grade, roundNo);
     const booth = this.tour.missionRound(mission.id, team.grade, roundNo);
+    const record = this.tour.recordOf(team, roundNo);
     return clone({
       team,
       mission,
       roundNo,
       roundStatus: toRoundStatus(booth.status),
       booth,
+      checkedIn: record.checkedInAt !== null || record.resultId !== null,
       submission: this.state.submissions[submissionId(mission.id, team.id)] ?? null,
       finalized: this.isFinalized(mission.id, team.grade, roundNo),
       answerRevealed: this.state.missionStates[key]?.answerRevealed ?? false,
@@ -986,6 +988,10 @@ export class MockEventRepository implements EventRepository, DevTools {
 
   async closeStationRound(input: StartStationInput): Promise<MissionRoundState> {
     return this.advanceStation('close', input);
+  }
+
+  async skipStationRound(input: StartStationInput): Promise<MissionRoundState> {
+    return this.advanceStation('skip', input);
   }
 
   private async advanceStation(

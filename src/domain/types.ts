@@ -38,6 +38,8 @@ export interface FestivalEvent {
   roundEndedAt: number | null;
   /** 팀이 지금 가야 하는 부스의 단계. 투어 중이 아니면 null */
   boothStatus: MissionRoundStatus | null;
+  /** 팀이 도는 라운드 가운데 부스가 건너뛴 라운드. 전체 행사 상태에서는 늘 비어 있다. */
+  skippedRounds: RoundNo[];
   /** 게임 한 번의 시간(ms). 부스에서 “게임 시작”을 누른 때부터 센다. */
   gameDurationMs: number;
   updatedAt: number;
@@ -370,6 +372,8 @@ export interface MissionRoundState {
   /** 라운드를 종료한 시각 */
   completedAt: number | null;
   resultFinalizedAt: number | null;
+  /** 게임과 순위 없이 건너뛴 라운드인지 */
+  skipped: boolean;
   updatedBy: string | null;
 }
 

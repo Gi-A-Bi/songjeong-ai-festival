@@ -38,6 +38,7 @@ import type {
   Grade,
 } from '../../domain/types';
 import { formatClock } from '../../lib/time';
+import { missionRoundStateId } from '../../domain/tour';
 import { RepositoryError } from '../errors';
 import type {
   AdjustFinalResultInput,
@@ -149,10 +150,13 @@ export class MockFinalStore {
   checklist(grade: Grade): FinalOpenChecklist {
     const state = this.ctx.state();
     const roundsClosed = this.ctx.allRoundsCompleted(grade);
+    // 건너뛴 라운드는 게임을 하지 않았으므로 결과가 없어도 된다.
     const missingResults = state.missions.reduce(
       (count, mission) =>
         count +
         ROUND_NUMBERS.filter((roundNo) => {
+          const booth = state.missionRoundStates[missionRoundStateId(mission.id, grade, roundNo)];
+          if (booth?.skipped) return false;
           const prefix = `${resultKey(mission.id, grade, roundNo)}__`;
           return !state.results.some((result) => result.id.startsWith(prefix));
         }).length,

@@ -835,8 +835,14 @@ export class FirestoreEventRepository implements EventRepository {
         this.getMission(eventId, missionId),
       ]);
       const roundNo = getRoundForMission(team.teamNo, mission.no);
-      const [booth, submissionSnap, resultSnap, revealSnap] = await Promise.all([
+      const [booth, recordSnap, submissionSnap, resultSnap, revealSnap] = await Promise.all([
         this.boothOf(eventId, mission.id, team.grade, roundNo),
+        getDoc(
+          doc(
+            this.sub(eventId, 'teamMissionStates'),
+            teamMissionStateId(team.classId, team.teamNo, roundNo),
+          ),
+        ),
         getDoc(doc(this.sub(eventId, 'submissions'), submissionId(mission.id, team.id))),
         getDoc(
           doc(this.sub(eventId, 'results'), resultId(mission.id, team.grade, roundNo, team.id)),
@@ -849,6 +855,7 @@ export class FirestoreEventRepository implements EventRepository {
         roundNo,
         roundStatus: toRoundStatus(booth.status),
         booth,
+        checkedIn: recordSnap.data()?.checkedInAt != null || resultSnap.exists(),
         submission: isCompleteSubmission(submissionSnap.data())
           ? mapSubmission(submissionSnap)
           : null,
@@ -1804,6 +1811,10 @@ export class FirestoreEventRepository implements EventRepository {
 
   async closeStationRound(input: StartStationInput): Promise<MissionRoundState> {
     return run(() => this.tour.advanceStation('close', input));
+  }
+
+  async skipStationRound(input: StartStationInput): Promise<MissionRoundState> {
+    return run(() => this.tour.advanceStation('skip', input));
   }
 
   async markTeamArrived(input: MarkArrivedInput): Promise<TeamMissionState> {

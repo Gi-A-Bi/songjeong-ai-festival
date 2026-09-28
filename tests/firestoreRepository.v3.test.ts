@@ -290,6 +290,25 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
       expect(ranked.resultFinalizedAt).not.toBeNull();
     });
 
+    // 순위가 나온 뒤 라운드를 종료하기 전: 다음 교실 QR을 찍으면 기다리라고 알려 주고 기록하지 않는다.
+    await signInAsStudent(teamId);
+    const early = await repository.checkInStation({
+      eventId: EVENT,
+      teamId,
+      stationId: 'error-hunt',
+    });
+    expect(early).toMatchObject({
+      kind: 'early',
+      roundNo: 1,
+      expectedMission: { id: 'golden-bell' },
+      nextMission: { id: 'error-hunt' },
+    });
+    expect(early.state.alertCodes).not.toContain('wrong_station');
+    const entered = await repository.getTeamMissionView(EVENT, teamId, 'golden-bell');
+    expect(entered.checkedIn).toBe(true);
+    const notYet = await repository.getTeamMissionView(EVENT, teamId, 'error-hunt');
+    expect(notYet.checkedIn).toBe(false);
+
     // 총괄 대시보드: 골든벨은 순위를 확정했고 아직 라운드를 종료하지 않았다.
     await signInAsAdmin();
     await vi.waitFor(async () => {
@@ -401,6 +420,101 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     });
     expect(outcome.kind).toBe('checked_in');
     expect(outcome.roundNo).toBe(2);
+  });
+
+  it('앞 교실이 종료를 누르지 않았어도 순위가 나온 팀은 다음 교실이 열리면 입장하고 제출한다', async () => {
+    await prepareTour();
+    const teamId = 'g4-c1-t1';
+    const finalize = async (missionId: string, requestId: string) => {
+      const participants = await repository.listMissionParticipants(EVENT, missionId, 4, 1);
+      await repository.finalizeRanking({
+        ...booth(missionId),
+        requestId,
+        entries: participants.map((participant, index) => ({
+          teamId: participant.team.id,
+          score: 100,
+          rank: index + 1,
+        })),
+      });
+    };
+
+    // 시청각실(1팀의 1라운드)은 순위만 확정하고 라운드를 종료하지 않았다.
+    await startGame('golden-bell');
+    await finalize('golden-bell', 'finalize-bell');
+    // 컴퓨터실(1팀의 2라운드)은 1라운드를 건너뛰고 2라운드를 열었다.
+    const skipped = await repository.skipStationRound(booth('error-hunt'));
+    expect(skipped).toMatchObject({ status: 'completed', skipped: true, startedAt: null });
+    const skippedAgain = await repository.skipStationRound(booth('error-hunt'));
+    expect(skippedAgain.completedAt).toBe(skipped.completedAt);
+    await repository.openStationRound(booth('error-hunt', 2));
+    const bell = await repository.getMissionRoundState(EVENT, 'golden-bell', 4, 1);
+    expect(bell).toMatchObject({ status: 'scoring', completedAt: null });
+
+    // 순위를 확정한 라운드는 건너뛸 수 없다.
+    await expect(repository.skipStationRound(booth('golden-bell'))).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+
+    await signInAsStudent(teamId);
+    expect(await repository.getTeamTourStatus(EVENT, teamId)).toMatchObject({
+      roundNo: 2,
+      expectedMission: { id: 'error-hunt' },
+    });
+    // 이미 지나간 교실의 QR은 잘못된 교실로 기록하지 않는다.
+    const past = await repository.checkInStation({
+      eventId: EVENT,
+      teamId,
+      stationId: 'golden-bell',
+    });
+    expect(past.kind).toBe('finished');
+    expect(past.state.alertCodes).not.toContain('wrong_station');
+
+    const entered = await repository.checkInStation({
+      eventId: EVENT,
+      teamId,
+      stationId: 'error-hunt',
+    });
+    expect(entered).toMatchObject({ kind: 'checked_in', roundNo: 2 });
+
+    await signInAs('station-hunt', 'teacher');
+    await repository.startStationRound(booth('error-hunt', 2));
+    await signInAsStudent(teamId);
+    const saved = await repository.saveSubmission({
+      eventId: EVENT,
+      missionId: 'error-hunt',
+      teamId,
+      answer: { type: 'error_hunt', foundRegionIds: [], wrongTaps: 0, remainingSeconds: 60 },
+      requestId: 'moved-on-1',
+    });
+    expect(saved).toMatchObject({ status: 'submitted', roundNo: 2 });
+
+    // 컴퓨터실에 1라운드에 오던 2팀은 건너뛴 미션을 제출할 수 없고 2라운드(미술실)로 넘어간다.
+    const skippedTeam = 'g4-c1-t2';
+    await signInAsStudent(skippedTeam);
+    expect(await repository.getTeamTourStatus(EVENT, skippedTeam)).toMatchObject({
+      roundNo: 2,
+      expectedMission: { id: 'drawing' },
+    });
+    const view = await repository.getTeamMissionView(EVENT, skippedTeam, 'error-hunt');
+    expect(view).toMatchObject({ roundStatus: 'closed', booth: { skipped: true } });
+    await expect(
+      repository.saveSubmission({
+        eventId: EVENT,
+        missionId: 'error-hunt',
+        teamId: skippedTeam,
+        answer: { type: 'error_hunt', foundRegionIds: [], wrongTaps: 0, remainingSeconds: 60 },
+        requestId: 'skipped-1',
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+
+    // 대시보드: 1팀은 2라운드(컴퓨터실)에 있고, 건너뛴 라운드는 활동 기록에 남는다.
+    await signInAsAdmin();
+    await vi.waitFor(async () => {
+      const dashboard = await repository.getOpsDashboard(EVENT, 4);
+      const moved = dashboard.classRows[0].cells.find((cell) => cell.team.id === teamId);
+      expect(moved).toMatchObject({ mission: { id: 'error-hunt' }, state: { roundNo: 2 } });
+      expect(dashboard.activity.some((item) => /라운드 건너뛰기/.test(item.message))).toBe(true);
+    });
   });
 
   it('같은 QR을 거의 동시에 두 번 찍어도 둘 다 성공으로 끝나고 기록은 하나다', async () => {

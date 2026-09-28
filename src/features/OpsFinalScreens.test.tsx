@@ -151,8 +151,11 @@ describe('부스 교사 화면', () => {
     await user.click(screen.getByRole('button', { name: '순위 확정' }));
     const rankDialog = await screen.findByRole('dialog', { name: /순위를 확정할까요/ });
     await user.click(within(rankDialog).getByRole('button', { name: '순위 확정' }));
-    expect(await screen.findByText(/순위를 확정했어요/)).toBeInTheDocument();
+    expect(await screen.findByText(/2라운드: 순위를 확정했어요/)).toBeInTheDocument();
     await waitFor(() => expect(currentStep()).toMatch(/라운드 종료/));
+    // 순위표 옆에서도 라운드를 종료해야 한다고 알려 준다.
+    expect(screen.getByText(/눌러야 팀이 다음 교실에 들어갈 수 있어요/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '2라운드 종료하러 가기' })).toBeInTheDocument();
 
     await user.click(panel().getByRole('button', { name: '2라운드 종료' }));
     const closeDialog = await screen.findByRole('dialog', { name: '2라운드를 종료할까요?' });
@@ -173,6 +176,46 @@ describe('부스 교사 화면', () => {
       'ready',
       'ready',
     ]);
+  });
+
+  it('라운드 건너뛰기는 한 번 더 묻고, 건너뛰면 다음 라운드로 넘어간다', async () => {
+    const user = userEvent.setup();
+    const repository = await repositoryAs('teacher');
+    renderApp(`/teacher/${EVENT}/station/library-check`, repository);
+
+    const panel = () => within(screen.getByRole('region', { name: /라운드 진행/ }));
+    expect(await screen.findByRole('heading', { name: /2라운드 진행/ })).toBeInTheDocument();
+    await user.click(panel().getByRole('button', { name: '2라운드 건너뛰기' }));
+    const dialog = within(await screen.findByRole('dialog', { name: '2라운드를 건너뛸까요?' }));
+    expect(dialog.getByText(/건너뛴 라운드는 다시 열 수 없어요/)).toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: '2라운드 건너뛰기' }));
+
+    expect(await screen.findByRole('heading', { name: /3라운드 진행/ })).toBeInTheDocument();
+    expect(screen.getByText(/2라운드: 라운드를 건너뛰었어요/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '2라운드 건너뜀' })).toBeInTheDocument();
+    expect(panel().getByRole('button', { name: '3라운드 열기' })).toBeEnabled();
+
+    // 건너뛴 라운드를 다시 보면 진행 버튼이 없다.
+    await user.click(screen.getByRole('button', { name: '2라운드 건너뜀' }));
+    expect(await panel().findByText('건너뜀')).toBeInTheDocument();
+    expect(panel().getByText(/2라운드를 건너뛰었어요/)).toBeInTheDocument();
+    expect(panel().queryByRole('button')).toBeNull();
+    expect(screen.queryByRole('list', { name: '라운드 진행 순서' })).toBeNull();
+  });
+
+  it('순위를 확정한 라운드에는 건너뛰기 버튼이 없다', async () => {
+    const user = userEvent.setup();
+    renderApp(`/teacher/${EVENT}/station/golden-bell`, await repositoryAs('teacher'));
+    const panel = () => within(screen.getByRole('region', { name: /라운드 진행/ }));
+    expect(await screen.findByRole('heading', { name: /2라운드 진행/ })).toBeInTheDocument();
+    expect(panel().getByRole('button', { name: '2라운드 건너뛰기' })).toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: '순위 확정' }));
+    const dialog = await screen.findByRole('dialog', { name: /순위를 확정할까요/ });
+    await user.click(within(dialog).getByRole('button', { name: '순위 확정' }));
+    await waitFor(() => expect(currentStep()).toMatch(/라운드 종료/));
+    expect(panel().queryByRole('button', { name: '2라운드 건너뛰기' })).toBeNull();
+    expect(panel().getByRole('button', { name: '2라운드 종료' })).toBeEnabled();
   });
 
   it('교사는 담당을 나누지 않고 어느 부스든 운영한다', async () => {

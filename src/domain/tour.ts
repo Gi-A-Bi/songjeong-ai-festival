@@ -207,6 +207,7 @@ export function presentMissionRound(
     endsAt: getBoothEndsAt(booth),
     completedAt: booth?.completedAt ?? null,
     resultFinalizedAt: booth?.resultFinalizedAt ?? null,
+    skipped: booth?.skipped ?? false,
     updatedBy,
   };
 }
