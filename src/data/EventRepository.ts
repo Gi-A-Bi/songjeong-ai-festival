@@ -32,6 +32,7 @@ import type {
   TeacherRole,
   TeamMissionState,
 } from '../domain/types';
+import type { RehearsalSummary } from '../domain/rehearsal';
 
 export type DataMode = 'mock' | 'firebase';
 
@@ -444,6 +445,11 @@ export interface FinalQuestionSetSummary {
   replaceBlocker: string | null;
 }
 
+export interface ResetRehearsalInput {
+  eventId: string;
+  grade: Grade;
+}
+
 export interface UploadFinalQuestionSetsInput {
   eventId: string;
   /** 학년별 문제 묶음(정답 포함). 총괄 운영자 기기에서만 만든다. */
@@ -659,6 +665,16 @@ export interface EventRepository {
    * 이미 연 학년이나 시작한 반이 있는 학년은 거부하며, 한 학년이라도 막히면 아무것도 바꾸지 않는다.
    */
   uploadFinalQuestionSets(input: UploadFinalQuestionSetsInput): Promise<FinalQuestionSetSummary[]>;
+
+  // 연습 기록(총괄 운영자만)
+  /** 한 학년에 남아 있는 연습·진행 기록의 수 */
+  getRehearsalSummary(eventId: string, grade: Grade): Promise<RehearsalSummary>;
+  /**
+   * 한 학년의 제출·그림·순위·카드 보상·입장 기록·부스 라운드·정답 공개 상태·최종 미션 진행 기록을
+   * 지우고 팀에 묶인 기기를 푼다. 행사 구조, 미션 문제, 최종 미션 문제와 정답, 교사 계정은 남긴다.
+   * 지운 뒤의 기록 수를 돌려준다.
+   */
+  resetRehearsal(input: ResetRehearsalInput): Promise<RehearsalSummary>;
 
   // 교사 인증
   getCurrentTeacher(): TeacherProfile | null;

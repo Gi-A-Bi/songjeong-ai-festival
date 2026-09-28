@@ -204,6 +204,7 @@
 - Firebase 컬렉션이나 필드가 바뀌면 데이터 모델 문서를 함께 수정한다.
 - 새 환경 변수를 추가하면 .env.example에 빈 값과 설명을 추가한다.
 - 리허설에서 발견한 운영 문제는 docs/REHEARSAL.md에 기록한다.
+- 새 컬렉션을 만들면 “연습 기록 지우기”(`firestoreRehearsal.ts`, mock의 `resetRehearsal`)가 그 기록도 지우게 한다.
 
 ## 문항 콘텐츠
 

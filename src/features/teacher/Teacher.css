@@ -963,3 +963,9 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* 행사 설정: 연습 기록 지우기 */
+.reset-counts dd {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-heavy);
+}

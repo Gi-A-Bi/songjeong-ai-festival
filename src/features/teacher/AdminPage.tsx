@@ -11,6 +11,7 @@ import { useRepository } from '../../data/RepositoryContext';
 import { useAction } from '../../hooks/useAction';
 import { FinalQuestionUploadPanel } from './FinalQuestionUploadPanel';
 import { GameDurationPanel } from './GameDurationPanel';
+import { RehearsalResetPanel } from './RehearsalResetPanel';
 import { TeacherRegistrationPanel } from './TeacherRegistrationPanel';
 import { EVENT_STATUS_BADGES, useTeacherContext } from './teacherContext';
 
@@ -111,6 +112,8 @@ export function AdminPage() {
       </section>
 
       <TeacherRegistrationPanel currentUid={teacher.uid} />
+
+      <RehearsalResetPanel eventId={eventId} event={event} />
 
       <ConfirmDialog
         open={confirmOpen}
