@@ -6,6 +6,7 @@ import { getFirebase } from '../src/data/firebase/firebaseApp';
 import { isRepositoryError } from '../src/data/errors';
 import type { ClassFinalView } from '../src/data/EventRepository';
 import { parseFinalQuestionUpload } from '../src/domain/finalQuestionUpload';
+import { countRehearsalRecords } from '../src/domain/rehearsal';
 import type { RoundNo, TeacherRole } from '../src/domain/types';
 import { buildUploadFile, FIXTURE_IMAGE } from '../src/test/finalUploadFixture';
 
@@ -1007,5 +1008,132 @@ describe('예전 역할로 등록된 교사 (에뮬레이터)', () => {
     await expect(repository.setGameDuration(EVENT, 8)).rejects.toSatisfy((error) =>
       isRepositoryError(error, 'not-allowed'),
     );
+  });
+});
+
+describe('연습 기록 지우기 (에뮬레이터)', () => {
+  it('총괄이 한 학년의 기록을 지우면 처음 상태가 되고, 다른 학년과 행사 구조는 남는다', async () => {
+    await prepareTour();
+    await repository.setGameDuration(EVENT, 8);
+    await startGame('golden-bell');
+
+    // 4학년 1반 1팀이 입장하고 제출한다.
+    const teamId = 'g4-c1-t1';
+    await signInAsStudent(teamId);
+    await repository.checkInStation({ eventId: EVENT, teamId, stationId: 'golden-bell' });
+    await repository.saveSubmission({
+      eventId: EVENT,
+      missionId: 'golden-bell',
+      teamId,
+      answer: { type: 'golden_bell', selections: { q1: 1 } },
+      requestId: 'rehearsal-1',
+    });
+
+    await signInAsAdmin();
+    await repository.setAnswerRevealed(EVENT, 'golden-bell', 4, 1, true);
+    const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 1);
+    await repository.finalizeRanking({
+      ...booth('golden-bell'),
+      requestId: 'rehearsal-finalize',
+      entries: participants.map((participant, index) => ({
+        teamId: participant.team.id,
+        score: 100,
+        rank: index + 1,
+      })),
+    });
+    await repository.openFinal({ eventId: EVENT, grade: 4, force: true, reason: '연습' });
+    await repository.setFinalDuration(EVENT, 3, 600);
+    // 다른 학년(3학년)의 기록
+    await seedCompletedCard('g3-c1', 3);
+
+    const before = await repository.getRehearsalSummary(EVENT, 4);
+    expect(before.counts).toEqual({
+      submissions: 1,
+      results: 5,
+      cardAwards: 5,
+      checkIns: 1,
+      boothRounds: 1,
+      finalClasses: 0,
+      devices: 1,
+    });
+    expect(before.finalOpened).toBe(true);
+    expect(await repository.listClassDevices(EVENT, 'g4-c1')).toHaveLength(1);
+
+    // 교사는 기록을 보거나 지울 수 없다.
+    await signInAs('station-bell', 'teacher');
+    await expect(repository.getRehearsalSummary(EVENT, 4)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    await expect(repository.resetRehearsal({ eventId: EVENT, grade: 4 })).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed'),
+    );
+
+    await signInAsAdmin();
+    const after = await repository.resetRehearsal({ eventId: EVENT, grade: 4 });
+    expect(countRehearsalRecords(after.counts)).toBe(0);
+    expect(after.finalOpened).toBe(false);
+
+    // 다른 학년의 기록과 설정은 그대로다.
+    const other = await repository.getRehearsalSummary(EVENT, 3);
+    expect(other.counts.cardAwards).toBe(4);
+    expect((await repository.getFinalBoard(EVENT, 3)).session.durationLimitSec).toBe(600);
+
+    // 행사 구조, 미션 문제, 진행 학년, 게임 시간은 남는다.
+    expect(await repository.listClasses(EVENT, 4)).toHaveLength(5);
+    expect(await repository.listTeams(EVENT, 4)).toHaveLength(25);
+    expect((await repository.listMissions(EVENT)).length).toBe(5);
+    expect(await repository.getEvent(EVENT)).toMatchObject({
+      activeGrade: 4,
+      gameDurationMs: 8 * 60_000,
+    });
+    expect(
+      (await repository.listFinalQuestionSets(EVENT)).every((item) => item.questionCount === 10),
+    ).toBe(true);
+
+    // 부스는 1라운드를 열기 전으로, 최종 미션은 열기 전으로 돌아간다.
+    await vi.waitFor(async () => {
+      const rounds = await repository.getStationRounds(EVENT, 'golden-bell', 4);
+      expect(rounds.map((round) => round.status)).toEqual([
+        'ready',
+        'ready',
+        'ready',
+        'ready',
+        'ready',
+      ]);
+    });
+    expect(await repository.isAnswerRevealed(EVENT, 'golden-bell', 4, 1)).toBe(false);
+    expect((await repository.getFinalBoard(EVENT, 4)).session.status).toBe('locked');
+    expect(await repository.listClassDevices(EVENT, 'g4-c1')).toHaveLength(0);
+    await vi.waitFor(async () => {
+      const dashboard = await repository.getOpsDashboard(EVENT, 4);
+      expect(dashboard.summary).toMatchObject({
+        roundNo: 0,
+        phase: 'ready',
+        checkedInTeams: 0,
+        completedTeams: 0,
+      });
+    });
+
+    // 지운 뒤에 다시 1라운드부터 진행하고 제출할 수 있다.
+    await expect(startGame('golden-bell')).resolves.toMatchObject({ status: 'active' });
+    await signInAsStudent(teamId);
+    const tour = await repository.getTeamTourStatus(EVENT, teamId);
+    expect(tour).toMatchObject({ roundNo: 1, state: { checkedInAt: null } });
+    const again = await repository.saveSubmission({
+      eventId: EVENT,
+      missionId: 'golden-bell',
+      teamId,
+      answer: { type: 'golden_bell', selections: { q1: 1 } },
+      requestId: 'event-day-1',
+    });
+    expect(again.status).toBe('submitted');
+  });
+
+  it('기록이 없는 학년을 지워도 오류가 나지 않는다', async () => {
+    await signInAsAdmin();
+    await repository.setupEvent(EVENT);
+    const summary = await repository.resetRehearsal({ eventId: EVENT, grade: 6 });
+    expect(countRehearsalRecords(summary.counts)).toBe(0);
+    expect(summary.finalOpened).toBe(false);
   });
 });

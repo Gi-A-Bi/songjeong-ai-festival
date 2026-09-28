@@ -47,6 +47,7 @@ import { DEFAULT_GAME_DURATION_MS } from '../../config';
 import { toRoundStatus } from '../../domain/boothRound';
 import { getGameDurationError } from '../../domain/gameDuration';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
+import type { RehearsalSummary } from '../../domain/rehearsal';
 import { getRankingEntryError } from '../../domain/rewards';
 import { missionRoundStateId, presentMissionRound, teamMissionStateId } from '../../domain/tour';
 import { getRoundForMission, getTeamNoForMission } from '../../domain/rotation';
@@ -96,6 +97,7 @@ import type {
   OpenFinalInput,
   OpsDashboard,
   ReopenSubmissionInput,
+  ResetRehearsalInput,
   ReviseRankingOutcome,
   SaveSubmissionInput,
   SaveTeacherInvitesInput,
@@ -119,6 +121,7 @@ import { buildSampleEvent } from '../mock/seed';
 import { getFirebase } from './firebaseApp';
 import type { FirestoreStoreContext } from './firestoreContext';
 import { FirestoreFinalStore } from './firestoreFinal';
+import { FirestoreRehearsalStore } from './firestoreRehearsal';
 import { FirestoreStationStore } from './firestoreStation';
 import {
   claimTeacherInvite,
@@ -206,6 +209,7 @@ export class FirestoreEventRepository implements EventRepository {
   private readonly tour: FirestoreTourStore;
   private readonly final: FirestoreFinalStore;
   private readonly station: FirestoreStationStore;
+  private readonly rehearsal: FirestoreRehearsalStore;
   private readonly staticCache = new Map<string, Cached<unknown>>();
   /** 구독 중인 행사 상태. 대시보드·체크인이 행사 문서를 다시 읽지 않게 한다. */
   private readonly liveEvents = new Map<string, { count: number; event: FestivalEvent | null }>();
@@ -218,6 +222,7 @@ export class FirestoreEventRepository implements EventRepository {
     this.tour = new FirestoreTourStore(context);
     this.final = new FirestoreFinalStore(context);
     this.station = new FirestoreStationStore(context);
+    this.rehearsal = new FirestoreRehearsalStore(context);
   }
 
   /** 서버 기준 현재 시각 추정값. 기기 시계가 틀려도 타이머와 마감 판정이 서버 시각을 따른다. */
@@ -386,6 +391,20 @@ export class FirestoreEventRepository implements EventRepository {
     this.final.stopAll();
     this.station.stopAll();
     await signOut(getFirebase().auth);
+  }
+
+  // ---- 연습 기록 지우기 ----
+
+  async getRehearsalSummary(eventId: string, grade: Grade): Promise<RehearsalSummary> {
+    return run(() => this.rehearsal.summary(eventId, grade));
+  }
+
+  async resetRehearsal(input: ResetRehearsalInput): Promise<RehearsalSummary> {
+    return run(async () => {
+      await this.rehearsal.reset(input.eventId, input.grade);
+      this.final.forget(input.eventId, input.grade);
+      return this.rehearsal.summary(input.eventId, input.grade);
+    });
   }
 
   // ---- 교사 등록 ----

@@ -13,11 +13,13 @@ import { getGoldenBellConfigError } from '../../domain/goldenBell';
 import { toRoundStatus, type BoothAction } from '../../domain/boothRound';
 import { getGameDurationError } from '../../domain/gameDuration';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
+import type { RehearsalSummary } from '../../domain/rehearsal';
 import { getRankingEntryError } from '../../domain/rewards';
 import { getRoundForMission, getTeamNoForMission } from '../../domain/rotation';
 import { resolveSubmissionScore } from '../../domain/scoring';
 import { CARD_INFO } from '../../domain/catalog';
 import {
+  emptyFinalSession,
   getFinalStartBlocker,
   getHintTotal,
   presentFinalClassStatus,
@@ -71,6 +73,7 @@ import type {
   OpenFinalInput,
   OpsDashboard,
   ReopenSubmissionInput,
+  ResetRehearsalInput,
   ReviseRankingOutcome,
   SaveSubmissionInput,
   SaveTeacherInvitesInput,
@@ -1109,6 +1112,94 @@ export class MockEventRepository implements EventRepository, DevTools {
     await this.request();
     this.assertEvent(input.eventId);
     return clone(this.final.upload(input.sets));
+  }
+
+  // ---- 연습 기록 지우기 ----
+
+  private teamIdsOf(grade: Grade): Set<string> {
+    return new Set(this.state.teams.filter((team) => team.grade === grade).map((team) => team.id));
+  }
+
+  private rehearsalSummary(grade: Grade): RehearsalSummary {
+    const state = this.state;
+    const teamIds = this.teamIdsOf(grade);
+    const ofGrade = (item: { grade: Grade }) => item.grade === grade;
+    const session = state.finalSessions[grade];
+    return {
+      grade,
+      counts: {
+        submissions: Object.values(state.submissions).filter(ofGrade).length,
+        results: state.results.filter(ofGrade).length,
+        cardAwards: state.cardAwards.filter(ofGrade).length,
+        checkIns: Object.values(state.teamMissionRecords).filter(ofGrade).length,
+        boothRounds: Object.values(state.missionRoundStates).filter(ofGrade).length,
+        finalClasses: Object.values(state.finalClassStates).filter(
+          (item) => item.grade === grade && item.startedAt !== null,
+        ).length,
+        devices: Object.values(state.devices).filter((device) => teamIds.has(device.teamId)).length,
+      },
+      finalOpened: session !== undefined && session.status !== 'locked',
+    };
+  }
+
+  async getRehearsalSummary(eventId: string, grade: Grade): Promise<RehearsalSummary> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireAdmin();
+    return clone(this.rehearsalSummary(grade));
+  }
+
+  async resetRehearsal(input: ResetRehearsalInput): Promise<RehearsalSummary> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    this.requireAdmin();
+    const { grade } = input;
+    const state = this.state;
+    const teamIds = this.teamIdsOf(grade);
+    const classIds = new Set(this.classesOf(grade).map((classInfo) => classInfo.id));
+    const gradeKey = `__g${grade}__`;
+    /** remove가 고른 항목을 뺀 나머지 */
+    const without = <T>(
+      record: Record<string, T>,
+      remove: (item: T, key: string) => boolean,
+    ): Record<string, T> =>
+      Object.fromEntries(Object.entries(record).filter(([key, item]) => !remove(item, key)));
+    const ofGrade = (item: { grade: Grade }) => item.grade === grade;
+
+    state.submissions = without(state.submissions, ofGrade);
+    state.drawings = without(state.drawings, (_file, teamId) => teamIds.has(teamId));
+    state.results = state.results.filter((item) => !ofGrade(item));
+    state.cardAwards = state.cardAwards.filter((item) => !ofGrade(item));
+    state.cardProgressCache = without(state.cardProgressCache, (_progress, classId) =>
+      classIds.has(classId),
+    );
+    state.teamMissionRecords = without(state.teamMissionRecords, ofGrade);
+    state.missionRoundStates = without(state.missionRoundStates, ofGrade);
+    state.missionStates = without(state.missionStates, (_state, key) => key.includes(gradeKey));
+    state.activityEvents = without(state.activityEvents, ofGrade);
+    state.finalClassStates = without(state.finalClassStates, ofGrade);
+    state.finalResponses = without(state.finalResponses, ofGrade);
+    state.devices = without(state.devices, (device) => teamIds.has(device.teamId));
+    if (state.deviceTeamId !== null && teamIds.has(state.deviceTeamId)) state.deviceTeamId = null;
+    // 최종 미션은 총괄이 정한 제한 시간을 남기고 열기 전으로 되돌린다.
+    const session = state.finalSessions[grade];
+    if (session) {
+      state.finalSessions[grade] = {
+        ...emptyFinalSession(grade),
+        durationLimitSec: session.durationLimitSec,
+      };
+    }
+
+    this.notifyEvent();
+    for (const key of this.missionStateListeners.keys()) {
+      if (key.includes(gradeKey)) this.notifyMissionState(key);
+    }
+    for (const key of this.stationListeners.keys()) {
+      if (key.includes(gradeKey)) this.notifyStation(key);
+    }
+    this.notifyOps(grade);
+    this.notifyFinal(grade);
+    return clone(this.rehearsalSummary(grade));
   }
 
   // ---- 교사 인증(목업) ----

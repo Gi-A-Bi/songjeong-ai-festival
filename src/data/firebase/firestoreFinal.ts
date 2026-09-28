@@ -248,6 +248,12 @@ export class FirestoreFinalStore {
     };
   }
 
+  /** 학년의 기록을 지운 뒤, 기억해 둔 점검 결과와 채점 결과를 버린다. */
+  forget(eventId: string, grade: Grade): void {
+    this.checklists.delete(`${eventId}|${grade}`);
+    this.scores.clear();
+  }
+
   stopAll(): void {
     for (const live of [...this.gradeLives.values()]) live.stop();
     for (const live of [...this.classLives]) live.stop();
