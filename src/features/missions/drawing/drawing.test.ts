@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compressDrawing, type EncodeDrawing } from './drawing';
+import { compressDrawing, fitPhotoSize, nextPhotoRotation, type EncodeDrawing } from './drawing';
 
 const KB = 1024;
 
@@ -20,6 +20,24 @@ function fakeEncoder(sizes: (number | null)[]) {
 }
 
 const canvas = {} as HTMLCanvasElement;
+
+describe('그림 사진 크기', () => {
+  it('긴 변이 1280px을 넘으면 비율을 지켜 줄인다', () => {
+    expect(fitPhotoSize(1920, 1080)).toEqual({ width: 1280, height: 720 });
+    expect(fitPhotoSize(3000, 4000)).toEqual({ width: 960, height: 1280 });
+  });
+
+  it('작은 사진은 키우지 않는다', () => {
+    expect(fitPhotoSize(640, 480)).toEqual({ width: 640, height: 480 });
+    expect(fitPhotoSize(0, 0)).toEqual({ width: 0, height: 0 });
+  });
+
+  it('돌리기는 90도씩 돌아 네 번이면 처음으로 온다', () => {
+    expect(nextPhotoRotation(0)).toBe(90);
+    expect(nextPhotoRotation(90)).toBe(180);
+    expect(nextPhotoRotation(270)).toBe(0);
+  });
+});
 
 describe('그림 압축', () => {
   it('처음 품질 0.65로 300KB 이하면 그대로 쓴다', async () => {

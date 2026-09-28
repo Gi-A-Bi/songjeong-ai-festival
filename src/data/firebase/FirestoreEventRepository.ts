@@ -41,6 +41,7 @@ import {
   presentFinalClassStatus,
   redactFinalClassState,
 } from '../../domain/finalMission';
+import { getDrawingConfigError } from '../../domain/drawingPrompts';
 import { getGoldenBellConfigError } from '../../domain/goldenBell';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
 import { getRankingEntryError } from '../../domain/rewards';
@@ -747,6 +748,10 @@ export class FirestoreEventRepository implements EventRepository {
       }
       if (config.type === 'golden_bell') {
         const error = getGoldenBellConfigError(config.questions);
+        if (error) throw new RepositoryError('invalid-input', error);
+      }
+      if (config.type === 'drawing') {
+        const error = getDrawingConfigError(config);
         if (error) throw new RepositoryError('invalid-input', error);
       }
       await updateDoc(doc(this.sub(eventId, 'missions'), missionId), { config });

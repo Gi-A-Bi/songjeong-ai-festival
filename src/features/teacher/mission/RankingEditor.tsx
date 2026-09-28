@@ -9,6 +9,11 @@ import { toUserMessage } from '../../../data/errors';
 import { useRepository } from '../../../data/RepositoryContext';
 import { CARD_INFO } from '../../../domain/catalog';
 import {
+  DRAWING_MAX_SCORE,
+  sumDrawingRubric,
+  type DrawingRubricScores,
+} from '../../../domain/drawingPrompts';
+import {
   getSelectionModeForRank,
   rankByScore,
   SELECTION_MODE_LABELS,
@@ -18,6 +23,7 @@ import { useAction } from '../../../hooks/useAction';
 import { createRequestId } from '../../../lib/random';
 import { formatTimeOfDay } from '../../../lib/time';
 import { AnswerSummary } from './answerSummary';
+import { DrawingRubricInput } from './DrawingRubricInput';
 import {
   initialDrafts,
   mergeDrafts,
@@ -67,6 +73,8 @@ export function RankingEditor({
     setSeenParticipants(participants);
     setDrafts((previous) => mergeDrafts(previous, participants, edits));
   }
+  /** 그리기 심사의 영역별 점수. 합계만 저장하고 영역별 값은 이 화면에서만 쓴다. */
+  const [rubrics, setRubrics] = useState<Record<string, DrawingRubricScores>>({});
   const [requestId] = useState(createRequestId);
   const [editing, setEditing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -113,10 +121,20 @@ export function RankingEditor({
   }
 
   const editable = !finalized || editing;
-  const scoreInvalid = participants.some((participant) => {
-    const value = Number(drafts[participant.team.id].score);
-    return drafts[participant.team.id].score.trim() === '' || !Number.isFinite(value) || value < 0;
-  });
+  /** 그리기는 10점 만점 심사라 그보다 큰 점수는 잘못 입력한 것으로 본다. */
+  const maxScore = mission.type === 'drawing' ? DRAWING_MAX_SCORE : null;
+  const isScoreInvalid = (text: string) => {
+    const value = Number(text);
+    return (
+      text.trim() === '' ||
+      !Number.isFinite(value) ||
+      value < 0 ||
+      (maxScore !== null && value > maxScore)
+    );
+  };
+  const scoreInvalid = participants.some((participant) =>
+    isScoreInvalid(drafts[participant.team.id].score),
+  );
 
   const rows = [...participants].sort(
     (a, b) => drafts[a.team.id].rank - drafts[b.team.id].rank || a.team.classNo - b.team.classNo,
@@ -226,7 +244,9 @@ export function RankingEditor({
       ) : null}
       {mission.type === 'drawing' && editable ? (
         <InlineAlert tone="info">
-          위의 AI 평가 결과는 참고만 하고, 점수와 순위는 선생님이 정해 주세요.
+          AI 답변 맨 위의 팀별 점수표를 보고 팀마다 영역별 점수를 골라 주세요. 합계가 점수(
+          {DRAWING_MAX_SCORE}점 만점) 칸에 들어가요. AI 결과는 참고만 하고 점수와 순위는 선생님이
+          정해요. 점수가 같은 팀은 화살표로 순위를 정해 주세요.
         </InlineAlert>
       ) : null}
 
@@ -308,6 +328,16 @@ export function RankingEditor({
                   </td>
                   <td className="answer-summary">
                     <AnswerSummary mission={mission} submission={submission} />
+                    {mission.type === 'drawing' && editable && submitted ? (
+                      <DrawingRubricInput
+                        teamName={team.displayName}
+                        scores={rubrics[team.id] ?? {}}
+                        onChange={(scores) => {
+                          setRubrics((previous) => ({ ...previous, [team.id]: scores }));
+                          updateDraft(team.id, { score: String(sumDrawingRubric(scores)) });
+                        }}
+                      />
+                    ) : null}
                   </td>
                   <td className="data-table__num">
                     {editable ? (
@@ -315,12 +345,7 @@ export function RankingEditor({
                         className="table-input number"
                         inputMode="numeric"
                         aria-label={`${team.displayName} 점수`}
-                        aria-invalid={
-                          draft.score.trim() === '' ||
-                          Number(draft.score) < 0 ||
-                          Number.isNaN(Number(draft.score)) ||
-                          undefined
-                        }
+                        aria-invalid={isScoreInvalid(draft.score) || undefined}
                         value={draft.score}
                         onChange={(change) => updateDraft(team.id, { score: change.target.value })}
                       />
@@ -373,7 +398,11 @@ export function RankingEditor({
       </div>
 
       {editable && scoreInvalid ? (
-        <InlineAlert tone="danger">점수는 0 이상의 숫자로 입력해 주세요.</InlineAlert>
+        <InlineAlert tone="danger">
+          {maxScore === null
+            ? '점수는 0 이상의 숫자로 입력해 주세요.'
+            : `점수는 0~${maxScore}점으로 입력해 주세요.`}
+        </InlineAlert>
       ) : null}
       {actionError ? <InlineAlert tone="danger">{toUserMessage(actionError)}</InlineAlert> : null}
 

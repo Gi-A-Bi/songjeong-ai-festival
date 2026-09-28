@@ -351,7 +351,7 @@ describe('그림 제출', () => {
     return {
       teamId: 't1',
       missionId: 'drawing',
-      promptId: 'draw-sample-1',
+      promptId: 'starry-night',
       mimeType: 'image/webp',
       byteSize,
       width: 960,

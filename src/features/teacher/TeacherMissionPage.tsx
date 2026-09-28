@@ -15,6 +15,7 @@ import { useAsyncData } from '../../hooks/useAsyncData';
 import { useOpsLive } from '../../hooks/useFinalLive';
 import { useStationLive } from '../../hooks/useStationLive';
 import { DrawingGallery } from './mission/DrawingGallery';
+import { DrawingPromptPicker } from './mission/DrawingPromptPicker';
 import { GoldenBellQuestionEditor } from './mission/GoldenBellQuestionEditor';
 import { RankingEditor } from './mission/RankingEditor';
 import { StationArrivalsPanel } from './mission/StationArrivalsPanel';
@@ -177,12 +178,40 @@ export function TeacherMissionPage() {
           </button>
         </div>
       ) : null}
+      {config.type === 'drawing' ? (
+        <div className="segmented" role="group" aria-label="그리기 화면 선택">
+          <button
+            type="button"
+            className="segmented__button"
+            aria-pressed={tab === 'operate'}
+            onClick={() => setTab('operate')}
+          >
+            <Icon name="leaderboard" /> 운영·채점
+          </button>
+          <button
+            type="button"
+            className="segmented__button"
+            aria-pressed={tab === 'questions'}
+            onClick={() => setTab('questions')}
+          >
+            <Icon name="museum" /> 프롬프트 고르기
+          </button>
+        </div>
+      ) : null}
 
       {config.type === 'golden_bell' && tab === 'questions' ? (
         <GoldenBellQuestionEditor
           eventId={eventId}
           mission={mission}
           config={config}
+          onSaved={refresh}
+        />
+      ) : config.type === 'drawing' && tab === 'questions' ? (
+        <DrawingPromptPicker
+          eventId={eventId}
+          mission={mission}
+          config={config}
+          event={event}
           onSaved={refresh}
         />
       ) : grade === null ? (
@@ -284,6 +313,7 @@ export function TeacherMissionPage() {
                   config={config}
                   grade={grade}
                   round={round}
+                  roundMinutes={Math.round(event.roundDurationMs / 60_000)}
                   participants={roundData.data.participants}
                 />
               ) : null}

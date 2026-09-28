@@ -1,5 +1,6 @@
 import { DEFAULT_EVENT_ID } from '../../config';
 import { CARD_TYPES, drawOfferedTypes } from '../../domain/cards';
+import { createDefaultDrawingConfig } from '../../domain/drawingPrompts';
 import { getSelectionModeForRank, OFFER_COUNT_BY_MODE } from '../../domain/rewards';
 import {
   emptyFinalClassState,
@@ -236,15 +237,10 @@ export function createSampleMissions(): Mission[] {
       title: 'AI 설명대로 그려라',
       room: '미술실',
       cardType: 'expression',
-      summary: '설명을 듣고 그림으로 표현해요',
+      summary: '명화 프롬프트를 읽고 그림으로 표현해요',
       teacherJudged: true,
       enabled: true,
-      config: {
-        type: 'drawing',
-        promptId: 'draw-sample-1',
-        prompt:
-          '초록 언덕 위에 빨간 지붕 집이 있어요. 집 왼쪽에는 큰 나무 한 그루가 있고, 하늘에는 해와 구름 두 개가 떠 있어요.',
-      },
+      config: createDefaultDrawingConfig(),
     },
     {
       id: 'ozobot',
@@ -286,6 +282,11 @@ export function createSampleMissions(): Mission[] {
   ];
 }
 
+/** 순위에 맞춘 샘플 점수. 그리기는 10점 만점 심사라 점수 폭이 작다. */
+function sampleScore(mission: Mission, rank: number, teamCount: number): number {
+  return (teamCount + 1 - rank) * (mission.type === 'drawing' ? 2 : 100);
+}
+
 function sampleAnswer(mission: Mission, variant: number): SubmissionAnswer {
   const config = mission.config;
   switch (config.type) {
@@ -313,11 +314,11 @@ function sampleAnswer(mission: Mission, variant: number): SubmissionAnswer {
     case 'drawing':
       return {
         type: 'drawing',
-        strokeCount: 12 + variant * 3,
+        promptId: config.prompts[0]?.id ?? null,
         mimeType: 'image/webp',
         byteSize: 0,
-        width: 960,
-        height: 540,
+        width: 1280,
+        height: 960,
       };
     case 'ozobot':
       return { type: 'ozobot', ready: true };
@@ -562,7 +563,7 @@ export function createSeedState(now: number): MockState {
       const round1: RoundNo = 1;
       const team1Id = toTeamId(DEMO_GRADE, classNo, getTeamNoForMission(mission.no, round1));
       const rank = ((classNo + mission.no) % classCount) + 1;
-      const score = (classCount + 1 - rank) * 100;
+      const score = sampleScore(mission, rank, classCount);
       const submittedAt = round1StartedAt + (2 + rank) * MINUTE;
       const id1 = submissionId(mission.id, team1Id);
       submissions[id1] = {
@@ -654,7 +655,7 @@ export function createSeedState(now: number): MockState {
           getTeamNoForMission(mission.no, roundNo),
         );
         const rank = ((classNo + mission.no + roundNo) % finalClassCount) + 1;
-        const score = (finalClassCount + 1 - rank) * 100;
+        const score = sampleScore(mission, rank, finalClassCount);
         const id = submissionId(mission.id, teamId);
         submissions[id] = {
           id,
