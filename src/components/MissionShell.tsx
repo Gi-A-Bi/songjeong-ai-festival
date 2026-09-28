@@ -22,7 +22,10 @@ interface MissionShellProps {
   children: ReactNode;
 }
 
-/** 다섯 미션이 함께 쓰는 틀: 미션 정보, 팀·라운드, 상태, 타이머, 행동 버튼 */
+/**
+ * 다섯 미션이 함께 쓰는 틀: 미션 정보, 라운드, 상태, 타이머, 행동 버튼.
+ * 문제와 보기가 한 화면에 들어오도록 미션 정보와 남은 시간을 한 줄에 둔다. 팀 이름은 머리줄에 있다.
+ */
 export function MissionShell({
   mission,
   team,
@@ -53,12 +56,12 @@ export function MissionShell({
         <div className="mission-shell__heading">
           <p className="mission-shell__eyebrow">
             <Icon name={typeInfo.icon} />
-            미션 {mission.no} · {mission.room}
+            {roundNo}라운드 · 미션 {mission.no} · {mission.room}
           </p>
-          <h1 id="mission-title" className="mission-shell__title">
-            {mission.title}
-          </h1>
-          <div className="cluster">
+          <div className="mission-shell__titleline">
+            <h1 id="mission-title" className="mission-shell__title">
+              {mission.title}
+            </h1>
             <MissionPhaseBadge phase={phase} />
             {mission.teacherJudged ? (
               <StatusBadge tone="accent" icon="school">
@@ -72,15 +75,13 @@ export function MissionShell({
             ) : null}
           </div>
         </div>
-        <div className="mission-shell__meta">
-          <p className="mission-shell__team">
-            <Icon name="groups" />
-            {team.displayName} · {roundNo}라운드
-          </p>
+        <div className="mission-shell__timer">
           <Timer
             status={playing ? 'active' : 'ready'}
             endsAt={playing ? event.roundEndsAt : null}
-            size="lg"
+            variant="bar"
+            totalMs={event.gameDurationMs}
+            audible={playing}
           />
         </div>
       </section>

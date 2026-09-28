@@ -66,7 +66,12 @@ export function CardBoardPage() {
                 고를 카드 보상 <strong className="number">{pending}개</strong>가 기다려요!
               </span>
             </p>
-            <ButtonLink to={paths.reward(eventId, team.id)} size="xl" icon="playing_cards">
+            <ButtonLink
+              to={paths.reward(eventId, team.id)}
+              variant="gold"
+              size="xl"
+              icon="playing_cards"
+            >
               카드 보상 고르기
             </ButtonLink>
           </section>
@@ -106,7 +111,6 @@ export function CardBoardPage() {
             ))}
           </ul>
         </section>
-
       </main>
     </>
   );

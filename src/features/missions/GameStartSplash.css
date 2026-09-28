@@ -1,0 +1,59 @@
+/* 화면 가운데에 잠깐 떴다가 사라진다. 아래 화면을 누르는 것은 막지 않는다. */
+.start-splash {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at center, var(--stage-panel-strong), transparent 70%);
+  pointer-events: none;
+  animation: start-splash-fade 1.6s var(--ease-out) both;
+}
+
+.start-splash__text {
+  color: var(--gold-400);
+  font-size: clamp(3.5rem, 12vw, 9rem);
+  font-weight: var(--font-weight-heavy);
+  line-height: 1;
+  text-shadow:
+    0 0 48px var(--glow-gold),
+    0 6px 0 var(--stage-drop);
+  animation: start-splash-pop 1.6s var(--ease-bounce) both;
+}
+
+@keyframes start-splash-fade {
+  0% {
+    opacity: 0;
+  }
+
+  12%,
+  75% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes start-splash-pop {
+  0% {
+    transform: scale(0.4) rotate(-6deg);
+  }
+
+  25% {
+    transform: scale(1.12) rotate(2deg);
+  }
+
+  40%,
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .start-splash,
+  .start-splash__text {
+    animation: none;
+  }
+}

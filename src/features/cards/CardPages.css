@@ -141,30 +141,136 @@
   font-weight: var(--font-weight-bold);
 }
 
-/* 받은 결과 */
+/* 받은 결과: 조명 아래에서 카드가 빛나고 색종이가 떨어진다. */
 .reward-result {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(160px, 240px) minmax(0, 1fr);
+  grid-template-columns: minmax(200px, 5fr) minmax(0, 6fr);
   align-items: center;
-  gap: var(--space-6);
+  gap: var(--space-8);
+  min-height: min(560px, calc(100dvh - 240px));
+  padding: var(--space-8) var(--space-10);
+  overflow: hidden;
   border: 3px solid var(--gold-400);
+  border-radius: var(--radius-xl);
+  background: var(--color-stage);
+  box-shadow:
+    0 0 0 6px var(--glow-gold-soft),
+    var(--shadow-lg);
+  color: var(--white);
+}
+
+.reward-result__spot {
+  position: absolute;
+  top: -30%;
+  left: 0;
+  width: 60%;
+  height: 160%;
+  background: radial-gradient(closest-side, var(--glow-gold-soft), transparent 72%);
 }
 
 .reward-result__art {
+  position: relative;
   display: flex;
   justify-content: center;
 }
 
+.reward-result__art .card-pieces {
+  border: 4px solid var(--gold-400);
+  box-shadow:
+    0 0 0 8px var(--glow-gold-soft),
+    0 0 72px var(--glow-gold),
+    var(--shadow-lg);
+  transform: rotate(-4deg);
+  animation: reward-card-in calc(var(--duration-slow) * 2) var(--ease-bounce) both;
+}
+
+.reward-result__body {
+  position: relative;
+}
+
 .reward-result__kicker {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  align-self: flex-start;
   gap: var(--space-2);
-  color: var(--accent-golden-bell-ink);
+  padding: var(--space-1) var(--space-4);
+  border: 2px solid var(--gold-400);
+  border-radius: var(--radius-pill);
+  background: var(--glow-gold-soft);
+  color: var(--gold-100);
   font-weight: var(--font-weight-heavy);
 }
 
 .reward-result__title {
-  font-size: var(--font-size-2xl);
+  font-size: clamp(var(--font-size-2xl), 4.2vw, 3.75rem);
+  line-height: 1.15;
+  animation: reward-title-in var(--duration-slow) var(--ease-bounce) 0.2s both;
+}
+
+.reward-result--complete .reward-result__title {
+  color: var(--gold-400);
+  text-shadow: 0 0 32px var(--glow-gold);
+}
+
+.reward-meter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-heavy);
+  white-space: nowrap;
+}
+
+.reward-meter__track {
+  flex: 0 1 280px;
+  min-width: 80px;
+  height: 16px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--stage-fill);
+}
+
+.reward-meter__fill {
+  display: block;
+  width: calc(var(--meter-to) * 100%);
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--gold-400), var(--orange-500));
+  animation: reward-meter-grow 1.2s var(--ease-out) 0.5s both;
+}
+
+.reward-meter__after {
+  color: var(--gold-400);
+}
+
+.reward-result__mascot {
+  position: absolute;
+  right: var(--space-5);
+  bottom: var(--space-4);
+  width: clamp(88px, 11vw, 150px);
+  height: auto;
+  animation: cheer-pop calc(var(--duration-slow) * 2) var(--ease-bounce) 0.4s both;
+}
+
+@keyframes reward-card-in {
+  from {
+    opacity: 0;
+    transform: rotate(-16deg) scale(0.6);
+  }
+}
+
+@keyframes reward-title-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.9);
+  }
+}
+
+@keyframes reward-meter-grow {
+  from {
+    width: calc(var(--meter-from) * 100%);
+  }
 }
 
 .reward-result__master {
@@ -330,7 +436,20 @@
   .reward-result {
     grid-template-columns: minmax(0, 1fr);
     justify-items: center;
+    padding: var(--space-6) var(--space-4);
     text-align: center;
+  }
+
+  .reward-result__kicker {
+    align-self: center;
+  }
+
+  .reward-meter {
+    justify-content: center;
+  }
+
+  .reward-result__mascot {
+    display: none;
   }
 
   .hint-banner {

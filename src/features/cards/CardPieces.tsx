@@ -11,7 +11,7 @@ interface CardPiecesProps {
   pieces: CardPieceCount;
   /** 방금 열린 조각 번호(1~4). 그 조각만 공개 효과를 보여 준다. */
   revealing?: number | null;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
 /**

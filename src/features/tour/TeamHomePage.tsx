@@ -23,7 +23,9 @@ import type {
 } from '../../domain/types';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { useMissionLiveState } from '../../hooks/useMissionLiveState';
+import { ClassProgressStrip } from '../cards/ClassProgressStrip';
 import { useTeamContext } from './teamContext';
+import '../cards/CardPages.css';
 import './TeamHomePage.css';
 
 type FocusKind = 'now' | 'next' | 'first' | 'done';
@@ -139,22 +141,34 @@ export function TeamHomePage() {
 
         {focusMission ? (
           <section
-            className={`team-focus accent-${MISSION_TYPE_INFO[focusMission.type].accent}`}
+            className={`team-focus team-focus--${focus.kind} accent-${MISSION_TYPE_INFO[focusMission.type].accent}`}
             aria-labelledby="team-focus-title"
           >
+            {/* 미션 삽화를 무대 배경으로 깔고, 글은 아래쪽 어두운 부분에 올린다. */}
             <AssetImage
               asset={missionImageKeys[focusMission.type]}
               decorative
               className="team-focus__image"
               loading="eager"
             />
+            <span className="team-focus__shade" aria-hidden="true" />
+            <p className="team-focus__kicker">
+              <Icon name={focus.kind === 'next' ? 'directions_walk' : 'flag'} />
+              {focus.kind === 'done'
+                ? FOCUS_LABELS.done
+                : `${focus.roundNo}라운드 · ${FOCUS_LABELS[focus.kind]}`}
+            </p>
+            {isMyGrade ? (
+              <div className="team-focus__timer">
+                <Timer
+                  status={event.status}
+                  endsAt={event.roundEndsAt}
+                  variant="ring"
+                  totalMs={event.gameDurationMs}
+                />
+              </div>
+            ) : null}
             <div className="team-focus__body">
-              <p className="team-focus__kicker">
-                <Icon name={focus.kind === 'next' ? 'directions_walk' : 'flag'} />
-                {focus.kind === 'done'
-                  ? FOCUS_LABELS.done
-                  : `${focus.roundNo}라운드 · ${FOCUS_LABELS[focus.kind]}`}
-              </p>
               <h2 id="team-focus-title" className="team-focus__title">
                 {focusMission.title}
               </h2>
@@ -177,9 +191,6 @@ export function TeamHomePage() {
                 <ArrivalNotice state={arrival} boothStatus={event.boothStatus} />
               ) : null}
               <div className="team-focus__actions">
-                {isMyGrade ? (
-                  <Timer status={event.status} endsAt={event.roundEndsAt} size="lg" />
-                ) : null}
                 {focus.kind === 'done' ? (
                   <ButtonLink to={paths.cards(eventId, team.id)} size="xl" icon="style">
                     우리 반 카드 보기
@@ -199,92 +210,93 @@ export function TeamHomePage() {
           </section>
         ) : null}
 
-        <div className="team-home__side">
-          <section className="panel team-progress" aria-labelledby="team-progress-title">
-            <h2 id="team-progress-title" className="section-title">
-              <Icon name="format_list_numbered" />
-              미션 진행 <span className="team-progress__count number">{doneCount}/5</span>
-            </h2>
-            <ol className="team-progress__list">
-              {schedule.map(({ roundNo, mission, done }) => {
-                if (!mission) return null;
-                const status = getRowStatus({
-                  done,
-                  roundNo,
-                  focus,
-                  passedBefore,
-                  skipped: event.skippedRounds.includes(roundNo),
-                });
-                return (
-                  <li key={roundNo}>
-                    <Link
-                      to={paths.mission(eventId, team.id, mission.id)}
-                      className={`team-progress__item accent-${MISSION_TYPE_INFO[mission.type].accent}${
-                        focus.kind === 'now' && focus.roundNo === roundNo
-                          ? ' team-progress__item--now'
-                          : ''
-                      }`}
-                    >
-                      <span className="team-progress__round number">{roundNo}</span>
-                      <Icon
-                        name={MISSION_TYPE_INFO[mission.type].icon}
-                        className="team-progress__icon"
-                      />
-                      <span className="team-progress__name">{mission.title}</span>
-                      <StatusBadge tone={status.tone} icon={status.icon}>
-                        {status.label}
-                      </StatusBadge>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ol>
-          </section>
+        {/* 미션 지도: 다섯 교실을 도는 길. 지난 곳은 초록, 지금 갈 곳은 빛나게 보여 준다. */}
+        <section className="team-map" aria-labelledby="team-progress-title">
+          <h2 id="team-progress-title" className="section-title">
+            <Icon name="format_list_numbered" />
+            미션 지도 <span className="team-progress__count number">{doneCount}/5</span>
+          </h2>
+          <ol className="team-map__list">
+            {schedule.map(({ roundNo, mission, done }) => {
+              if (!mission) return null;
+              const status = getRowStatus({
+                done,
+                roundNo,
+                focus,
+                passedBefore,
+                skipped: event.skippedRounds.includes(roundNo),
+              });
+              const isNow = focus.kind !== 'done' && focus.roundNo === roundNo;
+              const state = done ? 'done' : isNow ? 'now' : 'later';
+              return (
+                <li key={roundNo}>
+                  <Link
+                    to={paths.mission(eventId, team.id, mission.id)}
+                    className={`team-map__node team-map__node--${state} accent-${MISSION_TYPE_INFO[mission.type].accent}`}
+                  >
+                    <span className="team-map__dot">
+                      <Icon name={done ? 'check' : MISSION_TYPE_INFO[mission.type].icon} />
+                    </span>
+                    <span className="team-map__text">
+                      <span className="team-map__name">{mission.title}</span>
+                      <span className="team-map__room">
+                        {roundNo}라운드 · {mission.room}
+                      </span>
+                    </span>
+                    <StatusBadge tone={status.tone} icon={status.icon}>
+                      {status.label}
+                    </StatusBadge>
+                  </Link>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
 
-          <section className="panel team-cards" aria-labelledby="team-cards-title">
-            <h2 id="team-cards-title" className="visually-hidden">
-              카드
-            </h2>
-            {pendingRewards > 0 ? (
-              <>
-                <p className="team-cards__notice">
-                  <Icon name="playing_cards" />
-                  <span>
-                    고를 카드 보상 <strong className="number">{pendingRewards}개</strong>가
-                    기다려요!
-                  </span>
-                </p>
-                <ButtonLink
-                  to={paths.reward(eventId, team.id)}
-                  size="lg"
-                  icon="playing_cards"
-                  fullWidth
-                >
-                  카드 보상 고르기
-                </ButtonLink>
-              </>
-            ) : (
-              <p className="muted">미션 순위가 확정되면 카드 조각을 하나씩 받아요.</p>
-            )}
+        {/* 카드 줄: 우리 반이 모은 조각과 보상 버튼 */}
+        <section className="team-tray" aria-labelledby="team-cards-title">
+          <h2 id="team-cards-title" className="visually-hidden">
+            카드
+          </h2>
+          <div className="team-tray__summary">
             <p className="team-cards__summary">
               {rewards.classInfo.displayName} 카드 완성{' '}
               <strong className="number">{rewards.progress.completedCount}/5</strong>
             </p>
+            {pendingRewards > 0 ? (
+              <p className="team-cards__notice">
+                <Icon name="playing_cards" />
+                <span>
+                  고를 카드 보상 <strong className="number">{pendingRewards}개</strong>가 기다려요!
+                </span>
+              </p>
+            ) : (
+              <p className="muted">미션 순위가 확정되면 카드 조각을 하나씩 받아요.</p>
+            )}
+          </div>
+          <ClassProgressStrip progress={rewards.progress} compact />
+          <div className="team-tray__actions">
+            {pendingRewards > 0 ? (
+              <ButtonLink
+                to={paths.reward(eventId, team.id)}
+                variant="gold"
+                size="lg"
+                icon="playing_cards"
+                className="team-tray__reward"
+              >
+                카드 보상 고르기
+              </ButtonLink>
+            ) : null}
             <ButtonLink
               to={paths.cards(eventId, team.id)}
               variant="secondary"
               size="lg"
               icon="style"
-              fullWidth
             >
               우리 반 카드 보기
             </ButtonLink>
-            <p className="muted">
-              완성한 카드 종류 수만큼 최종 미션 힌트를 받아요. 최종 미션은 교실 전자칠판에서 반
-              전체가 함께 풀어요.
-            </p>
-          </section>
-        </div>
+          </div>
+        </section>
       </main>
     </>
   );

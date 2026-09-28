@@ -17,6 +17,7 @@ import { QrPrintPage } from '../features/teacher/qr/QrPrintPage';
 import { CheckInPage, StationQrPage } from '../features/tour/CheckInPage';
 import { TeamHomePage } from '../features/tour/TeamHomePage';
 import { TeamLayout } from '../features/tour/TeamLayout';
+import { StageLayout } from './StageLayout';
 import {
   AdminRedirect,
   ClassFinalRedirect,
@@ -33,24 +34,30 @@ export const appRoutes: RouteObject[] = [
     path: '/',
     errorElement: <RouteErrorPage />,
     children: [
-      { index: true, element: <StartPage /> },
-      { path: 'join/:eventId', element: <JoinPage /> },
-      { path: 'join/:eventId/:teamId', element: <JoinPage /> },
-      // 미션 교실에 붙이는 QR 주소. 기기에 입장한 팀의 체크인 화면으로 보낸다.
-      { path: 'check-in/:eventId/:stationId', element: <StationQrPage /> },
       {
-        path: 'team/:eventId/:teamId',
-        element: <TeamLayout />,
+        // 학생이 보는 화면은 남색 무대 테마로 보여 준다.
+        element: <StageLayout />,
         children: [
-          { index: true, element: <TeamHomePage /> },
-          { path: 'mission/:missionId', element: <MissionPage /> },
-          { path: 'check-in/:stationId', element: <CheckInPage /> },
-          { path: 'reward', element: <RewardPage /> },
-          { path: 'cards', element: <CardBoardPage /> },
-          // 예전 카드 뽑기·피날레·팀별 결승 북마크는 학급 카드 현황으로 보낸다.
-          { path: 'draw', element: <TeamCardsRedirect /> },
-          { path: 'finale', element: <TeamCardsRedirect /> },
-          { path: 'final', element: <TeamCardsRedirect /> },
+          { index: true, element: <StartPage /> },
+          { path: 'join/:eventId', element: <JoinPage /> },
+          { path: 'join/:eventId/:teamId', element: <JoinPage /> },
+          // 미션 교실에 붙이는 QR 주소. 기기에 입장한 팀의 체크인 화면으로 보낸다.
+          { path: 'check-in/:eventId/:stationId', element: <StationQrPage /> },
+          {
+            path: 'team/:eventId/:teamId',
+            element: <TeamLayout />,
+            children: [
+              { index: true, element: <TeamHomePage /> },
+              { path: 'mission/:missionId', element: <MissionPage /> },
+              { path: 'check-in/:stationId', element: <CheckInPage /> },
+              { path: 'reward', element: <RewardPage /> },
+              { path: 'cards', element: <CardBoardPage /> },
+              // 예전 카드 뽑기·피날레·팀별 결승 북마크는 학급 카드 현황으로 보낸다.
+              { path: 'draw', element: <TeamCardsRedirect /> },
+              { path: 'finale', element: <TeamCardsRedirect /> },
+              { path: 'final', element: <TeamCardsRedirect /> },
+            ],
+          },
         ],
       },
       { path: 'class/:eventId/:classId/final', element: <ClassFinalRedirect /> },

@@ -25,6 +25,15 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* 무대 테마: 남색 바탕에 조명 세 개 */
+:root[data-theme='stage'] body {
+  background-image:
+    radial-gradient(ellipse 60% 50% at 78% -8%, var(--stage-glow-blue), transparent 70%),
+    radial-gradient(ellipse 55% 55% at -6% 108%, var(--stage-glow-purple), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 104% 100%, var(--stage-glow-pink), transparent 70%),
+    linear-gradient(160deg, var(--navy-950) 0%, var(--navy-900) 55%, var(--navy-800) 100%);
+}
+
 #root {
   min-height: 100dvh;
   display: flex;
@@ -111,6 +120,17 @@ a {
   flex: 1;
 }
 
+/* 미션 화면은 문제와 보기가 한 화면에 들어오도록 위아래 여백을 줄인다. */
+.page--mission {
+  gap: var(--space-3);
+  padding-block: var(--space-3) var(--space-4);
+}
+
+/* 전자칠판에 띄우는 화면은 너비를 넓게 쓴다. */
+.page--board {
+  max-width: var(--content-max-board);
+}
+
 .page__title {
   font-size: var(--font-size-2xl);
 }
@@ -155,6 +175,34 @@ a {
 .number {
   font-family: var(--font-family-number);
   font-variant-numeric: tabular-nums;
+}
+
+/* 여러 화면이 함께 쓰는 움직임: 작게 나타나기, 기쁜 소식에 뛰어오르기 */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+}
+
+@keyframes cheer-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4) rotate(-12deg);
+  }
+
+  45% {
+    opacity: 1;
+    transform: scale(1.35) rotate(8deg);
+  }
+
+  70% {
+    transform: scale(0.92) rotate(-4deg);
+  }
+
+  100% {
+    transform: scale(1) rotate(0);
+  }
 }
 
 @media (max-width: 720px) {

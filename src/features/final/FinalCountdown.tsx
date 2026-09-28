@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSettings } from '../../app/SettingsContext';
 import { FINAL_COUNTDOWN_SECONDS } from '../../config';
 import './Final.css';
 
 /** “3, 2, 1, 시작!” 카운트다운. 끝나는 시점에 onDone을 한 번만 부른다. */
 export function FinalCountdown({ onDone }: { onDone: () => void }) {
   const [left, setLeft] = useState(FINAL_COUNTDOWN_SECONDS);
+  const { playEffect } = useSettings();
   const done = useRef(false);
   const onDoneRef = useRef(onDone);
   useEffect(() => {
@@ -15,6 +17,11 @@ export function FinalCountdown({ onDone }: { onDone: () => void }) {
     const id = window.setInterval(() => setLeft((value) => Math.max(0, value - 1)), 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  // 숫자마다 짧은 소리를, “시작!”에는 밝은 소리를 낸다.
+  useEffect(() => {
+    playEffect(left > 0 ? 'count' : 'go');
+  }, [left, playEffect]);
 
   useEffect(() => {
     // 0이 되면 “시작!”을 잠깐 보여 준 뒤 시작을 기록한다.
