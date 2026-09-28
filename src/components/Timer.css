@@ -41,17 +41,19 @@
   font-size: var(--font-size-2xl);
 }
 
-.timer--warning {
+.timer--warning,
+.timer--urgent {
   background: var(--orange-600);
 }
 
-.timer--warning .icon {
+.timer--warning .icon,
+.timer--urgent .icon {
   color: var(--gold-400);
   animation: timer-pulse 1s var(--ease-out) infinite;
 }
 
 .timer--over {
-  background: var(--color-danger);
+  background: var(--red-600);
 }
 
 .timer--over .icon,
@@ -73,8 +75,210 @@
   color: var(--color-text-subtle);
 }
 
+/* 원형 타이머: 남은 시간만큼 고리가 줄어든다. */
+.timer-ring {
+  --ring-color: var(--blue-400);
+  --ring-size: 132px;
+
+  position: relative;
+  display: grid;
+  flex: none;
+  place-content: center;
+  justify-items: center;
+  width: var(--ring-size);
+  height: var(--ring-size);
+  border-radius: 50%;
+  color: var(--white);
+  text-align: center;
+}
+
+.timer-ring--lg {
+  --ring-size: 148px;
+}
+
+.timer-ring--xl {
+  --ring-size: clamp(148px, 15vw, 264px);
+}
+
+.timer-ring__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  filter: drop-shadow(0 8px 20px var(--stage-drop));
+}
+
+.timer-ring__track {
+  fill: var(--stage-panel);
+  stroke: var(--stage-line);
+  stroke-width: 10;
+}
+
+.timer-ring__fill {
+  fill: none;
+  stroke: var(--ring-color);
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dasharray 1s linear;
+}
+
+.timer-ring__label,
+.timer-ring__value {
+  position: relative;
+}
+
+.timer-ring__label {
+  color: var(--blue-100);
+  font-size: calc(var(--ring-size) * 0.105);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.2;
+}
+
+.timer-ring__value {
+  font-size: calc(var(--ring-size) * 0.26);
+  font-weight: var(--font-weight-heavy);
+  line-height: 1.05;
+}
+
+.timer-ring--warning,
+.timer-ring--urgent {
+  --ring-color: var(--orange-400);
+}
+
+.timer-ring--warning .timer-ring__value,
+.timer-ring--urgent .timer-ring__value {
+  color: var(--orange-100);
+}
+
+.timer-ring--urgent {
+  animation: timer-beat 1s var(--ease-out) infinite;
+}
+
+.timer-ring--over {
+  --ring-color: var(--red-500);
+}
+
+.timer-ring--over .timer-ring__track {
+  fill: var(--red-600);
+}
+
+.timer-ring--idle .timer-ring__label,
+.timer-ring--idle .timer-ring__value {
+  color: var(--gray-300);
+}
+
+/* 남은 시간이 없으면 고리 끝의 둥근 점도 그리지 않는다. */
+.timer-ring--idle .timer-ring__fill,
+.timer-ring--over .timer-ring__fill {
+  display: none;
+}
+
+/* 막대 타이머: 미션 화면 위쪽을 가로지른다. */
+.timer-bar {
+  --bar-color: linear-gradient(90deg, var(--blue-400), var(--green-400));
+  --bar-edge: var(--color-border);
+
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 64px;
+  padding: var(--space-2) var(--space-5);
+  border: 2px solid var(--bar-edge);
+  border-radius: var(--radius-lg);
+  background: var(--stage-panel);
+  color: var(--white);
+}
+
+.timer-bar__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--blue-100);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-heavy);
+  white-space: nowrap;
+}
+
+.timer-bar__track {
+  flex: 1;
+  min-width: 80px;
+  height: 18px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--stage-fill);
+}
+
+.timer-bar__fill {
+  display: block;
+  width: calc(var(--timer-ratio, 0) * 100%);
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--bar-color);
+  transition: width 1s linear;
+}
+
+.timer-bar__value {
+  min-width: 4.2ch;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-heavy);
+  line-height: 1;
+  text-align: right;
+}
+
+.timer-bar--warning,
+.timer-bar--urgent {
+  --bar-color: linear-gradient(90deg, var(--red-500), var(--orange-500));
+  --bar-edge: var(--orange-500);
+
+  box-shadow:
+    0 0 0 4px var(--glow-orange-soft),
+    0 0 28px var(--glow-orange);
+}
+
+.timer-bar--warning .timer-bar__label,
+.timer-bar--urgent .timer-bar__label,
+.timer-bar--warning .timer-bar__value,
+.timer-bar--urgent .timer-bar__value {
+  color: var(--orange-100);
+}
+
+.timer-bar--urgent .timer-bar__value {
+  animation: timer-beat 1s var(--ease-out) infinite;
+}
+
+.timer-bar--over {
+  --bar-edge: var(--red-500);
+
+  background: var(--red-600);
+}
+
+.timer-bar--over .timer-bar__label {
+  color: var(--white);
+}
+
+.timer-bar--idle {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+}
+
+.timer-bar--idle .timer-bar__label {
+  color: var(--color-text-muted);
+}
+
 @keyframes timer-pulse {
   50% {
     transform: scale(1.18);
+  }
+}
+
+@keyframes timer-beat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  12% {
+    transform: scale(1.08);
   }
 }

@@ -74,7 +74,7 @@ export function ErrorHuntMission({
     setMisses((previous) => [...previous.slice(-2), marker]);
     setWrongTaps((value) => value + 1);
     setFeedback('여기는 아니에요.');
-    playEffect('tap');
+    playEffect('error');
   };
 
   const handleSubmit = () => {

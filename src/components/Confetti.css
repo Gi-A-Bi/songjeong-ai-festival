@@ -1,0 +1,65 @@
+/* 부모 요소를 가득 덮는다. 부모는 position: relative와 overflow: hidden이어야 한다. */
+.confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.confetti__piece {
+  position: absolute;
+  top: -5%;
+  left: var(--confetti-left);
+  width: var(--confetti-width);
+  height: var(--confetti-height);
+  border-radius: 3px;
+  opacity: 0;
+  animation: confetti-fall var(--confetti-fall) linear var(--confetti-delay) 2 both;
+}
+
+.confetti__piece--1 {
+  background: var(--confetti-1);
+}
+
+.confetti__piece--2 {
+  background: var(--confetti-2);
+}
+
+.confetti__piece--3 {
+  background: var(--confetti-3);
+}
+
+.confetti__piece--4 {
+  background: var(--confetti-4);
+}
+
+.confetti__piece--5 {
+  background: var(--confetti-5);
+}
+
+.confetti__piece--6 {
+  background: var(--confetti-6);
+}
+
+@keyframes confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0);
+  }
+
+  85% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--confetti-drift), 110vh, 0) rotate(var(--confetti-spin));
+  }
+}
+
+/* 움직임 줄이기 설정에서는 색종이를 뿌리지 않는다. */
+@media (prefers-reduced-motion: reduce) {
+  .confetti {
+    display: none;
+  }
+}

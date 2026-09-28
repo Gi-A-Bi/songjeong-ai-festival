@@ -60,6 +60,7 @@ export const assets = {
   cardExpression: { src: festival('card-expression.webp'), alt: '표현 카드', ...CARD },
   cardCommand: { src: festival('card-command.webp'), alt: '명령 카드', ...CARD },
   cardVerification: { src: festival('card-verification.webp'), alt: '검증 카드', ...CARD },
+  cardBack: { src: festival('card-back.webp'), alt: '카드 뒷면', ...CARD },
   sceneFinale: {
     src: festival('scene-finale.webp'),
     alt: '학급 최종 미션을 축하하는 피날레 무대 장면',

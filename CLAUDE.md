@@ -148,6 +148,15 @@
 
 색상과 간격은 src/styles/tokens.css의 CSS 변수로 관리한다. 임의의 색상값과 간격값을 여러 컴포넌트에 반복하지 않는다.
 
+무대 테마:
+
+- 학생 화면(StageLayout)과 전자칠판 최종 미션은 `useStageTheme`으로 남색 무대 테마를 켠다. 교사 운영 화면은 밝은 기본 테마다.
+- 무대 테마는 tokens.css의 `[data-theme='stage']`에서 의미 색(`--color-*`, `--accent-*`)만 바꾼다. 컴포넌트는 의미 색을 쓰면 두 테마에서 그대로 보인다.
+- 바탕색 위 글자에 `--navy-*`, `--gray-*` 같은 원색 변수를 직접 쓰지 않는다. 삽화나 색 버튼 위처럼 바탕이 정해진 곳에만 쓴다.
+- 채운 버튼(primary, danger, accent, gold)은 흰 글자·남색 글자가 읽히는 진한 색을 Button.css에서 따로 정한다.
+- 효과음은 `useSettings().playEffect`로만 내고, 같은 뜻을 글·아이콘으로도 보여 준다. 새 효과음은 `src/lib/sound.ts`에 더한다.
+- 축하 연출(색종이, 뛰는 움직임)은 움직임 줄이기 설정에서 꺼져야 한다.
+
 ## 자산 사용
 
 이미지는 public/assets/festival에 있고 학교 로고는 public/assets/brand/school-logo.png에 있다.

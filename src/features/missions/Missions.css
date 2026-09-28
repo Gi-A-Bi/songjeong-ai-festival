@@ -3,15 +3,22 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-5) var(--space-2) var(--space-2);
+  padding: var(--space-1) var(--space-5) var(--space-1) var(--space-2);
   border-radius: var(--radius-lg);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-bold);
+  line-height: 1.4;
 }
 
 .mission-notice__mascot {
-  width: 64px;
-  height: 64px;
+  width: 52px;
+  height: 52px;
+  animation: pop-in var(--duration-slow) var(--ease-bounce);
+}
+
+/* 제출·순위 확정처럼 기쁜 소식은 마스코트가 한 번 더 크게 뛰어오른다. */
+.mission-notice--success .mission-notice__mascot {
+  animation: cheer-pop calc(var(--duration-slow) * 2) var(--ease-bounce);
 }
 
 .mission-notice__text {
@@ -70,13 +77,13 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-width: 56px;
-  min-height: 56px;
+  min-width: 52px;
+  min-height: 52px;
   padding: 0 var(--space-2);
-  border: 3px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  font-size: var(--font-size-lg);
+  border: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-neutral-soft);
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-heavy);
 }
 
@@ -95,10 +102,12 @@
   background: var(--color-danger-soft);
 }
 
+/* 지금 보는 문제는 금색으로 빛난다. */
 .gb-step[aria-current='step'] {
-  box-shadow:
-    0 0 0 3px var(--color-surface),
-    0 0 0 6px var(--color-text);
+  border-color: var(--white);
+  background: var(--gold-400);
+  color: var(--navy-900);
+  box-shadow: 0 0 18px var(--glow-gold);
 }
 
 .gb-toolbar {
@@ -114,25 +123,28 @@
   gap: var(--space-2);
 }
 
+/* 문제는 밝은 판에 크게 적어 어두운 무대에서 가장 먼저 눈에 들어오게 한다. */
 .gb-question {
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-3) var(--space-6);
   border-radius: var(--radius-xl);
-  background: var(--color-stage);
-  color: var(--color-text-inverse);
-  box-shadow: var(--shadow-md);
+  background: var(--white);
+  color: var(--navy-900);
+  box-shadow: var(--shadow-lg);
 }
 
 .gb-question__no {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--gold-400);
+  color: var(--gold-600);
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-heavy);
 }
 
 .gb-question__text {
-  margin-top: var(--space-2);
-  font-size: var(--font-size-2xl);
+  margin-top: var(--space-1);
+  font-size: clamp(var(--font-size-xl), 2.6vw, var(--font-size-2xl));
+  line-height: 1.3;
 }
 
 .gb-choices {
@@ -141,21 +153,46 @@
   gap: var(--space-3);
 }
 
+/* 보기 네 칸은 색이 다른 버튼이다. 번호와 글이 함께 있어 색을 구분하지 못해도 고를 수 있다. */
 .gb-choice {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: 88px;
-  padding: var(--space-3) var(--space-4);
-  border: 3px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
+  min-height: 76px;
+  padding: var(--space-2) var(--space-4);
+  border: 4px solid transparent;
+  border-radius: var(--radius-xl);
+  background: var(--choice-bg, var(--color-surface));
+  box-shadow: var(--choice-shade), var(--shadow-md);
+  color: var(--white);
   font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-heavy);
+  line-height: 1.3;
   text-align: left;
   transition:
     transform var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast);
+}
+
+.gb-choice--c1 {
+  --choice-bg: var(--choice-1);
+  --choice-ink: var(--choice-1-ink);
+}
+
+.gb-choice--c2 {
+  --choice-bg: var(--choice-2);
+  --choice-ink: var(--choice-2-ink);
+}
+
+.gb-choice--c3 {
+  --choice-bg: var(--choice-3);
+  --choice-ink: var(--choice-3-ink);
+}
+
+.gb-choice--c4 {
+  --choice-bg: var(--choice-4);
+  --choice-ink: var(--choice-4-ink);
 }
 
 .gb-choice:active:not(:disabled) {
@@ -166,11 +203,12 @@
   display: grid;
   flex-shrink: 0;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--white);
+  color: var(--choice-ink, var(--navy-900));
+  font-size: var(--font-size-xl);
   font-weight: var(--font-weight-heavy);
 }
 
@@ -178,22 +216,44 @@
   flex: 1;
 }
 
+.gb-choice .badge {
+  background: var(--white);
+  color: var(--choice-ink, var(--navy-900));
+}
+
+/* 고르지 않은 보기는 한 걸음 물러나고, 고른 보기는 흰 테두리와 빛으로 도드라진다. */
+.gb-choice:disabled:not(.gb-choice--chosen, .gb-choice--answer) {
+  filter: saturate(0.7) brightness(0.82);
+}
+
 .gb-choice--chosen {
-  border-color: var(--color-accent-blue);
-  background: var(--color-accent-blue-soft);
-  box-shadow: var(--shadow-glow-blue);
+  border-color: var(--white);
+  box-shadow:
+    var(--choice-shade),
+    0 0 0 5px var(--glow-white),
+    0 0 32px var(--glow-blue);
 }
 
 .gb-choice--answer {
-  border-color: var(--color-success);
-  background: var(--color-success-soft);
-  box-shadow: none;
+  border-color: var(--green-200);
+  box-shadow:
+    var(--choice-shade),
+    0 0 0 5px var(--color-success-soft),
+    0 0 32px var(--color-primary-glow);
+}
+
+.gb-choice--answer .badge {
+  color: var(--green-700);
 }
 
 .gb-choice--wrong {
-  border-color: var(--color-danger);
-  background: var(--color-danger-soft);
-  box-shadow: none;
+  border-style: dashed;
+  border-color: var(--red-50);
+  box-shadow: var(--choice-shade);
+}
+
+.gb-choice--wrong .badge {
+  color: var(--red-600);
 }
 
 .gb-reveal,

@@ -73,6 +73,13 @@
   right: var(--space-6);
 }
 
+/* 밝은 삽화 위에서도 보이도록 어두운 유리판 위에 올린다. */
+.start .start__teacher.btn--secondary {
+  border-color: var(--stage-line-strong);
+  background: var(--stage-panel-strong);
+  color: var(--white);
+}
+
 @keyframes start-bounce {
   0%,
   80%,

@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type CSSProperties } from 'react';
 import { paths } from '../../app/paths';
 import { cardImageKeys } from '../../assets/manifest';
 import { useSettings } from '../../app/SettingsContext';
 import { AppHeader } from '../../components/AppHeader';
 import { AssetImage } from '../../components/AssetImage';
 import { Button, ButtonLink } from '../../components/Button';
+import { Confetti } from '../../components/Confetti';
 import { ConfirmDialog } from '../../components/Dialog';
 import { Icon } from '../../components/Icon';
 import { EmptyView, ErrorView, InlineAlert, LoadingView } from '../../components/StateViews';
@@ -15,7 +16,7 @@ import type {
 } from '../../data/EventRepository';
 import { isRepositoryError, toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
-import { newlyOpenedPiece } from '../../domain/cards';
+import { CARD_PIECES, newlyOpenedPiece } from '../../domain/cards';
 import { CARD_INFO } from '../../domain/catalog';
 import { getHintTotal } from '../../domain/finalMission';
 import { SELECTION_MODE_LABELS } from '../../domain/rewards';
@@ -87,7 +88,9 @@ export function RewardPage() {
     if (result.ok) {
       setEarned(result.value);
       setRequestId(createRequestId());
-      playEffect('card');
+      // 카드를 완성하면 더 크게 축하한다.
+      const { before, after } = result.value;
+      playEffect(!before.complete && after.complete ? 'fanfare' : 'card');
       data.reload();
     } else {
       playEffect('error');
@@ -262,9 +265,14 @@ function EarnedResult({
   else if (opened === null) title = `${info.name} 중복 +${after.duplicates}`;
 
   return (
-    <section className="panel reward-result" aria-labelledby="reward-result-title">
+    <section
+      className={`reward-result${justCompleted ? ' reward-result--complete' : ''}`}
+      aria-labelledby="reward-result-title"
+    >
+      <span className="reward-result__spot" aria-hidden="true" />
+      <Confetti />
       <div className="reward-result__art">
-        <CardPieces cardType={after.cardType} pieces={after.pieces} revealing={opened} size="lg" />
+        <CardPieces cardType={after.cardType} pieces={after.pieces} revealing={opened} size="xl" />
       </div>
       <div className="stack reward-result__body" role="status">
         <p className="reward-result__kicker">
@@ -273,6 +281,24 @@ function EarnedResult({
         <h2 id="reward-result-title" className="reward-result__title">
           {title}
         </h2>
+        {opened !== null ? (
+          // 조각이 하나 늘어난 만큼 막대가 차오른다. 숫자는 제목과 아래 문구가 알려 준다.
+          <p className="reward-meter" aria-hidden="true">
+            <span className="number">{formatPieces(before)}</span>
+            <span className="reward-meter__track">
+              <span
+                className="reward-meter__fill"
+                style={
+                  {
+                    '--meter-from': before.pieces / CARD_PIECES,
+                    '--meter-to': after.pieces / CARD_PIECES,
+                  } as CSSProperties
+                }
+              />
+            </span>
+            <span className="reward-meter__after number">{formatPieces(after)}</span>
+          </p>
+        ) : null}
         <p>
           {justCompleted
             ? `최종 미션 힌트가 1개 늘었어요! 지금 우리 반 힌트는 ${getHintTotal(outcome.progress)}개예요.`
@@ -288,7 +314,7 @@ function EarnedResult({
         ) : null}
         <div className="cluster">
           {hasMore ? (
-            <Button size="lg" icon="playing_cards" onClick={onNext} data-autofocus>
+            <Button variant="gold" size="lg" icon="playing_cards" onClick={onNext} data-autofocus>
               다음 보상 고르기
             </Button>
           ) : null}
@@ -302,6 +328,7 @@ function EarnedResult({
           </ButtonLink>
         </div>
       </div>
+      <AssetImage asset="mascotCardEarned" decorative className="reward-result__mascot" />
     </section>
   );
 }

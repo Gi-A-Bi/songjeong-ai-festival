@@ -1,4 +1,5 @@
-export type ButtonVariant = 'primary' | 'accent' | 'secondary' | 'ghost' | 'danger';
+/** gold는 카드 보상·힌트처럼 눈에 띄어야 하는 행동에 쓴다. */
+export type ButtonVariant = 'primary' | 'accent' | 'gold' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'md' | 'lg' | 'xl';
 
 export function buttonClassName(options: {

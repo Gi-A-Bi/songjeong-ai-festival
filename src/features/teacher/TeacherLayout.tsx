@@ -1,5 +1,13 @@
 import { useCallback } from 'react';
-import { Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router';
+import {
+  Navigate,
+  NavLink,
+  Outlet,
+  useLocation,
+  useMatch,
+  useNavigate,
+  useParams,
+} from 'react-router';
 import { paths } from '../../app/paths';
 import { AppHeader } from '../../components/AppHeader';
 import { Icon } from '../../components/Icon';
@@ -19,6 +27,8 @@ export function TeacherLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const event = useLiveEvent(eventId);
+  // 전자칠판에 띄우는 최종 미션은 메뉴를 감추고 화면을 넓게 쓴다.
+  const board = useMatch('/teacher/:eventId/class/:classId/final');
   const loadTeacher = useCallback(() => repository.restoreTeacher(), [repository]);
   const teacher = useAsyncData(loadTeacher);
 
@@ -98,9 +108,10 @@ export function TeacherLayout() {
       <AppHeader
         variant="teacher"
         subtitle={`${profile.displayName} · ${TEACHER_ROLE_LABELS[profile.role]}`}
-        nav={nav}
+        backTo={board ? paths.teacherClass(eventId, board.params.classId ?? '') : undefined}
+        nav={board ? undefined : nav}
       />
-      <main className="page teacher-page">
+      <main className={`page teacher-page${board ? ' page--board' : ''}`}>
         {event.status === 'loading' ? <LoadingView label="행사 상태를 불러오고 있어요" /> : null}
         {event.status === 'error' ? (
           // 행사 문서가 아직 없으면 오류 대신 준비 화면을 보여 준다.

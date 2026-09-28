@@ -126,6 +126,41 @@
   --final-hero-shade: rgb(11 21 51 / 82%);
   --final-highlight-dim: rgb(11 21 51 / 45%);
 
+  /* 보기 네 칸의 색. 색만으로 구분하지 않도록 번호를 늘 함께 보여 준다. */
+  --choice-1: linear-gradient(180deg, #2fb4ff, var(--blue-600));
+  --choice-1-ink: var(--blue-700);
+  --choice-2: linear-gradient(180deg, var(--purple-400), var(--purple-600));
+  --choice-2-ink: var(--purple-600);
+  --choice-3: linear-gradient(180deg, var(--orange-400), #d96a00);
+  --choice-3-ink: var(--orange-600);
+  --choice-4: linear-gradient(180deg, #f06db3, var(--pink-600));
+  --choice-4-ink: var(--pink-600);
+  --choice-shade: inset 0 -6px 0 rgb(0 0 0 / 22%);
+
+  /* 무대 장식: 삽화나 남색 바탕 위에 얹는 유리판, 선, 빛 */
+  --stage-panel: rgb(11 21 51 / 78%);
+  --stage-panel-strong: rgb(11 21 51 / 92%);
+  --stage-fill: rgb(255 255 255 / 10%);
+  --stage-line: rgb(255 255 255 / 16%);
+  --stage-line-strong: rgb(255 255 255 / 34%);
+  --stage-drop: rgb(0 0 0 / 45%);
+  --glow-blue: rgb(60 195 255 / 55%);
+  --glow-blue-soft: rgb(60 195 255 / 22%);
+  --glow-gold: rgb(255 201 51 / 60%);
+  --glow-gold-soft: rgb(255 201 51 / 24%);
+  --glow-orange: rgb(255 138 31 / 38%);
+  --glow-orange-soft: rgb(255 138 31 / 22%);
+  --glow-white: rgb(255 255 255 / 28%);
+  --stage-glow-blue: rgb(60 195 255 / 30%);
+  --stage-glow-purple: rgb(124 92 255 / 38%);
+  --stage-glow-pink: rgb(236 79 160 / 20%);
+  --confetti-1: var(--gold-400);
+  --confetti-2: var(--blue-400);
+  --confetti-3: var(--purple-400);
+  --confetti-4: var(--pink-500);
+  --confetti-5: var(--green-400);
+  --confetti-6: var(--orange-500);
+
   /* 간격 */
   --space-1: 4px;
   --space-2: 8px;
@@ -189,9 +224,82 @@
   /* 레이아웃 */
   --header-height: 64px;
   --content-max: 1240px;
+  --content-max-board: 1760px;
   --z-header: 20;
   --z-sticky: 30;
   --z-dialog: 100;
+}
+
+/*
+ * 무대 테마. 학생 화면과 전자칠판 최종 미션에서 쓴다(useStageTheme).
+ * 남색 무대 위에서 미션 색이 빛나 보이게 의미 색만 바꾸므로 컴포넌트는 그대로 쓴다.
+ * 바탕색 위 글자는 밝게, 옅은 배경(-soft)은 반투명하게 바뀐다.
+ */
+:root[data-theme='stage'] {
+  color-scheme: dark;
+
+  --color-bg: var(--navy-950);
+  --color-bg-accent: rgb(60 195 255 / 26%);
+  --color-surface: #16234d;
+  --color-surface-muted: #1c2b5e;
+  --color-surface-sunken: #0e1838;
+  --color-surface-glass: rgb(14 24 56 / 88%);
+  --color-border: rgb(255 255 255 / 16%);
+  --color-border-strong: rgb(255 255 255 / 34%);
+  --color-text: var(--white);
+  --color-text-muted: #cfd8f3;
+  --color-text-subtle: #a9b6dc;
+
+  /* 버튼 배경은 .btn--primary가 따로 정한다. 여기 값은 글자·테두리에 쓰인다. */
+  --color-primary: var(--green-400);
+  --color-primary-hover: var(--green-500);
+  --color-primary-active: var(--green-200);
+  --color-primary-soft: rgb(92 176 76 / 24%);
+  --color-primary-glow: rgb(92 176 76 / 45%);
+
+  --color-accent-blue: var(--blue-400);
+  --color-accent-blue-strong: #8fdcff;
+  --color-accent-blue-soft: rgb(14 165 255 / 20%);
+  --color-accent-purple: var(--purple-400);
+  --color-accent-purple-strong: #cdbfff;
+  --color-accent-purple-soft: rgb(124 92 255 / 26%);
+  --color-accent-orange: var(--orange-400);
+  --color-accent-orange-strong: #ffc078;
+  --color-accent-orange-soft: rgb(255 138 31 / 22%);
+
+  --color-success: var(--green-400);
+  --color-success-soft: rgb(92 176 76 / 24%);
+  --color-warning: #ffc078;
+  --color-warning-soft: rgb(255 138 31 / 24%);
+  --color-danger: #ff9a9d;
+  --color-danger-soft: rgb(229 72 77 / 26%);
+  --color-info: #8fdcff;
+  --color-info-soft: rgb(14 165 255 / 22%);
+  --color-neutral: #cfd8f3;
+  --color-neutral-soft: rgb(255 255 255 / 12%);
+
+  --color-focus: var(--blue-400);
+  --color-overlay: rgb(3 8 24 / 76%);
+  --color-stage: #0a1230;
+  --color-stage-raised: var(--navy-800);
+
+  --accent-golden-bell-ink: var(--gold-400);
+  --accent-golden-bell-soft: rgb(255 201 51 / 18%);
+  --accent-error-hunt: var(--purple-400);
+  --accent-error-hunt-ink: #cdbfff;
+  --accent-error-hunt-soft: rgb(124 92 255 / 24%);
+  --accent-drawing-ink: #ffa3d2;
+  --accent-drawing-soft: rgb(236 79 160 / 22%);
+  --accent-ozobot: var(--blue-400);
+  --accent-ozobot-ink: #8fdcff;
+  --accent-ozobot-soft: rgb(14 165 255 / 20%);
+  --accent-library-check: var(--green-400);
+  --accent-library-check-ink: var(--green-200);
+  --accent-library-check-soft: rgb(92 176 76 / 22%);
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%), 0 1px 3px rgb(0 0 0 / 24%);
+  --shadow-md: 0 6px 16px rgb(0 0 0 / 34%), 0 2px 4px rgb(0 0 0 / 24%);
+  --shadow-lg: 0 20px 48px rgb(0 0 0 / 45%), 0 4px 12px rgb(0 0 0 / 30%);
 }
 
 @media (prefers-reduced-motion: reduce) {

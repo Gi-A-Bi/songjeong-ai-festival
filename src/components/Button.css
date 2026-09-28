@@ -67,6 +67,18 @@
   box-shadow: var(--shadow-glow-blue);
 }
 
+.btn--gold {
+  background: linear-gradient(180deg, var(--gold-400), var(--orange-400));
+  box-shadow:
+    0 0 0 4px var(--glow-gold-soft),
+    0 8px 28px var(--glow-gold);
+  color: var(--navy-900);
+}
+
+.btn--gold:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
 .btn--secondary {
   background: var(--color-surface);
   color: var(--color-text);
@@ -89,6 +101,27 @@
 .btn--danger {
   background: var(--color-danger);
   color: var(--color-text-inverse);
+}
+
+/* 무대 테마: 채운 버튼은 흰 글자가 잘 보이는 진한 색을 그대로 쓰고, 나머지는 유리처럼 보이게 한다. */
+:root[data-theme='stage'] .btn--primary {
+  background: linear-gradient(180deg, var(--green-500), var(--green-600));
+}
+
+:root[data-theme='stage'] .btn--primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--green-600), var(--green-700));
+}
+
+:root[data-theme='stage'] .btn--danger {
+  background: var(--red-600);
+}
+
+:root[data-theme='stage'] .btn--accent {
+  background: linear-gradient(135deg, var(--blue-700), var(--purple-600));
+}
+
+:root[data-theme='stage'] .btn--secondary {
+  background: var(--color-neutral-soft);
 }
 
 .btn__label {

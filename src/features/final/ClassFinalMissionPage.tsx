@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../../components/Dialog';
 import { Icon } from '../../components/Icon';
 import { StatusBadge } from '../../components/StatusBadge';
 import { ErrorView, InlineAlert, LoadingView } from '../../components/StateViews';
+import { TimerRing } from '../../components/Timer';
 import type { ClassFinalView } from '../../data/EventRepository';
 import { toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
@@ -16,10 +17,12 @@ import { FINAL_CLASS_STATUS_LABELS, getFinalDeadline } from '../../domain/finalM
 import type { FinalQuestion } from '../../domain/types';
 import { useAction } from '../../hooks/useAction';
 import { useAsyncData } from '../../hooks/useAsyncData';
+import { useCountdownSound } from '../../hooks/useCountdownSound';
 import { useFinalLive } from '../../hooks/useFinalLive';
 import { useServerNow } from '../../hooks/useServerNow';
+import { useStageTheme } from '../../hooks/useStageTheme';
 import { createRequestId } from '../../lib/random';
-import { formatClock, formatSpokenDuration } from '../../lib/time';
+import { formatClock } from '../../lib/time';
 import { useTeacherContext } from '../teacher/teacherContext';
 import './Final.css';
 
@@ -28,6 +31,8 @@ export function ClassFinalMissionPage() {
   const { eventId } = useTeacherContext();
   const { classId = '' } = useParams();
   const repository = useRepository();
+  // 전자칠판에서는 학생 화면과 같은 남색 무대로 보여 준다.
+  useStageTheme();
   const load = useCallback(
     () => repository.getClassFinalView(eventId, classId),
     [repository, eventId, classId],
@@ -121,40 +126,73 @@ function FinalHeader({
       });
   }, [expired, repository, eventId, classInfo.id, onExpired, view.canRunFinal]);
 
+  // 마지막 10초와 종료를 소리로도 알린다.
+  useCountdownSound(active ? remainingSeconds : null);
+
   const questionNo = Math.min(state.currentQuestionIndex + 1, session.questionCount);
+  const started = active || state.startedAt !== null;
   return (
     <header className="final-board__header">
-      <div>
+      <div className="final-board__heading">
         <p className="final-board__class">
-          <Icon name="trophy" /> {classInfo.displayName} 최종 미션
+          <Icon name="trophy" size="lg" /> {classInfo.displayName} 최종 미션
         </p>
         <p className="final-board__progress number" aria-live="polite">
           {active
             ? `문제 ${questionNo} / ${session.questionCount}`
             : FINAL_CLASS_STATUS_LABELS[view.status]}
         </p>
+        {active ? (
+          // 문제 번호 줄은 장식이다. 몇 번째 문제인지는 위 문구가 알려 준다.
+          <ol className="final-steps" aria-hidden="true">
+            {Array.from({ length: session.questionCount }, (_, index) => (
+              <li
+                key={index}
+                className={`final-steps__item number${
+                  index < state.currentQuestionIndex
+                    ? ' final-steps__item--done'
+                    : index === state.currentQuestionIndex
+                      ? ' final-steps__item--now'
+                      : ''
+                }`}
+              >
+                {index < state.currentQuestionIndex ? <Icon name="check" size="sm" /> : index + 1}
+              </li>
+            ))}
+          </ol>
+        ) : null}
       </div>
       <dl className="final-board__meters">
-        <div
-          className={`final-meter${active && remainingSeconds <= 60 ? ' final-meter--warning' : ''}`}
-        >
-          <dt>
-            <Icon name="timer" size="sm" /> 남은 시간
-          </dt>
-          <dd
-            className="number"
-            role="timer"
-            aria-label={`남은 시간 ${formatSpokenDuration(remainingSeconds)}`}
-          >
-            {formatClock(remainingSeconds)}
-          </dd>
-        </div>
-        <div className="final-meter">
+        <div className="final-meter final-meter--hint">
           <dt>
             <Icon name="lightbulb" size="sm" /> 남은 힌트
           </dt>
-          <dd className="number">
-            {active || state.startedAt !== null ? `${hintLeft} / ${state.hintTotal}` : '-'}
+          <dd className="number">{started ? `${hintLeft} / ${state.hintTotal}` : '-'}</dd>
+          {started && state.hintTotal > 0 ? (
+            <dd className="final-meter__cards" aria-hidden="true">
+              {Array.from({ length: state.hintTotal }, (_, index) => (
+                <AssetImage
+                  key={index}
+                  asset="cardBack"
+                  decorative
+                  className={`final-meter__card${
+                    index < hintLeft ? '' : ' final-meter__card--used'
+                  }`}
+                />
+              ))}
+            </dd>
+          ) : null}
+        </div>
+        <div className="final-meter final-meter--time">
+          <dt className="visually-hidden">남은 시간</dt>
+          <dd>
+            {/* 시작 전과 끝난 뒤에는 제한 시간을 가득 찬 고리로 보여 준다. */}
+            <TimerRing
+              seconds={remainingSeconds}
+              totalSeconds={session.durationLimitSec}
+              label={active ? undefined : '제한 시간'}
+              size="xl"
+            />
           </dd>
         </div>
       </dl>
@@ -275,7 +313,10 @@ function QuestionPanel({
           : null;
 
   return (
-    <section className="final-question" aria-labelledby="final-question-text">
+    <section
+      className={`final-question${question.passage || question.image ? ' final-question--rich' : ''}`}
+      aria-labelledby="final-question-text"
+    >
       <p className="final-question__area">
         <StatusBadge tone="accent" icon="quiz" size="lg">
           {question.category ?? `${CARD_INFO[question.area].name.replace(' 카드', '')} 영역`}
@@ -302,7 +343,8 @@ function QuestionPanel({
         {question.choices.map((choice, index) => {
           const removed = removedChoiceId === choice.id;
           const selected = selectedChoiceId === choice.id;
-          const classes = ['final-choice'];
+          // 보기 색은 네 가지를 돌려 쓴다. 번호를 함께 보여 주므로 색만으로 구분하지 않는다.
+          const classes = ['final-choice', `final-choice--c${(index % 4) + 1}`];
           if (selected) classes.push('final-choice--selected');
           if (removed) classes.push('final-choice--removed');
           return (
@@ -340,7 +382,7 @@ function QuestionPanel({
 
       <div className="final-question__actions">
         <Button
-          variant="secondary"
+          variant="gold"
           size="xl"
           icon="lightbulb"
           disabled={!canRunFinal || hintUsedHere || hintLeft === 0 || busy}
@@ -358,7 +400,9 @@ function QuestionPanel({
           {isLast ? '답 확정하고 제출하기' : '답 확정하고 다음 문제로'}
         </Button>
       </div>
-      <p className="muted">답을 확정하면 되돌릴 수 없어요. 정답 여부는 끝난 뒤에 알 수 있어요.</p>
+      <p className="muted final-question__note">
+        답을 확정하면 되돌릴 수 없어요. 정답 여부는 끝난 뒤에 알 수 있어요.
+      </p>
 
       <ConfirmDialog
         open={confirmHint}

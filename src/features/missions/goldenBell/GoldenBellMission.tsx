@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { paths } from '../../../app/paths';
+import { useSettings } from '../../../app/SettingsContext';
 import { AssetImage } from '../../../components/AssetImage';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/Dialog';
@@ -32,6 +33,7 @@ export function GoldenBellMission({
 }: GoldenBellMissionProps) {
   const { team, mission, submission, answerRevealed, roundNo } = view;
   const repository = useRepository();
+  const { playEffect } = useSettings();
   const { questions } = config;
   const previous = submission?.answer.type === 'golden_bell' ? submission.answer.selections : {};
   const saved = submission && submission.status !== 'draft' ? previous : null;
@@ -185,6 +187,8 @@ export function GoldenBellMission({
           const isAnswer = answerRevealed && choiceIndex === current.answerIndex;
           const className = [
             'gb-choice',
+            // 보기 색은 네 가지를 돌려 쓴다. 번호를 함께 보여 주므로 색만으로 구분하지 않는다.
+            `gb-choice--c${(choiceIndex % 4) + 1}`,
             isChosen ? 'gb-choice--chosen' : '',
             isAnswer ? 'gb-choice--answer' : '',
             answerRevealed && isChosen && !isAnswer ? 'gb-choice--wrong' : '',
@@ -199,7 +203,10 @@ export function GoldenBellMission({
               aria-checked={isChosen}
               className={className}
               disabled={!canAnswer}
-              onClick={() => setSelections((values) => ({ ...values, [current.id]: choiceIndex }))}
+              onClick={() => {
+                playEffect('tap');
+                setSelections((values) => ({ ...values, [current.id]: choiceIndex }));
+              }}
             >
               <span className="gb-choice__no number">{choiceIndex + 1}</span>
               <span className="gb-choice__text">{text}</span>

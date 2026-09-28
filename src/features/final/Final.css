@@ -1,10 +1,12 @@
 /*
  * 학급 최종 미션. 전자칠판에서 교실 뒤쪽 학생도 읽을 수 있게 글자를 크게 쓴다.
+ * 글자와 보기 크기는 화면 너비와 높이를 함께 보고 정해, 1280×800부터 1920×1080까지 한 화면에 들어오게 한다.
  */
 .final-board {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: clamp(var(--space-3), 2vh, var(--space-6));
+  flex: 1;
 }
 
 .final-board__header {
@@ -12,12 +14,14 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-5) var(--space-6);
-  border-radius: var(--radius-lg);
-  background: var(--color-stage);
-  color: var(--color-text-inverse);
-  box-shadow: var(--shadow-md);
+  gap: var(--space-4) var(--space-6);
+}
+
+.final-board__heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .final-board__class {
@@ -25,86 +29,159 @@
   align-items: center;
   gap: var(--space-2);
   margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-medium);
+  font-size: clamp(var(--font-size-lg), 1.7vw, 2rem);
+  font-weight: var(--font-weight-heavy);
+}
+
+.final-board__class .icon {
+  color: var(--gold-400);
 }
 
 .final-board__progress {
-  margin: var(--space-1) 0 0;
-  font-size: var(--font-size-3xl);
+  margin: 0;
+  font-size: clamp(var(--font-size-2xl), min(3.2vw, 6vh), 3.75rem);
   font-weight: var(--font-weight-heavy);
   line-height: var(--line-height-tight);
+}
+
+/* 문제 번호 줄: 푼 문제는 초록, 지금 문제는 금색으로 빛난다. */
+.final-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+.final-steps__item {
+  display: grid;
+  place-items: center;
+  width: clamp(36px, 2.6vw, 52px);
+  height: clamp(36px, 2.6vw, 52px);
+  border: 3px solid var(--stage-line-strong);
+  border-radius: 50%;
+  background: var(--stage-fill);
+  color: var(--color-text-muted);
+  font-size: clamp(var(--font-size-sm), 1.2vw, var(--font-size-lg));
+  font-weight: var(--font-weight-heavy);
+}
+
+.final-steps__item--done {
+  border-color: var(--green-200);
+  background: var(--green-600);
+  color: var(--white);
+}
+
+.final-steps__item--now {
+  border-color: var(--white);
+  background: var(--gold-400);
+  color: var(--navy-900);
+  box-shadow: 0 0 24px var(--glow-gold);
+  transform: scale(1.14);
 }
 
 .final-board__meters {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
-  margin: 0;
-}
-
-.final-meter {
-  min-width: 168px;
-  padding: var(--space-3) var(--space-5);
-  border-radius: var(--radius-md);
-  background: var(--color-stage-raised);
-}
-
-.final-meter dt {
-  display: flex;
   align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  opacity: 0.85;
+  gap: var(--space-4);
+  margin: 0;
 }
 
 .final-meter dd {
   margin: 0;
-  font-size: var(--font-size-2xl);
+}
+
+.final-meter--hint {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  min-width: 168px;
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-lg);
+  background: var(--stage-fill);
+}
+
+.final-meter--hint dt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--gold-100);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.final-meter--hint dd.number {
+  font-size: clamp(var(--font-size-xl), 2.2vw, 2.75rem);
   font-weight: var(--font-weight-heavy);
   line-height: var(--line-height-tight);
 }
 
-.final-meter--warning {
-  background: var(--color-warning);
+/* 힌트는 카드로도 보여 준다. 쓴 힌트는 어둡게 바뀐다. */
+.final-meter__cards {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.final-meter__card {
+  width: clamp(28px, 2vw, 40px);
+  height: auto;
+  border: 2px solid var(--gold-400);
+  border-radius: 6px;
+  box-shadow: 0 0 12px var(--glow-gold);
+}
+
+.final-meter__card--used {
+  border-color: var(--stage-line-strong);
+  box-shadow: none;
+  filter: grayscale(1) brightness(0.5);
+}
+
+.final-meter--time .timer-ring {
+  --ring-size: clamp(120px, min(11vw, 17vh), 200px);
 }
 
 .final-board__notice {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-4);
+  justify-content: center;
+  gap: var(--space-5);
+  flex: 1;
   padding: var(--space-10) var(--space-6);
   text-align: center;
 }
 
 .final-board__notice h2 {
   margin: 0;
-  font-size: var(--font-size-xl);
+  font-size: clamp(var(--font-size-xl), 2.4vw, 2.75rem);
 }
 
 /* 문제 */
 .final-question {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
-  padding: var(--space-6);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
+  gap: clamp(var(--space-3), 2vh, var(--space-6));
+  flex: 1;
 }
 
 .final-question__area {
   margin: 0;
 }
 
+.final-question__area .badge {
+  min-height: clamp(40px, 4.4vh, 52px);
+  padding-inline: var(--space-5);
+  border: 2px solid var(--color-accent-purple);
+  font-size: clamp(var(--font-size-body), 1.3vw, 1.5rem);
+}
+
 .final-question__text {
   margin: 0;
-  font-size: var(--font-size-2xl);
+  font-size: clamp(var(--font-size-xl), min(3.3vw, 6vh), 4rem);
   font-weight: var(--font-weight-heavy);
-  line-height: 1.35;
+  line-height: 1.28;
+  text-shadow: 0 4px 20px var(--stage-drop);
   word-break: keep-all;
 }
 
@@ -114,7 +191,7 @@
   border-left: 6px solid var(--color-accent-blue);
   border-radius: var(--radius-md);
   background: var(--color-accent-blue-soft);
-  font-size: var(--font-size-xl);
+  font-size: clamp(var(--font-size-lg), min(1.9vw, 3.4vh), 2.125rem);
   line-height: 1.5;
   word-break: keep-all;
 }
@@ -129,18 +206,24 @@
 .final-question__image {
   display: block;
   max-width: 100%;
-  max-height: min(52vh, 640px);
+  max-height: min(46vh, 640px);
   border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
+  /* 문제 그림은 밝은 바탕에 맞춰 그렸으므로 흰 판 위에 올린다. */
+  background: var(--white);
+  box-shadow: var(--shadow-md);
   object-fit: contain;
+}
+
+/* 글이나 그림이 함께 있는 문제는 글자와 보기를 줄여 한 화면에 담는다. */
+.final-question--rich .final-question__text {
+  font-size: clamp(var(--font-size-lg), min(2.3vw, 4.2vh), 2.75rem);
 }
 
 .final-choices {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-  margin: 0;
+  gap: clamp(var(--space-3), 1.6vh, var(--space-6));
+  margin: auto 0 0;
   padding: 0;
   border: 0;
   min-inline-size: 0;
@@ -151,29 +234,55 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-4);
-  min-height: 112px;
-  padding: var(--space-4) var(--space-5);
-  border: 3px solid var(--color-border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  color: var(--color-text);
+  gap: clamp(var(--space-3), 1.4vw, var(--space-6));
+  min-height: clamp(80px, 12vh, 140px);
+  padding: var(--space-3) clamp(var(--space-4), 1.6vw, var(--space-8));
+  border: 4px solid transparent;
+  border-radius: var(--radius-xl);
+  background: var(--choice-bg, var(--color-surface));
+  box-shadow: var(--choice-shade), var(--shadow-md);
+  color: var(--white);
   font: inherit;
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  line-height: 1.35;
+  font-size: clamp(var(--font-size-lg), min(2.2vw, 4vh), 2.625rem);
+  font-weight: var(--font-weight-heavy);
+  line-height: 1.3;
   text-align: left;
   word-break: keep-all;
   cursor: pointer;
   transition:
     border-color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    filter var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
 }
 
+.final-choice--c1 {
+  --choice-bg: var(--choice-1);
+  --choice-ink: var(--choice-1-ink);
+}
+
+.final-choice--c2 {
+  --choice-bg: var(--choice-2);
+  --choice-ink: var(--choice-2-ink);
+}
+
+.final-choice--c3 {
+  --choice-bg: var(--choice-3);
+  --choice-ink: var(--choice-3-ink);
+}
+
+.final-choice--c4 {
+  --choice-bg: var(--choice-4);
+  --choice-ink: var(--choice-4-ink);
+}
+
+.final-question--rich .final-choice {
+  min-height: clamp(72px, 9vh, 104px);
+  font-size: clamp(var(--font-size-body), min(1.8vw, 3.2vh), 2rem);
+}
+
 .final-choice:hover:not(:disabled) {
-  border-color: var(--color-accent-blue);
-  background: var(--color-accent-blue-soft);
+  filter: brightness(1.08);
 }
 
 .final-choice:active:not(:disabled) {
@@ -181,20 +290,31 @@
 }
 
 .final-choice:focus-visible {
-  outline: 4px solid var(--color-focus);
+  outline: 4px solid var(--white);
   outline-offset: 3px;
+}
+
+.final-choice:disabled {
+  cursor: not-allowed;
 }
 
 .final-choice__no {
   display: grid;
   flex: none;
   place-items: center;
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-sunken);
-  font-size: var(--font-size-xl);
+  width: clamp(52px, 4.6vw, 84px);
+  height: clamp(52px, 4.6vw, 84px);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  color: var(--choice-ink, var(--navy-900));
+  font-size: clamp(var(--font-size-xl), 2.4vw, 2.875rem);
   font-weight: var(--font-weight-heavy);
+}
+
+.final-question--rich .final-choice__no {
+  width: clamp(48px, 3.4vw, 64px);
+  height: clamp(48px, 3.4vw, 64px);
+  font-size: clamp(var(--font-size-lg), 1.8vw, 2.125rem);
 }
 
 .final-choice__label {
@@ -202,15 +322,13 @@
   min-width: 6em;
 }
 
+/* 고른 보기는 흰 테두리와 빛, 체크 표시로 알린다. */
 .final-choice--selected {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  box-shadow: var(--shadow-glow-primary);
-}
-
-.final-choice--selected .final-choice__no {
-  background: var(--color-primary);
-  color: var(--color-text-inverse);
+  border-color: var(--white);
+  box-shadow:
+    var(--choice-shade),
+    0 0 0 6px var(--glow-white),
+    0 0 40px var(--glow-blue);
 }
 
 /* 선택 표시는 보기 글자를 밀어내지 않게 오른쪽 위 모서리에 둔다. */
@@ -218,14 +336,22 @@
   position: absolute;
   top: var(--space-2);
   right: var(--space-2);
-  color: var(--color-primary);
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--choice-ink, var(--color-primary));
 }
 
 .final-choice--removed {
   border-style: dashed;
+  border-color: var(--stage-line-strong);
   background: var(--color-surface-sunken);
+  box-shadow: none;
   color: var(--color-text-subtle);
-  cursor: not-allowed;
+}
+
+.final-choice--removed .final-choice__no {
+  background: var(--stage-fill);
+  color: var(--color-text-subtle);
 }
 
 .final-choice--removed .final-choice__label {
@@ -237,7 +363,6 @@
   display: flex;
   flex: 0 0 100%;
   align-items: center;
-  padding-left: calc(56px + var(--space-4));
   gap: var(--space-1);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
@@ -251,19 +376,31 @@
 }
 
 .final-question__actions > * {
-  flex: 1 1 340px;
+  flex: 0 1 auto;
+  min-width: min(100%, 300px);
+  min-height: clamp(var(--button-height), 8vh, 92px);
+  padding-inline: clamp(var(--space-6), 2.4vw, var(--space-12));
+  font-size: clamp(var(--font-size-lg), min(1.8vw, 3.2vh), 2.125rem);
+}
+
+.final-question__note {
+  font-size: clamp(var(--font-size-sm), 1.2vw, var(--font-size-lg));
 }
 
 /* 제출 뒤 */
 .final-finished {
   position: relative;
   display: grid;
-  min-height: 420px;
+  flex: 1;
+  min-height: clamp(420px, 56vh, 720px);
   overflow: hidden;
+  border: 3px solid var(--gold-400);
   border-radius: var(--radius-xl);
   background: var(--color-stage);
   color: var(--color-text-inverse);
-  box-shadow: var(--shadow-lg);
+  box-shadow:
+    0 0 0 6px var(--glow-gold-soft),
+    var(--shadow-lg);
 }
 
 .final-finished__image {
@@ -281,7 +418,7 @@
   align-items: flex-start;
   justify-content: flex-end;
   gap: var(--space-3);
-  padding: var(--space-8);
+  padding: clamp(var(--space-6), 3vw, var(--space-12));
   background: linear-gradient(180deg, transparent 0%, var(--final-hero-shade) 55%);
 }
 
@@ -290,26 +427,27 @@
   align-items: center;
   gap: var(--space-2);
   margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-medium);
+  font-size: clamp(var(--font-size-lg), 1.6vw, 1.875rem);
+  font-weight: var(--font-weight-bold);
 }
 
 .final-finished__title {
   margin: 0;
-  font-size: var(--font-size-3xl);
+  font-size: clamp(var(--font-size-2xl), min(4vw, 7vh), 4.5rem);
   font-weight: var(--font-weight-heavy);
   line-height: var(--line-height-tight);
+  animation: final-count-pop var(--duration-slow) var(--ease-bounce);
 }
 
 .final-finished__time,
 .final-finished__score,
 .final-finished__hidden {
   margin: 0;
-  font-size: var(--font-size-xl);
+  font-size: clamp(var(--font-size-xl), 2vw, 2.25rem);
 }
 
 .final-finished__score strong {
-  font-size: var(--font-size-3xl);
+  font-size: clamp(var(--font-size-3xl), 4vw, 4.5rem);
   color: var(--gold-400);
 }
 
@@ -317,7 +455,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--font-size-lg);
+  font-size: clamp(var(--font-size-lg), 1.5vw, 1.75rem);
   opacity: 0.92;
 }
 
@@ -343,9 +481,11 @@
 
 .final-countdown__number {
   margin: 0;
+  color: var(--gold-400);
   font-size: clamp(7rem, 28vw, 16rem);
   font-weight: var(--font-weight-heavy);
   line-height: 1;
+  text-shadow: 0 0 60px var(--glow-gold);
   animation: final-count-pop var(--duration-slow) var(--ease-bounce);
 }
 
@@ -400,64 +540,14 @@
     grid-template-columns: 1fr;
   }
 
-  .final-board__progress,
-  .final-finished__title {
-    font-size: var(--font-size-2xl);
-  }
-
-  .final-question__text {
-    font-size: var(--font-size-xl);
-  }
-}
-
-/* 낮은 화면(1280×800 전자칠판 등)에서도 보기 4개와 버튼이 스크롤 없이 한 화면에 들어오게 한다. */
-@media (max-height: 900px) and (min-width: 761px) {
-  .final-board {
-    gap: var(--space-3);
-  }
-
-  .final-board__header {
-    padding: var(--space-3) var(--space-5);
-  }
-
-  .final-board__progress {
-    font-size: var(--font-size-2xl);
-  }
-
-  .final-meter {
-    padding: var(--space-2) var(--space-4);
-  }
-
-  .final-meter dd {
-    font-size: var(--font-size-xl);
-  }
-
-  .final-question {
-    gap: var(--space-3);
-    padding: var(--space-4) var(--space-5);
-  }
-
-  .final-question__text {
-    font-size: var(--font-size-xl);
-  }
-
-  .final-question__passage {
-    padding: var(--space-2) var(--space-4);
-    font-size: var(--font-size-lg);
-  }
-
-  .final-choices {
-    gap: var(--space-3);
-  }
-
-  .final-choice {
-    min-height: 80px;
-    padding: var(--space-2) var(--space-4);
+  .final-steps {
+    display: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .final-countdown__number {
+  .final-countdown__number,
+  .final-finished__title {
     animation: none;
   }
 

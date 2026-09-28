@@ -1,10 +1,12 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { Navigate, useParams } from 'react-router';
 import { paths } from '../../app/paths';
+import { useSettings } from '../../app/SettingsContext';
 import { missionImageKeys } from '../../assets/manifest';
 import { AppHeader } from '../../components/AppHeader';
 import { AssetImage } from '../../components/AssetImage';
 import { ButtonLink } from '../../components/Button';
+import { Confetti } from '../../components/Confetti';
 import { Icon } from '../../components/Icon';
 import { ErrorView, LoadingView } from '../../components/StateViews';
 import type { CheckInOutcome } from '../../data/EventRepository';
@@ -59,7 +61,14 @@ function CheckInResult({
   outcome: CheckInOutcome;
 }) {
   const repository = useRepository();
+  const { playEffect } = useSettings();
   const { kind, expectedMission, scannedMission, nextMission, roundNo } = outcome;
+
+  // 입장은 밝은 소리로, 다른 교실 QR은 낮은 소리로 알린다.
+  useEffect(() => {
+    if (kind === 'checked_in') playEffect('arrive');
+    else if (kind === 'wrong_station') playEffect('error');
+  }, [kind, playEffect]);
 
   if (kind === 'finished') {
     // 이미 지나간 라운드의 교실 QR을 다시 찍었다.
@@ -156,7 +165,12 @@ function CheckInResult({
     repository.serverNow() - outcome.state.checkedInAt < JUST_CHECKED_IN_MS;
   const already = kind === 'already_checked_in' && !justNow;
   return (
-    <section className="check-in" aria-labelledby="check-in-title" role="status">
+    <section
+      className={`check-in${already ? '' : ' check-in--arrived'}`}
+      aria-labelledby="check-in-title"
+      role="status"
+    >
+      {already ? null : <Confetti count={24} />}
       <AssetImage
         asset={missionImageKeys[expectedMission.type]}
         decorative

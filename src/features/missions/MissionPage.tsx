@@ -10,6 +10,7 @@ import { useMissionLiveState } from '../../hooks/useMissionLiveState';
 import { useTeamContext } from '../tour/teamContext';
 import { DrawingMission } from './drawing/DrawingMission';
 import { ErrorHuntMission } from './errorHunt/ErrorHuntMission';
+import { GameStartSplash } from './GameStartSplash';
 import { GoldenBellMission } from './goldenBell/GoldenBellMission';
 import { LibraryCheckMission } from './libraryCheck/LibraryCheckMission';
 import type { MissionScreenProps } from './missionTypes';
@@ -40,13 +41,24 @@ export function MissionPage() {
     if (loaded) view.reload();
   }
 
+  const phase = loaded
+    ? getMissionPhase({
+        event,
+        grade: team.grade,
+        missionRound: loaded.roundNo,
+        roundStatus: loaded.roundStatus,
+        submission: loaded.submission,
+        finalized: loaded.finalized,
+      })
+    : null;
+
   return (
     <>
       <AppHeader backTo={paths.teamHome(eventId, team.id)} subtitle={team.displayName} />
-      <main className="page">
+      <main className="page page--mission">
         {view.status === 'loading' ? <LoadingView label="미션을 준비하고 있어요" /> : null}
         {view.status === 'error' ? <ErrorView error={view.error} onRetry={view.reload} /> : null}
-        {view.status === 'success' ? (
+        {view.status === 'success' && phase !== null ? (
           <MissionScreen
             // 제출 상태가 바뀌면(제출 완료, 재제출 허용) 화면 입력값을 새 상태에서 다시 시작한다.
             key={`${view.data.submission?.status ?? 'none'}-${view.data.submission?.updatedAt ?? 0}`}
@@ -54,16 +66,10 @@ export function MissionPage() {
             view={view.data}
             event={event}
             onSubmitted={view.reload}
-            phase={getMissionPhase({
-              event,
-              grade: team.grade,
-              missionRound: view.data.roundNo,
-              roundStatus: view.data.roundStatus,
-              submission: view.data.submission,
-              finalized: view.data.finalized,
-            })}
+            phase={phase}
           />
         ) : null}
+        <GameStartSplash phase={phase} />
       </main>
     </>
   );

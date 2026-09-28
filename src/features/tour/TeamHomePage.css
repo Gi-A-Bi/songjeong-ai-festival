@@ -1,73 +1,195 @@
+/*
+ * 팀 홈. 왼쪽에 지금 갈 미션, 오른쪽에 다섯 교실을 잇는 미션 지도, 아래에 우리 반 카드 줄을 둔다.
+ * 1280×800 태블릿에서 스크롤 없이 한 화면에 들어오게 높이를 잡는다.
+ */
 .team-home {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
+  grid-template-areas:
+    'focus map'
+    'tray tray';
+  gap: var(--space-4);
+  align-items: stretch;
+  padding-block: var(--space-3) var(--space-5);
 }
 
+/* 지금 미션: 삽화가 배경이고 글은 아래쪽 어두운 부분에 올린다. */
 .team-focus {
+  position: relative;
+  grid-area: focus;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
+  min-height: 440px;
   overflow: hidden;
-  border: 4px solid var(--accent);
+  border: 3px solid var(--accent);
   border-radius: var(--radius-xl);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-lg);
+  background: var(--color-stage);
+  box-shadow:
+    0 0 0 5px var(--accent-soft),
+    var(--shadow-lg);
+  color: var(--white);
 }
 
 .team-focus__image {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 7;
+  height: 100%;
   object-fit: cover;
+  object-position: center 30%;
 }
 
-.team-focus__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-5) var(--space-6) var(--space-6);
+.team-focus__shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    transparent 22%,
+    var(--stage-panel) 56%,
+    var(--stage-panel-strong) 100%
+  );
 }
 
 .team-focus__kicker {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-5);
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  align-self: flex-start;
-  padding: var(--space-1) var(--space-4);
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-pill);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  background: var(--blue-500);
+  box-shadow: 0 6px 20px var(--glow-blue);
+  color: var(--white);
   font-weight: var(--font-weight-heavy);
 }
 
+/* 이동할 때는 걷는 아이콘과 초록, 모두 끝나면 금색으로 바뀐다. */
+.team-focus--next .team-focus__kicker,
+.team-focus--first .team-focus__kicker {
+  background: var(--green-600);
+  box-shadow: 0 6px 20px var(--color-primary-glow);
+}
+
+.team-focus--done .team-focus__kicker {
+  background: var(--gold-400);
+  box-shadow: 0 6px 20px var(--glow-gold);
+  color: var(--navy-900);
+}
+
+.team-focus__timer {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-4);
+}
+
+.team-focus__body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-6);
+}
+
 .team-focus__title {
-  font-size: var(--font-size-3xl);
+  font-size: clamp(var(--font-size-2xl), 4.4vw, 3.5rem);
+  line-height: 1.1;
+  text-shadow: 0 4px 18px var(--stage-drop);
 }
 
 .team-focus__room {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+  color: var(--blue-100);
   font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
 }
 
 .team-focus__room strong {
-  color: var(--accent-ink);
+  color: var(--white);
+  font-weight: var(--font-weight-heavy);
+}
+
+/* 입장 안내와 버튼을 한 줄에 둔다. 안내가 길면 버튼이 아래로 내려간다. */
+.team-focus__body:has(.team-focus__arrival) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-4);
+}
+
+.team-focus__body:has(.team-focus__arrival) > .team-focus__title,
+.team-focus__body:has(.team-focus__arrival) > .team-focus__room {
+  grid-column: 1 / -1;
+}
+
+.team-focus__arrival {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--button-height);
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 2px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--stage-panel);
+  color: var(--color-info);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.4;
+}
+
+.team-focus__arrival .icon {
+  width: var(--icon-size-lg);
+  height: var(--icon-size-lg);
+}
+
+.team-focus__arrival--done {
+  border-color: var(--color-success);
+  color: var(--color-primary-active);
+}
+
+.team-focus__arrival--warning {
+  border-color: var(--orange-400);
+  color: var(--orange-100);
+}
+
+.team-focus__arrival--warning .icon {
+  color: var(--orange-400);
 }
 
 .team-focus__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--space-4);
   margin-top: var(--space-2);
 }
 
-.team-home__side {
+/* 삽화 위의 미리 보기 버튼은 유리처럼 보이게 한다. */
+.team-focus__actions .btn--secondary {
+  border-color: var(--stage-line-strong);
+  background: var(--stage-panel);
+  color: var(--white);
+}
+
+/* 미션 지도 */
+.team-map {
+  grid-area: map;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--stage-fill);
+}
+
+.team-map .section-title {
+  font-size: var(--font-size-lg);
 }
 
 .team-progress__count {
@@ -75,85 +197,136 @@
   color: var(--color-primary);
 }
 
-.team-progress__list {
+.team-map__list {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
+  justify-content: space-between;
+  gap: var(--space-1);
+  flex: 1;
+  margin-top: var(--space-2);
   list-style: none;
 }
 
-.team-progress__item {
+/* 교실과 교실을 잇는 점선 길 */
+.team-map__list::before {
+  content: '';
+  position: absolute;
+  top: 36px;
+  bottom: 36px;
+  left: 35px;
+  width: 4px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    180deg,
+    var(--stage-line-strong) 0 8px,
+    transparent 8px 16px
+  );
+}
+
+.team-map__node {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: var(--button-height);
-  padding: var(--space-2) var(--space-3);
-  border: 2px solid var(--color-border);
+  min-height: 72px;
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-2);
+  border: 2px solid transparent;
   border-radius: var(--radius-lg);
   color: inherit;
   font-weight: var(--font-weight-bold);
   text-decoration: none;
 }
 
-.team-progress__item:hover {
-  background: var(--color-surface-muted);
+.team-map__node:hover {
+  background: var(--stage-fill);
 }
 
-.team-progress__item--now {
+.team-map__dot {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin-inline: 4px;
+  border: 3px solid var(--stage-line-strong);
+  border-radius: 50%;
+  background: var(--navy-800);
+  color: var(--accent-ink);
+}
+
+.team-map__text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.team-map__name {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-heavy);
+}
+
+.team-map__room {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.team-map__node--done .team-map__dot {
+  border-color: var(--green-200);
+  background: var(--green-600);
+  color: var(--white);
+}
+
+.team-map__node--now {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
 
-.team-progress__round {
+.team-map__node--now .team-map__dot {
+  width: 60px;
+  height: 60px;
+  margin-inline: 0;
+  border-color: var(--white);
+  background: var(--accent);
+  box-shadow:
+    0 0 0 5px var(--accent-soft),
+    0 0 24px var(--accent);
+  color: var(--navy-900);
+  animation: map-beacon 2.4s var(--ease-out) infinite;
+}
+
+.team-map__node--later .team-map__name {
+  color: var(--color-text-muted);
+}
+
+/* 카드 줄 */
+.team-tray {
+  grid-area: tray;
   display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--color-stage);
-  color: var(--color-text-inverse);
-  font-size: var(--font-size-sm);
+  grid-template-columns: minmax(200px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--stage-panel);
 }
 
-.team-progress__icon {
-  color: var(--accent-ink);
-}
-
-.team-progress__name {
-  flex: 1;
-  min-width: 0;
-}
-
-.team-cards {
+.team-tray__summary {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-
-.team-focus__arrival {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--color-info-soft);
-  color: var(--color-info);
-  font-weight: var(--font-weight-bold);
-}
-
-.team-focus__arrival--done {
-  background: var(--color-success-soft);
-  color: var(--color-success);
-}
-
-.team-focus__arrival--warning {
-  background: var(--color-warning-soft);
-  color: var(--color-warning);
+  gap: var(--space-1);
+  max-width: 260px;
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
 }
 
 .team-cards__summary {
-  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-heavy);
 }
 
 .team-cards__notice {
@@ -164,12 +337,113 @@
   font-weight: var(--font-weight-bold);
 }
 
+.team-tray .progress-strip {
+  padding: 0;
+  background: transparent;
+}
+
+.team-tray .progress-strip__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: var(--space-2);
+  justify-items: start;
+  align-items: center;
+  text-align: left;
+}
+
+.team-tray .progress-strip__item .card-pieces {
+  grid-row: 1 / span 2;
+  width: 46px;
+}
+
+.team-tray .progress-strip__name {
+  align-self: end;
+  white-space: nowrap;
+}
+
+.team-tray .progress-strip__value {
+  align-self: start;
+  color: var(--gold-400);
+  white-space: nowrap;
+}
+
+.team-tray__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.team-tray__actions .btn {
+  min-height: var(--touch-min);
+}
+
+/* 고를 보상이 있으면 금색 버튼이 살짝 커졌다 작아지며 눈길을 끈다. */
+.team-tray__reward {
+  animation: tray-glow 2s var(--ease-out) infinite;
+}
+
+@keyframes map-beacon {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 5px var(--accent-soft),
+      0 0 24px var(--accent);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 10px var(--accent-soft),
+      0 0 36px var(--accent);
+  }
+}
+
+@keyframes tray-glow {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.03);
+  }
+}
+
+@media (max-width: 1100px) {
+  .team-tray {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .team-tray .progress-strip {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
 @media (max-width: 960px), (orientation: portrait) {
   .team-home {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'focus'
+      'map'
+      'tray';
   }
 
-  .team-focus__title {
-    font-size: var(--font-size-2xl);
+  .team-focus {
+    min-height: 400px;
+  }
+
+  .team-focus__body:has(.team-focus__arrival) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .team-tray {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .team-tray__summary {
+    max-width: none;
   }
 }
