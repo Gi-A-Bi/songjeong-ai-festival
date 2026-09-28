@@ -87,6 +87,31 @@ export const assets = {
     alt: '카드를 얻어 신난 로봇 마스코트',
     ...MASCOT,
   },
+  // 그리기 미션에서 감상하는 원작 명화. 저작권 보호 기간이 지난 작품이다(출처: docs/ARTWORK_CREDITS.md).
+  artworkStarryNight: {
+    src: festival('artwork-starry-night.webp'),
+    alt: '반 고흐의 〈별이 빛나는 밤〉. 소용돌이치는 밤하늘에 별과 달이 떠 있고 아래에 마을이 있다',
+    width: 1600,
+    height: 1267,
+  },
+  artworkGleaners: {
+    src: festival('artwork-gleaners.webp'),
+    alt: '밀레의 〈이삭 줍는 여인들〉. 황금빛 들판에서 세 사람이 허리를 굽혀 이삭을 줍고 있다',
+    width: 1600,
+    height: 1198,
+  },
+  artworkSsireum: {
+    src: festival('artwork-ssireum.webp'),
+    alt: '김홍도의 〈씨름〉. 가운데에서 두 사람이 씨름을 하고 구경꾼들이 둥글게 둘러앉아 있다',
+    width: 1344,
+    height: 1600,
+  },
+  artworkGrandeJatte: {
+    src: festival('artwork-grande-jatte.webp'),
+    alt: '쇠라의 〈그랑드자트섬의 일요일 오후〉. 강가 공원에서 사람들이 쉬는 모습을 작은 점으로 그렸다',
+    width: 1600,
+    height: 1065,
+  },
 } as const satisfies Record<string, AssetInfo>;
 
 export type AssetKey = keyof typeof assets;

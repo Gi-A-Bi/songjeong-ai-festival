@@ -86,10 +86,34 @@ export interface ErrorHuntConfig {
   regions: CircleRegion[];
 }
 
+/** 그리기 미션의 학년군. 같은 학년군은 같은 명화 후보를 쓴다. */
+export type DrawingGradeBand = 'grade34' | 'grade56';
+
+/** 교사 화면에 띄우는 원작 명화 이미지(asset manifest의 키) */
+export type ArtworkImageKey =
+  'artworkStarryNight' | 'artworkGleaners' | 'artworkSsireum' | 'artworkGrandeJatte';
+
+/** 명화를 AI 시대의 모습으로 재해석한 그림 프롬프트 */
+export interface DrawingPrompt {
+  id: string;
+  gradeBand: DrawingGradeBand;
+  /** 학년군 안에서의 번호(①, ②) */
+  optionNo: number;
+  artist: string;
+  artwork: string;
+  /** 감상할 때 함께 확인할 화가의 표현 기법 */
+  technique: string;
+  /** 학생에게 보여 주는 그림 프롬프트 */
+  text: string;
+  /** 원작 이미지가 없으면 제목만 보여 준다. */
+  imageKey: ArtworkImageKey | null;
+}
+
 export interface DrawingConfig {
   type: 'drawing';
-  promptId: string;
-  prompt: string;
+  prompts: DrawingPrompt[];
+  /** 학년별로 고른 프롬프트 ID. 같은 학년은 모든 라운드에서 같은 프롬프트로 그린다. */
+  selectedPromptIds: Partial<Record<Grade, string>>;
 }
 
 export interface OzobotConfig {
@@ -133,10 +157,11 @@ export interface ErrorHuntAnswer {
   remainingSeconds: number;
 }
 
-/** 그림 제출 요약. 그림 파일은 drawingSubmissions 문서에 따로 저장한다. */
+/** 그림 제출 요약. 종이 그림을 찍은 사진 파일은 drawingSubmissions 문서에 따로 저장한다. */
 export interface DrawingAnswer {
   type: 'drawing';
-  strokeCount: number;
+  /** 학생이 보고 그린 프롬프트. 예전 화면 그림판 제출에는 없다. */
+  promptId: string | null;
   mimeType: string;
   byteSize: number;
   width: number;

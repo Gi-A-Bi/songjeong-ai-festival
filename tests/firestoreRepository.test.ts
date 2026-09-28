@@ -5,6 +5,7 @@ import { FirestoreEventRepository } from '../src/data/firebase/FirestoreEventRep
 import { getFirebase } from '../src/data/firebase/firebaseApp';
 import { isRepositoryError } from '../src/data/errors';
 import type { MissionLiveState } from '../src/data/EventRepository';
+import { resolveDrawingPrompt } from '../src/domain/drawingPrompts';
 import type { FestivalEvent } from '../src/domain/types';
 
 const PROJECT_ID = 'demo-songjeong';
@@ -410,18 +411,18 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
       teamId: drawingTeam,
       answer: {
         type: 'drawing',
-        strokeCount: 3,
+        promptId: 'starry-night',
         mimeType: 'image/webp',
         byteSize: bytes.length,
         width: 960,
-        height: 540,
+        height: 720,
       },
       requestId: 'drawing-1',
       drawing: {
-        promptId: 'draw-sample-1',
+        promptId: 'starry-night',
         mimeType: 'image/webp',
         width: 960,
-        height: 540,
+        height: 720,
         bytes,
       },
     });
@@ -431,6 +432,32 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
     expect(files).toHaveLength(1);
     expect(files[0].teamId).toBe(drawingTeam);
     expect(Array.from(files[0].bytes)).toEqual(Array.from(bytes));
+  });
+
+  it('교사는 학년별 그림 프롬프트를 고르고, 학생은 자기 학년의 프롬프트를 받는다', async () => {
+    await signInAsTeacher();
+    await repository.setupEvent(DEFAULT_EVENT_ID);
+    const mission = await repository.getMission(DEFAULT_EVENT_ID, 'drawing');
+    if (mission.config.type !== 'drawing') throw new Error('그리기 미션이 아니에요');
+    expect(mission.config.prompts).toHaveLength(4);
+
+    await repository.updateMissionConfig(DEFAULT_EVENT_ID, 'drawing', {
+      ...mission.config,
+      selectedPromptIds: { 4: 'gleaners' },
+    });
+    await expect(
+      repository.updateMissionConfig(DEFAULT_EVENT_ID, 'drawing', {
+        ...mission.config,
+        selectedPromptIds: { 4: 'ssireum' },
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
+
+    await signInAsStudent();
+    await repository.joinTeam(DEFAULT_EVENT_ID, 'g4-c1-t3');
+    const view = await repository.getTeamMissionView(DEFAULT_EVENT_ID, 'g4-c1-t3', 'drawing');
+    if (view.mission.config.type !== 'drawing') throw new Error('그리기 미션이 아니에요');
+    expect(resolveDrawingPrompt(view.mission.config, 4)?.id).toBe('gleaners');
+    expect(resolveDrawingPrompt(view.mission.config, 5)?.id).toBe('ssireum');
   });
 
   it('교사는 골든벨 문제를 등록하고, 잘못된 문제는 저장하지 않는다', async () => {

@@ -1,5 +1,6 @@
 import { Bytes, Timestamp, type DocumentData, type DocumentSnapshot } from 'firebase/firestore';
 import { CARD_TYPES } from '../../domain/cards';
+import { createDefaultDrawingConfig } from '../../domain/drawingPrompts';
 import { emptyFinalSession, finalResponseId } from '../../domain/finalMission';
 import type { TeamMissionRecord } from '../../domain/tour';
 import { RepositoryError } from '../errors';
@@ -7,7 +8,9 @@ import type {
   CardAward,
   CardType,
   ClassInfo,
+  DrawingConfig,
   DrawingFile,
+  DrawingPrompt,
   FestivalEvent,
   FinalClassState,
   FinalResponse,
@@ -102,9 +105,20 @@ export const LEGACY_GOLDEN_BELL_QUESTION_ID = 'q1';
 /**
  * 예전 형식으로 저장된 설정을 지금 형식으로 바꾼다.
  * 골든벨은 처음에 문제 하나(question, choices, answerIndex)만 저장했다.
+ * 그리기는 처음에 전 학년 공통 설명 글 하나(promptId, prompt)만 저장했다.
  */
 export function normalizeMissionConfig(raw: unknown): MissionConfig {
   const config = (raw ?? {}) as Record<string, unknown>;
+  if (config.type === 'drawing') {
+    if (!Array.isArray(config.prompts) || config.prompts.length === 0) {
+      return createDefaultDrawingConfig();
+    }
+    return {
+      type: 'drawing',
+      prompts: config.prompts as DrawingPrompt[],
+      selectedPromptIds: (config.selectedPromptIds ?? {}) as DrawingConfig['selectedPromptIds'],
+    };
+  }
   if (config.type === 'golden_bell' && !Array.isArray(config.questions)) {
     const hasLegacyQuestion = typeof config.question === 'string' && Array.isArray(config.choices);
     return {
@@ -137,14 +151,16 @@ export function normalizeAnswer(raw: unknown): SubmissionAnswer {
           : {},
     };
   }
-  if (answer.type === 'drawing' && typeof answer.byteSize !== 'number') {
+  if (answer.type === 'drawing') {
+    // 예전 화면 그림판 제출에는 프롬프트 ID가, 더 예전 제출에는 파일 정보도 없다.
+    const hasFile = typeof answer.byteSize === 'number';
     return {
       type: 'drawing',
-      strokeCount: Number(answer.strokeCount ?? 0),
-      mimeType: 'image/webp',
-      byteSize: 0,
-      width: 0,
-      height: 0,
+      promptId: typeof answer.promptId === 'string' ? answer.promptId : null,
+      mimeType: hasFile ? String(answer.mimeType ?? 'image/webp') : 'image/webp',
+      byteSize: hasFile ? Number(answer.byteSize) : 0,
+      width: hasFile ? Number(answer.width ?? 0) : 0,
+      height: hasFile ? Number(answer.height ?? 0) : 0,
     };
   }
   return answer as unknown as SubmissionAnswer;

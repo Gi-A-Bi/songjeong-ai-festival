@@ -13,11 +13,20 @@ import {
   drawingZipName,
   formatBytes,
 } from '../../../domain/drawingFiles';
+import {
+  drawingArtworkLabel,
+  drawingOptionMark,
+  DRAWING_MAX_SCORE,
+  DRAWING_RUBRIC,
+  resolveDrawingPrompt,
+} from '../../../domain/drawingPrompts';
 import type { DrawingConfig, DrawingFile, Grade, Mission, RoundNo } from '../../../domain/types';
 import { useAction } from '../../../hooks/useAction';
 import { bytesToDataUrl, copyText, downloadBytes } from '../../../lib/download';
+import { labelPhoto, type LabeledPhoto } from '../../../lib/photoLabel';
 import { formatTimeOfDay } from '../../../lib/time';
 import { createZip } from '../../../lib/zip';
+import { ArtworkDialog } from './ArtworkDialog';
 
 interface DrawingGalleryProps {
   eventId: string;
@@ -25,12 +34,15 @@ interface DrawingGalleryProps {
   config: DrawingConfig;
   grade: Grade;
   round: RoundNo;
+  /** 한 라운드의 활동 시간(분). 운영 순서 안내에 쓴다. */
+  roundMinutes: number;
   participants: MissionParticipant[];
 }
 
 /**
- * 제출 그림 모아보기·내려받기와 AI 평가 요청문.
- * 그림 파일은 용량이 커서 선생님이 누를 때만 읽는다.
+ * 이번 학년의 명화 프롬프트, 제출한 그림 사진 모아보기·내려받기, AI 심사 요청문.
+ * 사진 파일은 용량이 커서 선생님이 누를 때만 읽는다.
+ * 내려받는 사진에는 팀 이름표를 붙여, 생성형 AI가 팀별 점수표를 만들 때 어느 팀 그림인지 알 수 있게 한다.
  */
 export function DrawingGallery({
   eventId,
@@ -38,11 +50,16 @@ export function DrawingGallery({
   config,
   grade,
   round,
+  roundMinutes,
   participants,
 }: DrawingGalleryProps) {
   const repository = useRepository();
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const drawingPrompt = resolveDrawingPrompt(config, grade);
+  const [artworkOpen, setArtworkOpen] = useState(false);
   const [files, setFiles] = useState<DrawingFile[] | null>(null);
+  /** 팀 이름표를 붙인 사진(팀 ID별). 만들지 못한 팀은 원래 사진을 쓴다. */
+  const [labeled, setLabeled] = useState<Record<string, LabeledPhoto>>({});
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
 
   const load = useAction(
@@ -65,34 +82,59 @@ export function DrawingGallery({
         .map((participant) => {
           const file = files?.find((item) => item.teamId === participant.team.id) ?? null;
           const answer = participant.submission?.answer;
+          const original =
+            file && file.bytes.length > 0 ? { bytes: file.bytes, mimeType: file.mimeType } : null;
+          const label = original ? (labeled[participant.team.id] ?? null) : null;
+          const photo = label ?? original;
           const mimeType =
-            file?.mimeType ?? (answer?.type === 'drawing' ? answer.mimeType : 'image/webp');
+            photo?.mimeType ?? (answer?.type === 'drawing' ? answer.mimeType : 'image/webp');
           return {
             participant,
             file,
+            photo,
+            hasLabel: label !== null,
             fileName: drawingFileName(participant.team, round, mimeType),
-            src: file && file.bytes.length > 0 ? bytesToDataUrl(file.bytes, file.mimeType) : null,
+            src: photo ? bytesToDataUrl(photo.bytes, photo.mimeType) : null,
           };
         }),
-    [participants, files, round],
+    [participants, files, labeled, round],
   );
 
+  const downloadable = cards.filter((card) => card.photo !== null);
+  /** 이름표를 붙이지 못한 사진이 하나라도 있으면 첨부 순서와 파일 이름으로 팀을 알아보게 한다. */
+  const allLabeled = downloadable.every((card) => card.hasLabel);
+  // 사진을 불러온 뒤에는 실제로 내려받는 사진만 요청문에 적어, 첨부하는 장수와 요청문이 어긋나지 않게 한다.
+  const judged = files === null ? cards : downloadable;
   const prompt = buildDrawingEvaluationPrompt({
-    description: config.prompt,
-    fileNames: cards.map((card) => card.fileName),
+    description: drawingPrompt?.text ?? '',
+    teams: judged.map((card) => ({
+      name: card.participant.team.displayName,
+      fileName: card.fileName,
+    })),
+    labeled: allLabeled,
   });
-  const downloadable = cards.filter((card) => card.file && card.file.bytes.length > 0);
 
   const handleLoad = async () => {
     const result = await load.run();
-    if (result?.ok) setFiles(result.value);
+    if (!result?.ok) return;
+    const loaded = result.value;
+    const entries = await Promise.all(
+      loaded.map(async (file) => {
+        const team = participants.find((item) => item.team.id === file.teamId)?.team;
+        if (!team || file.bytes.length === 0) return null;
+        const photo = await labelPhoto(file.bytes, file.mimeType, team.displayName);
+        return photo ? ([file.teamId, photo] as const) : null;
+      }),
+    );
+    setLabeled(Object.fromEntries(entries.filter((entry) => entry !== null)));
+    setFiles(loaded);
   };
 
   const handleZip = () => {
     const zip = createZip(
       downloadable.map((card) => ({
         name: card.fileName,
-        data: card.file?.bytes ?? new Uint8Array(),
+        data: card.photo?.bytes ?? new Uint8Array(),
         modifiedAt: card.file?.submittedAt ? new Date(card.file.submittedAt) : undefined,
       })),
     );
@@ -106,9 +148,45 @@ export function DrawingGallery({
 
   return (
     <section className="panel stack" aria-labelledby="drawing-gallery-title">
+      <div className="prompt-now">
+        <div className="teacher-title">
+          <h2 className="section-title">
+            <Icon name="museum" /> {grade}학년 그림 프롬프트
+          </h2>
+          <Button
+            variant="accent"
+            icon="fullscreen"
+            disabled={drawingPrompt === null}
+            onClick={() => setArtworkOpen(true)}
+          >
+            명화 크게 보기
+          </Button>
+        </div>
+        {drawingPrompt ? (
+          <>
+            <p className="prompt-now__artwork">
+              {drawingOptionMark(drawingPrompt)} {drawingArtworkLabel(drawingPrompt)}
+            </p>
+            <p className="prompt-now__text">{drawingPrompt.text}</p>
+          </>
+        ) : (
+          <InlineAlert tone="warning">
+            이 학년이 그릴 그림 프롬프트가 없어요. “프롬프트 고르기”에서 확인해 주세요.
+          </InlineAlert>
+        )}
+        <ol className="prompt-box__steps">
+          <li>“명화 크게 보기”를 전자칠판에 띄워 1분 동안 함께 감상하고 표현 기법을 확인해요.</li>
+          <li>
+            학생은 프롬프트의 조건을 지켜 종이에 그려요. 라운드는 {roundMinutes}분이에요. 끝나기 2분
+            전에는 사진을 찍도록 알려 주세요.
+          </li>
+          <li>팀에서 고른 그림 1장을 팀 기기로 찍어 제출해요. 이름과 얼굴이 나오면 안 돼요.</li>
+        </ol>
+      </div>
+
       <div className="teacher-title">
         <h2 id="drawing-gallery-title" className="section-title">
-          <Icon name="brush" /> 제출 그림
+          <Icon name="brush" /> 제출한 그림 사진
           <StatusBadge tone="info" icon="groups">
             제출 {cards.length}/{participants.length}
           </StatusBadge>
@@ -134,15 +212,15 @@ export function DrawingGallery({
         <InlineAlert tone="danger">{toUserMessage(load.error)}</InlineAlert>
       ) : null}
       {cards.length === 0 ? (
-        <p className="muted">아직 그림을 제출한 팀이 없어요.</p>
+        <p className="muted">아직 그림 사진을 제출한 팀이 없어요.</p>
       ) : files === null ? (
         <p className="muted">
-          그림 파일은 용량이 커서 “그림 불러오기”를 누를 때만 읽어요. 새로 제출한 팀이 있으면 다시
+          사진 파일은 용량이 커서 “그림 불러오기”를 누를 때만 읽어요. 새로 제출한 팀이 있으면 다시
           불러와 주세요.
         </p>
       ) : (
         <ul className="drawing-gallery">
-          {cards.map(({ participant, file, fileName, src }) => (
+          {cards.map(({ participant, file, photo, fileName, src }) => (
             <li key={participant.team.id} className="drawing-card">
               {src ? (
                 <img
@@ -162,7 +240,7 @@ export function DrawingGallery({
                   {formatTimeOfDay(
                     file?.submittedAt ?? participant.submission?.submittedAt ?? null,
                   )}
-                  {file ? ` · ${formatBytes(file.byteSize)}` : ''}
+                  {photo ? ` · ${formatBytes(photo.bytes.length)}` : ''}
                 </span>
                 {src ? (
                   <a
@@ -182,26 +260,58 @@ export function DrawingGallery({
 
       <div className="prompt-box">
         <h3 className="section-title">
-          <Icon name="smart_toy" /> AI 평가 요청문
+          <Icon name="smart_toy" /> AI 심사 요청문
         </h3>
         <ol className="prompt-box__steps">
-          <li>“모두 내려받기”로 ZIP 파일을 받아 압축을 풀어요.</li>
-          <li>아래 요청문을 복사해 사용하는 생성형 AI에 붙여 넣고, 그림 파일을 모두 첨부해요.</li>
-          <li>AI 결과는 참고만 하고, 점수와 순위는 아래 표에서 선생님이 정해요.</li>
+          <li>
+            “그림 불러오기”를 누른 뒤 “모두 내려받기”로 ZIP 파일을 받아 압축을 풀어요. 사진 아래에는
+            팀 이름표가 붙어 있어요.
+          </li>
+          <li>
+            “요청문 복사”를 누르고 선생님이 쓰는 생성형 AI 채팅창에 붙여 넣은 뒤, 사진을 모두 첨부해
+            보내요. 생성형 AI는 선생님만 조작해요.
+          </li>
+          <li>
+            AI 답변 맨 위에 <strong>팀별 점수표</strong>가 나와요. 표를 보고 아래 채점표에서 팀마다
+            영역별 점수를 골라 주세요.
+          </li>
+          <li>
+            AI가 센 개수나 위치가 실제 그림과 같은지 학생들과 확인해요. AI의 판단도 틀릴 수 있어요.
+          </li>
+          <li>
+            AI 결과는 참고만 하고, 점수({DRAWING_MAX_SCORE}점 만점)와 순위는 아래 표에서 선생님이
+            정해요.
+          </li>
         </ol>
+        {files !== null && !allLabeled ? (
+          <InlineAlert tone="warning">
+            이 기기에서는 사진에 팀 이름표를 붙이지 못했어요. 요청문에 적힌 순서대로 사진을 첨부해
+            주세요.
+          </InlineAlert>
+        ) : null}
+        <ul className="rubric-list" aria-label="AI 심사 기준">
+          {DRAWING_RUBRIC.map((item) => (
+            <li key={item.id}>
+              <strong>
+                {item.name} {item.max}점
+              </strong>{' '}
+              {item.description}
+            </li>
+          ))}
+        </ul>
         <textarea
           ref={promptRef}
           className="text-input prompt-box__text"
-          aria-label="AI 평가 요청문"
+          aria-label="AI 심사 요청문"
           readOnly
-          rows={12}
+          rows={14}
           value={prompt}
         />
         <div className="cluster">
           <Button
             icon="content_copy"
             onClick={() => void handleCopy()}
-            disabled={cards.length === 0}
+            disabled={judged.length === 0 || drawingPrompt === null}
           >
             요청문 복사
           </Button>
@@ -217,6 +327,11 @@ export function DrawingGallery({
           ) : null}
         </div>
       </div>
+
+      <ArtworkDialog
+        prompt={artworkOpen ? drawingPrompt : null}
+        onClose={() => setArtworkOpen(false)}
+      />
     </section>
   );
 }

@@ -10,6 +10,7 @@ import arrowForward from '@material-symbols/svg-400/rounded/arrow_forward.svg?ra
 import arrowUpward from '@material-symbols/svg-400/rounded/arrow_upward.svg?raw';
 import bolt from '@material-symbols/svg-400/rounded/bolt.svg?raw';
 import brush from '@material-symbols/svg-400/rounded/brush.svg?raw';
+import cameraswitch from '@material-symbols/svg-400/rounded/cameraswitch.svg?raw';
 import celebration from '@material-symbols/svg-400/rounded/celebration.svg?raw';
 import centerFocusStrong from '@material-symbols/svg-400/rounded/center_focus_strong.svg?raw';
 import check from '@material-symbols/svg-400/rounded/check.svg?raw';
@@ -49,10 +50,12 @@ import login from '@material-symbols/svg-400/rounded/login.svg?raw';
 import logout from '@material-symbols/svg-400/rounded/logout.svg?raw';
 import meetingRoom from '@material-symbols/svg-400/rounded/meeting_room.svg?raw';
 import menuBook from '@material-symbols/svg-400/rounded/menu_book.svg?raw';
+import museum from '@material-symbols/svg-400/rounded/museum.svg?raw';
 import notificationsActive from '@material-symbols/svg-400/rounded/notifications_active.svg?raw';
 import palette from '@material-symbols/svg-400/rounded/palette.svg?raw';
 import pause from '@material-symbols/svg-400/rounded/pause.svg?raw';
 import pending from '@material-symbols/svg-400/rounded/pending.svg?raw';
+import photoCamera from '@material-symbols/svg-400/rounded/photo_camera.svg?raw';
 import playArrow from '@material-symbols/svg-400/rounded/play_arrow.svg?raw';
 import playingCards from '@material-symbols/svg-400/rounded/playing_cards.svg?raw';
 import print from '@material-symbols/svg-400/rounded/print.svg?raw';
@@ -62,6 +65,7 @@ import quiz from '@material-symbols/svg-400/rounded/quiz.svg?raw';
 import refresh from '@material-symbols/svg-400/rounded/refresh.svg?raw';
 import restartAlt from '@material-symbols/svg-400/rounded/restart_alt.svg?raw';
 import rocketLaunch from '@material-symbols/svg-400/rounded/rocket_launch.svg?raw';
+import rotateRight from '@material-symbols/svg-400/rounded/rotate_right.svg?raw';
 import save from '@material-symbols/svg-400/rounded/save.svg?raw';
 import schedule from '@material-symbols/svg-400/rounded/schedule.svg?raw';
 import school from '@material-symbols/svg-400/rounded/school.svg?raw';
@@ -98,6 +102,7 @@ const RAW_ICONS = {
   arrow_upward: arrowUpward,
   bolt,
   brush,
+  cameraswitch,
   celebration,
   center_focus_strong: centerFocusStrong,
   check,
@@ -137,10 +142,12 @@ const RAW_ICONS = {
   logout,
   meeting_room: meetingRoom,
   menu_book: menuBook,
+  museum,
   notifications_active: notificationsActive,
   palette,
   pause,
   pending,
+  photo_camera: photoCamera,
   play_arrow: playArrow,
   playing_cards: playingCards,
   print,
@@ -150,6 +157,7 @@ const RAW_ICONS = {
   refresh,
   restart_alt: restartAlt,
   rocket_launch: rocketLaunch,
+  rotate_right: rotateRight,
   save,
   schedule,
   school,

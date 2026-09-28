@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../../config';
+import { resolveDrawingPrompt } from '../../domain/drawingPrompts';
 import { isRepositoryError } from '../errors';
 import { MockEventRepository } from './MockEventRepository';
 import { toTeamId } from './keys';
@@ -327,11 +328,11 @@ describe('MockEventRepository', () => {
     const bytes = new Uint8Array([9, 8, 7]);
     const answer = {
       type: 'drawing' as const,
-      strokeCount: 1,
+      promptId: 'starry-night',
       mimeType: 'image/webp',
       byteSize: 3,
       width: 960,
-      height: 540,
+      height: 720,
     };
     await expect(
       repository.saveSubmission({
@@ -349,10 +350,10 @@ describe('MockEventRepository', () => {
       answer,
       requestId: 'with-file',
       drawing: {
-        promptId: 'draw-sample-1',
+        promptId: 'starry-night',
         mimeType: 'image/webp',
         width: 960,
-        height: 540,
+        height: 720,
         bytes,
       },
     });
@@ -364,6 +365,39 @@ describe('MockEventRepository', () => {
     expect(files.map((file) => [file.teamId, Array.from(file.bytes)])).toEqual([
       [teamId, [9, 8, 7]],
     ]);
+  });
+
+  it('교사는 학년별 그림 프롬프트를 고를 수 있고 다른 학년군의 프롬프트는 거부한다', async () => {
+    await repository.signInTeacher();
+    const mission = await repository.getMission(EVENT, 'drawing');
+    if (mission.config.type !== 'drawing') throw new Error('그리기 미션이 아니에요');
+    expect(resolveDrawingPrompt(mission.config, 4)?.id).toBe('starry-night');
+    expect(resolveDrawingPrompt(mission.config, 6)?.id).toBe('ssireum');
+
+    await repository.updateMissionConfig(EVENT, 'drawing', {
+      ...mission.config,
+      selectedPromptIds: { 4: 'gleaners', 6: 'grande-jatte' },
+    });
+    const saved = await repository.getMission(EVENT, 'drawing');
+    if (saved.config.type !== 'drawing') throw new Error('그리기 미션이 아니에요');
+    expect(resolveDrawingPrompt(saved.config, 4)?.id).toBe('gleaners');
+    // 고르지 않은 학년은 학년군의 첫 번째 프롬프트다.
+    expect(resolveDrawingPrompt(saved.config, 3)?.id).toBe('starry-night');
+    expect(resolveDrawingPrompt(saved.config, 6)?.id).toBe('grande-jatte');
+
+    await expect(
+      repository.updateMissionConfig(EVENT, 'drawing', {
+        ...mission.config,
+        selectedPromptIds: { 3: 'ssireum' },
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
+    await expect(
+      repository.updateMissionConfig(EVENT, 'drawing', {
+        type: 'drawing',
+        prompts: [],
+        selectedPromptIds: {},
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
   });
 
   it('교사는 골든벨 문제를 바꿀 수 있고 잘못된 문제는 거부한다', async () => {

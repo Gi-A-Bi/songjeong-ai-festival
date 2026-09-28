@@ -500,7 +500,7 @@
 .drawing-card__image,
 .drawing-card__empty {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 4 / 3;
   background: var(--color-surface-muted);
 }
 
@@ -546,6 +546,190 @@
   font-family: inherit;
   font-size: var(--font-size-sm);
   line-height: 1.6;
+}
+
+/* 그리기: 이번 학년 프롬프트와 심사 기준 */
+.prompt-now {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.prompt-now__artwork {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+}
+
+.prompt-now__text {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.7;
+  word-break: keep-all;
+}
+
+.rubric-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-1) var(--space-4);
+  list-style: none;
+  font-size: var(--font-size-sm);
+}
+
+.rubric-input {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.rubric-input__item {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.rubric-input__name {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+}
+
+.rubric-input__select {
+  min-width: 52px;
+  min-height: var(--touch-min);
+  padding: 0 var(--space-1);
+  border: 2px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: var(--font-size-body);
+  text-align: center;
+}
+
+/* 그리기: 학년별 프롬프트 고르기 */
+.prompt-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  list-style: none;
+}
+
+.prompt-option {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.prompt-option__image {
+  width: 100%;
+  height: 200px;
+  background: var(--color-surface-muted);
+  object-fit: contain;
+}
+
+.prompt-option__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  line-height: 1.7;
+  word-break: keep-all;
+}
+
+.prompt-option__title {
+  font-size: var(--font-size-lg);
+}
+
+.prompt-grade {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.prompt-grade__name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 120px;
+  font-weight: var(--font-weight-heavy);
+}
+
+.prompt-grade__choice {
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-weight: var(--font-weight-bold);
+}
+
+.prompt-grade__choice[aria-checked='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-active);
+}
+
+/* 그리기: 전자칠판에 띄우는 원작 명화 */
+.artwork-view {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.artwork-view__image {
+  width: 100%;
+  height: auto;
+  max-height: calc(100dvh - 260px);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  object-fit: contain;
+}
+
+.artwork-view__empty,
+.artwork-view__technique,
+.artwork-view__label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.artwork-view__notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.artwork-view__technique {
+  font-size: var(--font-size-lg);
+}
+
+.artwork-view__label {
+  font-size: var(--font-size-lg);
+}
+
+.artwork-view__prompt {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.8;
+  word-break: keep-all;
+}
+
+@media (max-width: 960px), (orientation: portrait) {
+  .prompt-options,
+  .artwork-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .answer-list {

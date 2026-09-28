@@ -1,3 +1,4 @@
+import { DRAWING_MAX_SCORE, DRAWING_RUBRIC } from './drawingPrompts';
 import type { RoundNo, Team } from './types';
 
 /** 그림 목표 크기와 제출 차단 크기(명세 6.3) */
@@ -7,7 +8,10 @@ export const DRAWING_MAX_BYTES = 350 * 1024;
 export const DRAWING_MIME_TYPES = ['image/webp', 'image/png'] as const;
 
 export function drawingExtension(mimeType: string): string {
-  return mimeType === 'image/png' ? 'png' : 'webp';
+  if (mimeType === 'image/png') return 'png';
+  // 교사가 내려받는 팀 이름표 붙은 사진은 JPEG다.
+  if (mimeType === 'image/jpeg') return 'jpg';
+  return 'webp';
 }
 
 /** 내려받는 파일 이름. AI 평가 프롬프트의 파일 목록과 같은 이름을 쓴다. */
@@ -29,42 +33,65 @@ export function formatBytes(byteSize: number): string {
   return `${Math.round(byteSize / 1024)}KB`;
 }
 
+export interface DrawingPromptTeam {
+  /** 팀 이름표와 점수표에 쓰는 이름(예: 4학년 1반 2팀) */
+  name: string;
+  fileName: string;
+}
+
 export interface DrawingPromptInput {
-  /** 학생에게 보여 준 그림 설명 */
+  /** 학생에게 제공한 그림 프롬프트 */
   description: string;
-  fileNames: readonly string[];
+  /** 그림을 제출한 팀. 점수표의 줄 순서가 된다. */
+  teams: readonly DrawingPromptTeam[];
+  /** 내려받은 사진 아래에 팀 이름표가 붙어 있는지 */
+  labeled: boolean;
 }
 
 /**
- * 외부 생성형 AI 서비스에 붙여 넣을 평가 요청문.
- * 앱은 AI를 호출하지 않는다. 교사가 복사해 그림 파일과 함께 직접 보낸다.
+ * 외부 생성형 AI 서비스에 붙여 넣을 AI 심사용 프롬프트.
+ * 1)~4)와 [제시 문장]은 운영 계획 5장의 교사 입력용 문구 그대로다.
+ * 앱은 AI를 호출하지 않는다. 교사가 복사해 그림 사진과 함께 직접 보내고, 답변 맨 위의 팀별 점수표를 보고 점수를 입력한다.
  */
-export function buildDrawingEvaluationPrompt({ description, fileNames }: DrawingPromptInput) {
-  const files = fileNames.map((name, index) => `${index + 1}. ${name}`).join('\n');
-  return `당신은 초등학생 그림 활동의 보조 심사위원입니다.
-여러 팀이 같은 [그림 설명]을 듣고 그린 그림 파일 ${fileNames.length}개를 첨부했습니다.
-각 그림이 설명의 조건과 얼마나 일치하는지 평가해 주세요.
+export function buildDrawingEvaluationPrompt({ description, teams, labeled }: DrawingPromptInput) {
+  const base = `너는 초등학생 명화 재해석 그림 미션의 심사위원이야. 아래 [제시 문장]과 첨부한 그림을 비교해서 심사해 줘.
+1) 제시 문장의 조건을 ‘요소·수량, 위치·구도, 화풍 표현, 색채 조건, 재해석’으로 나누어 하나씩 확인하고, 지켰으면 ○, 지키지 않았으면 ×로 표시해 줘.
+2) 요소·수량 3점, 위치·구도 2점, 화풍 표현 2점, 색채 조건 2점, 재해석 1점으로 10점 만점 점수를 매기고, 점수를 준 이유를 한 줄씩 써 줘.
+3) 그림 실력이 아니라 조건을 얼마나 정확히 지켰는지만 평가하고, 사진이 흐려 판단하기 어려운 부분은 ‘판단 어려움’이라고 솔직하게 표시해 줘.
+4) 초등학생이 이해하기 쉬운 말로 칭찬 한 가지와 보완할 점 한 가지를 알려 줘.`;
+  const sentence = `[제시 문장] : ${description.trim()}`;
+  if (teams.length === 0) return `${base}\n${sentence}`;
 
-[그림 설명]
-${description.trim()}
-
-[첨부한 그림 파일]
-${files}
-
-[평가 방법]
-1. 먼저 [그림 설명]에서 그림에 꼭 들어가야 할 조건을 번호를 붙여 모두 뽑아 주세요.
-   (등장하는 대상, 개수, 색깔, 위치 관계, 크기 비교 같은 조건)
-2. 파일마다 조건을 하나씩 확인해 ○(충족), △(일부 충족), ×(없음)로 표시하고 짧은 근거를 적어 주세요.
-3. 조건 충족 정도로 100점 만점 "설명 일치도" 점수를 매겨 주세요.
-   ○는 조건 점수 전체, △는 절반, ×는 0점으로 계산하고 조건마다 점수는 같게 나눠 주세요.
-4. 그림 솜씨, 색칠의 꼼꼼함, 꾸밈은 점수에 넣지 마세요. 설명과 맞는지만 봅니다.
-5. 알아보기 어려운 부분은 초등학생 그림이라는 점을 고려해 너그럽게 판단하되, 판단이 어려우면 △로 표시하고 이유를 적어 주세요.
-6. 첨부된 파일 수가 ${fileNames.length}개가 아니거나 열리지 않는 파일이 있으면 가장 먼저 알려 주세요.
-
-[답변 형식]
-1) 뽑은 조건 목록
-2) 아래 표
-| 순위 | 파일 이름 | 설명 일치도(100점) | 충족한 조건 | 빠지거나 다른 조건 | 한 줄 평 |
-3) 마지막 줄에 "최종 순위: 파일 이름 > 파일 이름 > ..." 형식으로 정리
-   점수가 같으면 "=" 로 표시해 주세요.`;
+  const count = teams.length;
+  const identify = labeled
+    ? '그림 아래쪽 흰 띠에 적힌 글자는 팀 이름표야. 이름표는 심사하지 말고 어느 팀의 그림인지 알아보는 데만 써 줘.'
+    : '그림은 [첨부한 그림]에 적힌 순서대로 첨부했어. 파일 이름이 보이면 파일 이름으로, 보이지 않으면 첨부한 순서로 어느 팀의 그림인지 알아봐 줘.';
+  const unreadable = labeled ? '이름표를 읽을 수 없는 그림' : '어느 팀의 그림인지 알 수 없는 그림';
+  const header = [
+    '팀',
+    ...DRAWING_RUBRIC.map((item) => `${item.name}(${item.max}점)`),
+    `총점(${DRAWING_MAX_SCORE}점)`,
+  ].join(' | ');
+  const list = teams
+    .map(
+      (team, index) =>
+        `${index + 1}. ${team.name}${labeled ? '' : ` (파일 이름: ${team.fileName})`}`,
+    )
+    .join('\n');
+  const steps = [
+    `첨부한 그림은 모두 ${count}장이고 팀마다 한 장이야. ${identify}`,
+    `답변 맨 위에 아래 표와 같은 [팀별 점수표]를 먼저 보여 줘. 팀은 [첨부한 그림]에 적힌 순서대로 쓰고, 점수는 정수로만 써 줘.\n| ${header} |`,
+    ...(count > 1
+      ? [
+          '총점이 같은 팀이 있으면 점수표 바로 아래에 어느 팀이 조건을 더 정확히 지켰는지 순서와 이유를 한 줄로 써 줘.',
+        ]
+      : []),
+    '그다음에 팀별로 1)~4)의 심사 내용을 차례로 써 줘.',
+    `첨부된 그림이 ${count}장이 아니거나 ${unreadable}이 있으면 점수표보다 먼저 알려 줘.`,
+  ];
+  return `${base}
+${steps.map((step, index) => `${index + 5}) ${step}`).join('\n')}
+${sentence}
+[첨부한 그림]
+${list}`;
 }

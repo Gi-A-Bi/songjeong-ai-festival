@@ -4,10 +4,42 @@ import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../config';
 import { toTeamId } from '../data/mock/keys';
 import { MockEventRepository } from '../data/mock/MockEventRepository';
+import { labelPhoto } from '../lib/photoLabel';
 import { renderApp } from '../test/renderApp';
+
+// 테스트 환경에는 Canvas가 없어 팀 이름표 붙이기만 가짜로 바꾼다.
+vi.mock('../lib/photoLabel', () => ({ labelPhoto: vi.fn(async () => null) }));
 
 async function signedInRepository() {
   const repository = new MockEventRepository();
+  await repository.signInTeacher();
+  return repository;
+}
+
+/** 4학년 2반 2팀(2라운드 그리기, 아직 제출 전)이 그림 사진을 낸 상태의 저장소 */
+async function repositoryWithPhoto() {
+  const repository = new MockEventRepository();
+  await repository.saveSubmission({
+    eventId: DEFAULT_EVENT_ID,
+    missionId: 'drawing',
+    teamId: toTeamId(4, 2, 2),
+    answer: {
+      type: 'drawing',
+      promptId: 'starry-night',
+      mimeType: 'image/webp',
+      byteSize: 3,
+      width: 1280,
+      height: 960,
+    },
+    requestId: 'photo-1',
+    drawing: {
+      promptId: 'starry-night',
+      mimeType: 'image/webp',
+      width: 1280,
+      height: 960,
+      bytes: new Uint8Array([1, 2, 3]),
+    },
+  });
   await repository.signInTeacher();
   return repository;
 }
@@ -36,18 +68,148 @@ describe('교사 미션 운영 화면', () => {
     expect(mission.config.type === 'golden_bell' && mission.config.questions).toHaveLength(8);
   });
 
-  it('그리기 미션에서 AI 평가 요청문을 그림 설명과 파일 이름으로 만든다', async () => {
+  it('그리기 미션에서 AI 심사 요청문을 그 학년의 프롬프트와 파일 이름으로 만든다', async () => {
     const repository = await signedInRepository();
     renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
 
     const prompt = await screen.findByRole<HTMLTextAreaElement>('textbox', {
-      name: 'AI 평가 요청문',
+      name: 'AI 심사 요청문',
     });
-    expect(prompt.value).toContain('초록 언덕 위에 빨간 지붕 집');
+    // 4학년은 3~4학년 ① 〈별이 빛나는 밤〉이 기본이다.
+    expect(screen.getByText('① 반 고흐 〈별이 빛나는 밤〉')).toBeInTheDocument();
+    expect(prompt.value).toContain('[제시 문장] : 반 고흐의 〈별이 빛나는 밤〉처럼');
+    expect(prompt.value).toContain('10점 만점');
+    // 답변 맨 위에 팀별 점수표가 나오게 한다.
+    expect(prompt.value).toContain('[팀별 점수표]');
+    expect(prompt.value).toContain('| 팀 | 요소·수량(3점) |');
     // 샘플 데이터에서 2라운드 그리기는 1·3·5반 2팀이 제출했다.
-    expect(prompt.value).toContain('1. 4학년-1반-2팀_2라운드.webp');
-    expect(prompt.value).toContain('3. 4학년-5반-2팀_2라운드.webp');
+    expect(prompt.value).toContain('첨부한 그림은 모두 3장');
+    expect(prompt.value).toContain('1. 4학년 1반 2팀');
+    expect(prompt.value).toContain('3. 4학년 5반 2팀');
     expect(screen.getByRole('button', { name: /요청문 복사/ })).toBeEnabled();
+  });
+
+  it('그림을 불러오면 팀 이름표를 붙인 사진을 내려받고, 요청문에는 사진이 있는 팀만 적는다', async () => {
+    const user = userEvent.setup();
+    vi.mocked(labelPhoto).mockResolvedValueOnce({
+      bytes: new Uint8Array([7, 7, 7, 7]),
+      mimeType: 'image/jpeg',
+      width: 1280,
+      height: 1037,
+    });
+    const repository = await repositoryWithPhoto();
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
+
+    await user.click(await screen.findByRole('button', { name: '그림 불러오기' }));
+    const photo = await screen.findByRole('img', { name: '4학년 2반 2팀 그림' });
+    expect(photo).toHaveAttribute('src', expect.stringContaining('data:image/jpeg'));
+    expect(labelPhoto).toHaveBeenCalledWith(expect.any(Uint8Array), 'image/webp', '4학년 2반 2팀');
+    expect(screen.getByRole('link', { name: /내려받기/ })).toHaveAttribute(
+      'download',
+      '4학년-2반-2팀_2라운드.jpg',
+    );
+    expect(screen.getByRole('button', { name: /모두 내려받기 \(ZIP 1개\)/ })).toBeEnabled();
+
+    const prompt = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'AI 심사 요청문' });
+    // 샘플 팀은 사진 파일이 없어 요청문에서 빠진다.
+    expect(prompt.value).toContain('첨부한 그림은 모두 1장');
+    expect(prompt.value).toContain('그림 아래쪽 흰 띠에 적힌 글자는 팀 이름표야.');
+    expect(prompt.value).toMatch(/\[첨부한 그림\]\n1\. 4학년 2반 2팀$/);
+    expect(screen.queryByText(/팀 이름표를 붙이지 못했어요/)).toBeNull();
+  });
+
+  it('팀 이름표를 붙이지 못하면 원래 사진을 쓰고 첨부 순서로 팀을 알아보게 한다', async () => {
+    const user = userEvent.setup();
+    const repository = await repositoryWithPhoto();
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
+
+    await user.click(await screen.findByRole('button', { name: '그림 불러오기' }));
+    expect(await screen.findByText(/팀 이름표를 붙이지 못했어요/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /내려받기/ })).toHaveAttribute(
+      'download',
+      '4학년-2반-2팀_2라운드.webp',
+    );
+    const prompt = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'AI 심사 요청문' });
+    expect(prompt.value).toContain('1. 4학년 2반 2팀 (파일 이름: 4학년-2반-2팀_2라운드.webp)');
+    expect(prompt.value).not.toContain('이름표');
+  });
+
+  it('명화 크게 보기는 원작 그림과 표현 기법, 프롬프트를 보여 준다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
+
+    await user.click(await screen.findByRole('button', { name: /명화 크게 보기/ }));
+    const dialog = await screen.findByRole('dialog', { name: '반 고흐 〈별이 빛나는 밤〉' });
+    expect(within(dialog).getByRole('img', { name: /별이 빛나는 밤/ })).toBeInTheDocument();
+    expect(within(dialog).getByText('소용돌이치는 굵은 붓 터치')).toBeInTheDocument();
+    expect(within(dialog).getByText(/노란 별 11개/)).toBeInTheDocument();
+  });
+
+  it('학년별 그림 프롬프트를 고르면 저장되고 요청문도 바뀐다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
+
+    await user.click(await screen.findByRole('button', { name: /프롬프트 고르기/ }));
+    const grade3 = screen.getByRole('radiogroup', { name: '3학년 그림 프롬프트' });
+    expect(within(grade3).getByRole('radio', { name: /별이 빛나는 밤/ })).toBeChecked();
+    expect(screen.getByRole('button', { name: '프롬프트 저장' })).toBeDisabled();
+
+    await user.click(within(grade3).getByRole('radio', { name: /이삭 줍는 여인들/ }));
+    await user.click(screen.getByRole('button', { name: '프롬프트 저장' }));
+    expect(await screen.findByText('학년별 그림 프롬프트를 저장했어요.')).toBeInTheDocument();
+
+    const mission = await repository.getMission(DEFAULT_EVENT_ID, 'drawing');
+    expect(mission.config.type === 'drawing' && mission.config.selectedPromptIds[3]).toBe(
+      'gleaners',
+    );
+  });
+
+  it('진행 중인 학년의 프롬프트를 바꿀 때는 한 번 더 묻는다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
+
+    await user.click(await screen.findByRole('button', { name: /프롬프트 고르기/ }));
+    const grade4 = screen.getByRole('radiogroup', { name: '4학년 그림 프롬프트' });
+    await user.click(within(grade4).getByRole('radio', { name: /이삭 줍는 여인들/ }));
+    await user.click(screen.getByRole('button', { name: '프롬프트 저장' }));
+
+    const dialog = await screen.findByRole('dialog', {
+      name: '진행 중인 학년의 프롬프트를 바꿀까요?',
+    });
+    await user.click(within(dialog).getByRole('button', { name: '바꿔서 저장' }));
+    expect(await screen.findByText('학년별 그림 프롬프트를 저장했어요.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /운영·채점/ }));
+    const prompt = await screen.findByRole<HTMLTextAreaElement>('textbox', {
+      name: 'AI 심사 요청문',
+    });
+    expect(prompt.value).toContain('[제시 문장] : 밀레의 〈이삭 줍는 여인들〉');
+  });
+
+  it('그리기 채점은 영역별 점수를 고르면 합계가 들어가고 10점을 넘으면 확정할 수 없다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
+
+    const team = '4학년 1반 2팀';
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: `${team} 요소·수량 점수(3점 만점)` }),
+      '2',
+    );
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: `${team} 화풍 표현 점수(2점 만점)` }),
+      '1',
+    );
+    const score = screen.getByRole<HTMLInputElement>('textbox', { name: `${team} 점수` });
+    expect(score.value).toBe('3');
+
+    await user.clear(score);
+    await user.type(score, '70');
+    expect(screen.getByText('점수는 0~10점으로 입력해 주세요.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '순위 확정' })).toBeDisabled();
   });
 
   it('확정 전 제출은 되돌릴 수 있다', async () => {

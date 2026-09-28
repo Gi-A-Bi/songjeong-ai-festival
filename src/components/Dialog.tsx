@@ -9,7 +9,8 @@ interface DialogProps {
   onClose: () => void;
   children: ReactNode;
   footer: ReactNode;
-  size?: 'md' | 'lg';
+  /** xl은 전자칠판에 크게 띄우는 자료용이다. */
+  size?: 'md' | 'lg' | 'xl';
 }
 
 const FOCUSABLE =

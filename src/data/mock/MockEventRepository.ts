@@ -7,6 +7,7 @@ import {
   reofferCardAward,
 } from '../../domain/cards';
 import { toDeviceCode } from '../../domain/device';
+import { getDrawingConfigError } from '../../domain/drawingPrompts';
 import { getGoldenBellConfigError } from '../../domain/goldenBell';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
 import { getRankingEntryError } from '../../domain/rewards';
@@ -352,6 +353,10 @@ export class MockEventRepository implements EventRepository, DevTools {
     }
     if (config.type === 'golden_bell') {
       const error = getGoldenBellConfigError(config.questions);
+      if (error) throw new RepositoryError('invalid-input', error);
+    }
+    if (config.type === 'drawing') {
+      const error = getDrawingConfigError(config);
       if (error) throw new RepositoryError('invalid-input', error);
     }
     mission.config = clone(config);
