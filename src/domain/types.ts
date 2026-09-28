@@ -289,6 +289,31 @@ export interface TeacherProfile {
   classId: string | null;
 }
 
+/**
+ * 총괄 운영자가 이메일로 미리 등록한 교사. ID는 소문자 이메일이다.
+ * 그 Google 계정으로 처음 로그인하면 같은 역할의 교사 문서(teachers/{uid})가 만들어진다.
+ */
+export interface TeacherInvite {
+  email: string;
+  /** 비어 있으면 첫 로그인 때 Google 계정 이름을 쓴다. */
+  displayName: string;
+  role: TeacherRole;
+  missionId: string | null;
+  classId: string | null;
+  createdAt: number | null;
+}
+
+/** 등록된 교사 계정(teachers/{uid}). 총괄 운영자만 목록을 본다. */
+export interface TeacherAccount {
+  uid: string;
+  displayName: string;
+  email: string;
+  role: TeacherRole;
+  missionId: string | null;
+  classId: string | null;
+  active: boolean;
+}
+
 // ---- 팀 이동과 QR 체크인 ----
 
 export type TeamMissionStatus =

@@ -3,6 +3,7 @@ rules_version = '2';
 // 송정 AI 미션 챌린지 보안 규칙
 // - 학생: 익명 로그인. 자기 팀 제출물과 자기 팀의 교실 QR 체크인만 기록할 수 있다.
 // - 교사: Google 로그인. teachers/{uid}에 등록되고 active가 true여야 한다.
+//   총괄 운영자가 앱에서 이메일로 미리 등록하면(teacherInvites) 첫 로그인 때 교사 문서가 만들어진다.
 //   role은 admin(총괄), station_teacher(부스, missionId로 담당 지정),
 //   homeroom_teacher(담임, classId로 담당 지정)이다. 예전 값 teacher는 담당 없는 부스 교사로 본다.
 // - 순위, 카드 보상 후보, 최종 미션 기록은 학생이 바꿀 수 없다.
@@ -60,10 +61,85 @@ service cloud.firestore {
       return request.resource.data[field] == resource.data[field];
     }
 
-    // 교사 명부는 콘솔이나 관리자만 바꾼다. 본인 문서만 확인할 수 있다.
+    // ---- 교사 등록 ----
+    // 총괄 운영자가 이메일로 미리 등록(teacherInvites)하면, 그 Google 계정은 처음 로그인할 때
+    // 등록된 역할 그대로 자기 교사 문서(teachers/{uid})를 만든다. 역할을 스스로 정할 수는 없다.
+
+    // Google 로그인으로 확인된 이메일(소문자). 익명 로그인한 학생에게는 이메일이 없다.
+    function hasGoogleEmail() {
+      return isSignedIn()
+        && 'email' in request.auth.token
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function myInvite() {
+      return get(/databases/$(database)/documents/teacherInvites/$(myEmail())).data;
+    }
+
+    function isInvited() {
+      return hasGoogleEmail()
+        && exists(/databases/$(database)/documents/teacherInvites/$(myEmail()))
+        && myInvite().active == true;
+    }
+
+    function roleValid(data) {
+      return data.role in ['admin', 'station_teacher', 'homeroom_teacher']
+        && (data.missionId == null || (data.missionId is string && data.missionId.size() <= 60))
+        && (data.classId == null || (data.classId is string && data.classId.size() <= 60))
+        && data.displayName is string
+        && data.displayName.size() <= 40;
+    }
+
+    match /teacherInvites/{email} {
+      function inviteValid() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(
+            ['email', 'displayName', 'role', 'missionId', 'classId', 'active', 'createdBy', 'createdAt'])
+          && data.keys().hasAll(['email', 'displayName', 'role', 'missionId', 'classId', 'active'])
+          && data.email == email
+          && email == email.lower()
+          && email.size() <= 254
+          && data.active is bool
+          && roleValid(data);
+      }
+
+      allow get: if isAdmin() || (hasGoogleEmail() && myEmail() == email);
+      allow list, delete: if isAdmin();
+      allow create, update: if isAdmin() && inviteValid();
+    }
+
+    // 교사 명부. 본인 문서는 본인이, 목록은 총괄 운영자만 본다.
     match /teachers/{uid} {
-      allow get: if isSignedIn() && request.auth.uid == uid;
-      allow list, write: if false;
+      // 초대받은 계정의 첫 로그인: 역할과 담당은 초대장과 같아야 한다.
+      function claimValid() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(
+            ['email', 'displayName', 'role', 'missionId', 'classId', 'active', 'createdAt'])
+          && data.keys().hasAll(['email', 'displayName', 'role', 'missionId', 'classId', 'active'])
+          && data.email == myEmail()
+          && data.active == true
+          && data.role == myInvite().role
+          && data.missionId == myInvite().missionId
+          && data.classId == myInvite().classId
+          && roleValid(data);
+      }
+
+      // 총괄 운영자는 다른 교사의 사용 여부만 바꾼다. 자기 계정은 잠그지 못한다.
+      function activeOnlyChanged() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active', 'updatedAt'])
+          && request.resource.data.active is bool;
+      }
+
+      allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == uid && isInvited() && claimValid();
+      allow update: if isAdmin() && request.auth.uid != uid && activeOnlyChanged();
+      allow delete: if false;
     }
 
     match /events/{eventId} {

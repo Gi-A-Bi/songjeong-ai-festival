@@ -27,6 +27,8 @@ import type {
   SubmissionAnswer,
   Team,
   TeacherProfile,
+  TeacherAccount,
+  TeacherInvite,
   TeacherRole,
   TeamMissionState,
 } from '../domain/types';
@@ -376,6 +378,22 @@ export interface SaveSubmissionInput {
   drawing?: DrawingUpload;
 }
 
+/** 총괄 운영자가 이메일로 교사를 등록할 때의 입력. 적은 이메일 모두 같은 역할과 담당을 받는다. */
+export interface SaveTeacherInvitesInput {
+  emails: string[];
+  role: TeacherRole;
+  /** 부스 교사의 담당 미션. null이면 모든 부스를 운영할 수 있다. */
+  missionId: string | null;
+  /** 담임교사의 담당 학급 */
+  classId: string | null;
+}
+
+/** 교사 등록 현황: 이메일로 등록한 목록과 이미 로그인해 만들어진 교사 계정 */
+export interface TeacherRegistry {
+  invites: TeacherInvite[];
+  accounts: TeacherAccount[];
+}
+
 export interface ReopenSubmissionInput {
   eventId: string;
   missionId: string;
@@ -641,6 +659,18 @@ export interface EventRepository {
   restoreTeacher(): Promise<TeacherProfile | null>;
   signInTeacher(): Promise<TeacherProfile>;
   signOutTeacher(): Promise<void>;
+
+  // 교사 등록(총괄 운영자만)
+  getTeacherRegistry(): Promise<TeacherRegistry>;
+  /**
+   * 이메일로 교사를 등록한다. 그 Google 계정은 처음 로그인할 때 등록된 역할의 교사가 된다.
+   * 이미 등록한 이메일을 다시 넣으면 역할과 담당을 새 값으로 바꾼다(이미 로그인한 계정에는 적용되지 않는다).
+   */
+  saveTeacherInvites(input: SaveTeacherInvitesInput): Promise<TeacherRegistry>;
+  /** 아직 로그인하지 않은 이메일의 등록을 취소한다. */
+  deleteTeacherInvite(email: string): Promise<TeacherRegistry>;
+  /** 교사 계정을 사용 중지하거나 다시 쓰게 한다. 자기 계정은 바꿀 수 없다. */
+  setTeacherActive(uid: string, active: boolean): Promise<TeacherRegistry>;
 }
 
 /** 개발·리허설용 조작. mock 저장소에서만 제공한다. */

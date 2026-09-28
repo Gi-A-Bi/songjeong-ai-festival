@@ -39,6 +39,8 @@ import type {
   Submission,
   SubmissionAnswer,
   Team,
+  TeacherAccount,
+  TeacherInvite,
   TeacherProfile,
 } from '../../domain/types';
 import { createSeededRandom } from '../../lib/random';
@@ -98,6 +100,10 @@ export interface MockState {
   finalResponses: Record<string, FinalResponse>;
   /** 기기 ID → 팀에 입장한 기기(익명 세션) */
   devices: Record<string, MockDevice>;
+  /** 이메일로 미리 등록한 교사(소문자 이메일 → 등록 내용) */
+  teacherInvites: Record<string, TeacherInvite>;
+  /** 로그인해 만들어진 교사 계정 */
+  teacherAccounts: TeacherAccount[];
   /** requestId → 처리된 문서 ID(멱등 처리용) */
   processedRequests: Record<string, string>;
 }
@@ -896,6 +902,36 @@ export function createSeedState(now: number): MockState {
     finalClassStates,
     finalResponses,
     devices: seedDevices(teams, now),
+    teacherInvites: {
+      'booth.sample@example.com': {
+        email: 'booth.sample@example.com',
+        displayName: '',
+        role: 'station_teacher',
+        missionId: 'drawing',
+        classId: null,
+        createdAt: now - 60 * MINUTE,
+      },
+    },
+    teacherAccounts: [
+      {
+        uid: DEV_TEACHER.uid,
+        displayName: DEV_TEACHER.displayName,
+        email: 'admin.sample@example.com',
+        role: 'admin',
+        missionId: null,
+        classId: null,
+        active: true,
+      },
+      {
+        uid: 'sample-homeroom',
+        displayName: '샘플 담임 선생님',
+        email: 'homeroom.sample@example.com',
+        role: 'homeroom_teacher',
+        missionId: null,
+        classId: 'g4-c2',
+        active: true,
+      },
+    ],
     processedRequests: {},
   };
 }

@@ -10,6 +10,7 @@ import { toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
 import { useAction } from '../../hooks/useAction';
 import { FinalQuestionUploadPanel } from './FinalQuestionUploadPanel';
+import { TeacherRegistrationPanel } from './TeacherRegistrationPanel';
 import { EVENT_STATUS_BADGES, useTeacherContext } from './teacherContext';
 
 /** 행사 설정 화면. 처음 한 번 행사·학급·팀·미션 문서를 만든다. */
@@ -110,44 +111,7 @@ export function AdminPage() {
         </ButtonLink>
       </section>
 
-      <section className="panel stack" aria-labelledby="admin-teacher-title">
-        <h2 id="admin-teacher-title" className="section-title">
-          <Icon name="groups" /> 교사 계정 등록 안내
-        </h2>
-        <ol className="rule-list">
-          {/* 항목은 가로 배치(flex)라서 글과 <code>가 따로 놀지 않게 글 전체를 한 덩어리로 감싼다. */}
-          <li className="rule-list__item">
-            <span className="rule-list__no number">1</span>
-            <span>선생님이 교사용 로그인 화면에서 학교 Google 계정으로 로그인합니다.</span>
-          </li>
-          <li className="rule-list__item">
-            <span className="rule-list__no number">2</span>
-            <span>Firebase 콘솔 → Authentication에서 그 계정의 사용자 UID를 복사합니다.</span>
-          </li>
-          <li className="rule-list__item">
-            <span className="rule-list__no number">3</span>
-            <span>
-              Firestore에서 <code>teachers/&#123;UID&#125;</code> 문서를 만들고 displayName, email,
-              role, active(true)를 넣습니다. role은 총괄 <code>admin</code>, 부스{' '}
-              <code>station_teacher</code>(missionId에 담당 미션 ID), 담임{' '}
-              <code>homeroom_teacher</code>(classId에 담당 학급 ID, 예: g4-c2) 중 하나입니다.
-            </span>
-          </li>
-          <li className="rule-list__item">
-            <span className="rule-list__no number">4</span>
-            <span>
-              라운드 제어, 최종 미션 열기·결과 공개·보정은 총괄(admin) 계정만 할 수 있습니다.
-            </span>
-          </li>
-          <li className="rule-list__item">
-            <span className="rule-list__no number">5</span>
-            <span>
-              다시 로그인하면 교사 화면을 쓸 수 있습니다. 보안상 앱에서는 교사 등록을 할 수
-              없습니다.
-            </span>
-          </li>
-        </ol>
-      </section>
+      <TeacherRegistrationPanel eventId={eventId} currentUid={teacher.uid} />
 
       <ConfirmDialog
         open={confirmOpen}

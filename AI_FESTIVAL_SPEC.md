@@ -569,6 +569,21 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
 
 예전 값 role: "teacher"는 담당이 정해지지 않은 부스 교사로 취급한다.
 
+#### teacherInvites/{email}
+
+총괄 운영자가 이메일로 미리 등록한 교사다. 문서 ID는 소문자 이메일이다.
+
+    email: string              (문서 ID와 같음)
+    displayName: string        (비어 있으면 첫 로그인 때 Google 계정 이름을 쓴다)
+    role: "admin" | "station_teacher" | "homeroom_teacher"
+    missionId: string | null
+    classId: string | null
+    active: boolean
+    createdBy: string          (등록한 총괄 운영자의 UID)
+    createdAt: timestamp
+
+그 Google 계정이 처음 로그인하면 앱이 초대장과 같은 역할·담당으로 teachers/{uid}를 만든다. 보안 규칙은 Google 로그인으로 확인된 이메일인지, 역할과 담당이 초대장과 같은지 검사한다.
+
 #### events/{eventId}
 
     title: string
@@ -806,7 +821,9 @@ imageBytes 필드는 인덱스에서 제외한다.
 
 - Google 로그인 사용
 - teachers/{uid} 문서에 등록되고 active가 true인 계정만 교사 기능 허용
-- 교사 등록은 Firebase 콘솔 또는 관리자만 수행
+- 교사 등록은 총괄 운영자가 행사 설정 화면에서 Google 계정 이메일로 한다(teacherInvites). 첫 총괄 운영자만 Firebase 콘솔에서 teachers/{uid}를 직접 만든다.
+- 등록된 계정은 처음 로그인할 때 등록된 역할의 교사가 된다. 스스로 역할을 정하거나 바꿀 수 없다.
+- 총괄 운영자는 다른 교사 계정을 사용 중지하거나 다시 쓰게 할 수 있다. 자기 계정은 잠글 수 없고, 역할 변경과 삭제는 콘솔에서만 한다.
 - 브라우저 코드에 교사 비밀번호, 관리자 PIN, 서비스 계정 키를 넣지 않음
 
 ### 학생

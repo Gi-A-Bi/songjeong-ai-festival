@@ -98,11 +98,13 @@ import type {
   ReviseRankingOutcome,
   RoundControlAction,
   SaveSubmissionInput,
+  SaveTeacherInvitesInput,
   SelectFinalChoiceInput,
   StartClassFinalInput,
   StartStationInput,
   StationArrivals,
   TeacherClassCards,
+  TeacherRegistry,
   TeamDevice,
   TeamMissionView,
   TeamRewardView,
@@ -118,6 +120,15 @@ import { getFirebase } from './firebaseApp';
 import type { FirestoreStoreContext } from './firestoreContext';
 import { FirestoreFinalStore } from './firestoreFinal';
 import { FirestoreStationStore } from './firestoreStation';
+import {
+  claimTeacherInvite,
+  deleteTeacherInvite,
+  listTeacherAccounts,
+  listTeacherInvites,
+  loadTeacher,
+  saveTeacherInvites,
+  setTeacherActive,
+} from './firestoreTeachers';
 import { FirestoreTourStore } from './firestoreTour';
 import {
   isCompleteSubmission,
@@ -310,20 +321,17 @@ export class FirestoreEventRepository implements EventRepository {
     return user;
   }
 
-  private async loadTeacherProfile(uid: string): Promise<TeacherProfile | null> {
-    const snapshot = await getDoc(doc(this.db, 'teachers', uid));
-    const data = snapshot.data();
-    if (!data || data.active !== true) return null;
-    // 예전 역할값 teacher는 담당이 정해지지 않은 부스 교사로 읽는다.
-    const role =
-      data.role === 'admin' || data.role === 'homeroom_teacher' ? data.role : 'station_teacher';
-    return {
-      uid,
-      displayName: String(data.displayName ?? '선생님'),
-      role,
-      missionId: typeof data.missionId === 'string' ? data.missionId : null,
-      classId: typeof data.classId === 'string' ? data.classId : null,
-    };
+  /**
+   * 로그인한 계정의 교사 자격. 교사 문서가 없으면 이메일로 미리 등록된 계정인지 확인해
+   * 첫 로그인 때 교사 문서를 만든다. 사용이 중지된 계정은 다시 만들지 않는다.
+   */
+  private async resolveTeacher(
+    user: User,
+  ): Promise<{ profile: TeacherProfile | null; registered: boolean }> {
+    const found = await loadTeacher(this.db, user.uid);
+    if (found.registered) return found;
+    if (!(await claimTeacherInvite(this.db, user))) return found;
+    return loadTeacher(this.db, user.uid);
   }
 
   getCurrentTeacher(): TeacherProfile | null {
@@ -348,7 +356,7 @@ export class FirestoreEventRepository implements EventRepository {
         this.teacher = null;
         return null;
       }
-      this.teacher = await this.loadTeacherProfile(user.uid);
+      this.teacher = (await this.resolveTeacher(user)).profile;
       return this.getCurrentTeacher();
     });
   }
@@ -357,13 +365,15 @@ export class FirestoreEventRepository implements EventRepository {
     return run(async () => {
       const { auth } = getFirebase();
       const credential = await signInWithPopup(auth, new GoogleAuthProvider());
-      const profile = await this.loadTeacherProfile(credential.user.uid);
+      const { profile, registered } = await this.resolveTeacher(credential.user);
       if (!profile) {
         await signOut(auth);
         this.teacher = null;
         throw new RepositoryError(
           'not-allowed',
-          '등록된 교사 계정이 아니에요. 관리자에게 계정 등록을 요청해 주세요.',
+          registered
+            ? '사용이 중지된 교사 계정이에요. 총괄 선생님께 문의해 주세요.'
+            : '등록된 교사 계정이 아니에요. 총괄 선생님께 이 Google 계정의 이메일을 등록해 달라고 요청해 주세요.',
         );
       }
       this.teacher = profile;
@@ -378,6 +388,50 @@ export class FirestoreEventRepository implements EventRepository {
     this.final.stopAll();
     this.station.stopAll();
     await signOut(getFirebase().auth);
+  }
+
+  // ---- 교사 등록 ----
+
+  async getTeacherRegistry(): Promise<TeacherRegistry> {
+    return run(async () => {
+      await this.ensureUser();
+      this.requireAdmin();
+      const [invites, accounts] = await Promise.all([
+        listTeacherInvites(this.db),
+        listTeacherAccounts(this.db),
+      ]);
+      return { invites, accounts };
+    });
+  }
+
+  async saveTeacherInvites(input: SaveTeacherInvitesInput): Promise<TeacherRegistry> {
+    return run(async () => {
+      await this.ensureUser();
+      const admin = this.requireAdmin();
+      await saveTeacherInvites(this.db, admin.uid, input);
+      return this.getTeacherRegistry();
+    });
+  }
+
+  async deleteTeacherInvite(email: string): Promise<TeacherRegistry> {
+    return run(async () => {
+      await this.ensureUser();
+      this.requireAdmin();
+      await deleteTeacherInvite(this.db, email);
+      return this.getTeacherRegistry();
+    });
+  }
+
+  async setTeacherActive(uid: string, active: boolean): Promise<TeacherRegistry> {
+    return run(async () => {
+      await this.ensureUser();
+      const admin = this.requireAdmin();
+      if (admin.uid === uid) {
+        throw new RepositoryError('not-allowed', '자기 계정은 사용 중지할 수 없어요.');
+      }
+      await setTeacherActive(this.db, uid, active);
+      return this.getTeacherRegistry();
+    });
   }
 
   private requireTeacher(): TeacherProfile {

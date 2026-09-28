@@ -45,7 +45,10 @@ npm run format        # Prettier 정리
 2. Firestore(위치 asia-northeast3)와 Authentication(익명, Google)을 사용 설정합니다.
 3. 웹 앱을 추가해 설정값을 받아 `.env` 파일에 채웁니다. `.env.example`을 복사해 쓰면 됩니다.
 4. `VITE_DATA_MODE=firebase`로 두고 `npm run dev`를 실행합니다.
-5. 교사용 로그인에서 학교 Google 계정으로 로그인하면 "등록된 교사 계정이 아니에요"가 나옵니다. 콘솔 Authentication에서 그 계정의 UID를 복사해 Firestore에 `teachers/{UID}` 문서를 만들고 `displayName`, `email`, `role`, `active: true`를 넣습니다. `role`은 `admin`(총괄), `station_teacher`(부스, `missionId`로 담당 미션 지정), `homeroom_teacher`(담임, `classId`로 담당 학급 지정) 중 하나입니다. 예전 값 `teacher`는 담당 미션이 없는 부스 교사로 취급합니다. 라운드 시작·종료와 학년 변경은 `admin`만 할 수 있습니다.
+5. **첫 총괄 계정**은 콘솔에서 만듭니다. 교사용 로그인에서 Google 계정으로 로그인하면 "등록된 교사 계정이 아니에요"가 나옵니다. 콘솔 Authentication에서 그 계정의 UID를 복사해 Firestore에 `teachers/{UID}` 문서를 만들고 `displayName`, `email`, `role: admin`, `active: true`를 넣습니다.
+   - **그다음 선생님들**은 총괄이 교사 화면의 **행사 설정 → 교사 계정 등록**에서 Google 계정 이메일로 등록합니다. 여러 개는 줄바꿈, 쉼표, 빗금(/)으로 나눠 한 번에 넣을 수 있습니다. 등록된 계정은 처음 로그인할 때 바로 교사 화면이 열립니다.
+   - 역할은 `admin`(총괄), `station_teacher`(부스, 담당 미션 지정 가능), `homeroom_teacher`(담임, 담당 학급 지정) 중 하나입니다. 예전 값 `teacher`는 담당 미션이 없는 부스 교사로 취급합니다. 라운드 시작·종료와 학년 변경은 `admin`만 할 수 있습니다.
+   - 같은 화면에서 등록 취소(로그인 전)와 사용 중지·다시 사용(로그인 후)을 할 수 있습니다. 역할을 바꾸려면 콘솔에서 `teachers/{UID}`를 고칩니다.
 6. 다시 로그인한 뒤 교사 화면의 **행사 설정**에서 "행사 구조 만들기"를 누르면 학급 20개, 팀 100개, 미션 5개가 생성됩니다.
 7. 보안 규칙과 색인을 배포합니다.
 

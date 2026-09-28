@@ -8,6 +8,7 @@ import {
 } from '../../domain/cards';
 import { toDeviceCode } from '../../domain/device';
 import { getDrawingConfigError } from '../../domain/drawingPrompts';
+import { getTeacherInviteError, normalizeInviteAssignment } from '../../domain/teacherInvites';
 import { getGoldenBellConfigError } from '../../domain/goldenBell';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
 import { getRankingEntryError } from '../../domain/rewards';
@@ -73,11 +74,13 @@ import type {
   ReviseRankingOutcome,
   RoundControlAction,
   SaveSubmissionInput,
+  SaveTeacherInvitesInput,
   SelectFinalChoiceInput,
   StartClassFinalInput,
   StartStationInput,
   StationArrivals,
   TeacherClassCards,
+  TeacherRegistry,
   TeamMissionView,
   TeamRewardView,
   TeamDevice,
@@ -1155,6 +1158,61 @@ export class MockEventRepository implements EventRepository, DevTools {
 
   async signOutTeacher(): Promise<void> {
     this.teacher = null;
+  }
+
+  // ---- 교사 등록(목업) ----
+
+  private teacherRegistry(): TeacherRegistry {
+    return clone({
+      invites: Object.values(this.state.teacherInvites).sort((a, b) =>
+        a.email.localeCompare(b.email),
+      ),
+      accounts: [...this.state.teacherAccounts].sort((a, b) => a.email.localeCompare(b.email)),
+    });
+  }
+
+  async getTeacherRegistry(): Promise<TeacherRegistry> {
+    await this.request();
+    this.requireAdmin();
+    return this.teacherRegistry();
+  }
+
+  async saveTeacherInvites(draft: SaveTeacherInvitesInput): Promise<TeacherRegistry> {
+    await this.request();
+    this.requireAdmin();
+    const input = normalizeInviteAssignment(draft);
+    const error = getTeacherInviteError(input);
+    if (error) throw new RepositoryError('invalid-input', error);
+    for (const email of input.emails) {
+      this.state.teacherInvites[email] = {
+        email,
+        displayName: '',
+        role: input.role,
+        missionId: input.missionId,
+        classId: input.classId,
+        createdAt: this.now(),
+      };
+    }
+    return this.teacherRegistry();
+  }
+
+  async deleteTeacherInvite(email: string): Promise<TeacherRegistry> {
+    await this.request();
+    this.requireAdmin();
+    delete this.state.teacherInvites[email.trim().toLowerCase()];
+    return this.teacherRegistry();
+  }
+
+  async setTeacherActive(uid: string, active: boolean): Promise<TeacherRegistry> {
+    await this.request();
+    const admin = this.requireAdmin();
+    if (admin.uid === uid) {
+      throw new RepositoryError('not-allowed', '자기 계정은 사용 중지할 수 없어요.');
+    }
+    const account = this.state.teacherAccounts.find((item) => item.uid === uid);
+    if (!account) throw new RepositoryError('not-found', '교사 계정을 찾을 수 없어요.');
+    account.active = active;
+    return this.teacherRegistry();
   }
 
   // ---- 내부 도우미 ----
