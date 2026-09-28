@@ -75,32 +75,16 @@ export function TeacherLayout() {
           최종 미션
         </NavLink>
       ) : null}
-      {profile.role === 'homeroom_teacher' && profile.classId ? (
-        <NavLink to={paths.teacherClass(eventId, profile.classId)} className="teacher-nav__link">
-          <Icon name="school" />
-          우리 반
-        </NavLink>
-      ) : null}
-      {profile.role === 'station_teacher' && profile.missionId ? (
-        <NavLink
-          to={paths.teacherStation(eventId, profile.missionId)}
-          className="teacher-nav__link"
-        >
-          <Icon name="flag" />
-          담당 미션
-        </NavLink>
-      ) : null}
+      <NavLink to={paths.qrPrint(eventId)} className="teacher-nav__link">
+        <Icon name="qr_code_scanner" />
+        QR 인쇄
+      </NavLink>
+      {/* 메뉴는 총괄과 교사가 같다. 행사 설정(문제·정답, 교사 등록)만 총괄에게 보인다. */}
       {profile.role === 'admin' ? (
-        <>
-          <NavLink to={paths.qrPrint(eventId)} className="teacher-nav__link">
-            <Icon name="qr_code_scanner" />
-            QR 인쇄
-          </NavLink>
-          <NavLink to={paths.admin(eventId)} className="teacher-nav__link">
-            <Icon name="settings" />
-            행사 설정
-          </NavLink>
-        </>
+        <NavLink to={paths.admin(eventId)} className="teacher-nav__link">
+          <Icon name="settings" />
+          행사 설정
+        </NavLink>
       ) : null}
       <button type="button" className="teacher-nav__link" onClick={() => void logout()}>
         <Icon name="logout" />

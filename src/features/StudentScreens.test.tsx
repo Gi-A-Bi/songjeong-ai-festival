@@ -79,10 +79,53 @@ describe('학생 화면', () => {
     expect(screen.queryByRole('link', { name: /결승/ })).toBeNull();
   });
 
-  it('아직 교실 QR을 찍지 않은 팀의 홈은 도착하면 QR을 찍으라고 알려 준다', async () => {
+  it('아직 교실 QR을 찍지 않은 팀의 홈은 교실 QR을 찍으라고 알려 준다', async () => {
     renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}`);
+    expect(await screen.findByText(/교실 QR을 찍고 들어가요/)).toBeInTheDocument();
+    // 과학실은 게임 중이라 남은 시간이 흐른다.
+    expect(screen.getByRole('timer', { name: /남은 시간/ })).toBeInTheDocument();
+  });
+
+  it('입장한 팀의 홈은 선생님이 게임을 시작하기를 기다린다고 알려 준다', async () => {
+    // 샘플 데이터: 도서관은 2라운드를 열어 두고 아직 게임을 시작하지 않았다.
+    renderApp(`/team/${DEFAULT_EVENT_ID}/${toTeamId(4, 1, 4)}`);
+    expect(await screen.findByText(/2라운드 · 다음 미션으로 이동해요/)).toBeInTheDocument();
     expect(
-      await screen.findByText(/교실에 도착하면 교실 QR을 찍어 도착을 알려요/),
+      screen.getByText(/도착 기록 완료 · 선생님이 게임을 시작하면 미션이 열려요/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('timer', { name: /게임 대기/ })).toBeInTheDocument();
+  });
+
+  it('선생님이 라운드를 종료하면 새로고침 없이 다음 교실 안내로 바뀐다', async () => {
+    const repository = new MockEventRepository();
+    renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}`, repository);
+    expect(await screen.findByText(/2라운드 · 지금 미션/)).toBeInTheDocument();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await repository.signInTeacher();
+    const booth = {
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'ozobot',
+      grade: 4 as const,
+      roundNo: 2 as const,
+    };
+    const participants = await repository.listMissionParticipants(DEFAULT_EVENT_ID, 'ozobot', 4, 2);
+    await repository.finalizeRanking({
+      ...booth,
+      requestId: 'close-1',
+      entries: participants.map((participant, index) => ({
+        teamId: participant.team.id,
+        score: 100,
+        rank: index + 1,
+      })),
+    });
+    await repository.closeStationRound(booth);
+
+    // 3팀의 3라운드 교실은 도서관이고, 도서관은 아직 3라운드를 열지 않았다.
+    expect(await screen.findByText(/3라운드 · 다음 미션으로 이동해요/)).toBeInTheDocument();
+    expect(screen.getByText('도서관')).toBeInTheDocument();
+    expect(
+      await screen.findByText(/교실 앞에서 기다려요. 선생님이 라운드를 열면 교실 QR을/),
     ).toBeInTheDocument();
   });
 

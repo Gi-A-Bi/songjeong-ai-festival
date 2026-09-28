@@ -5,7 +5,7 @@ import { Button, ButtonLink } from '../../../components/Button';
 import { Icon } from '../../../components/Icon';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { ErrorView, InlineAlert, LoadingView } from '../../../components/StateViews';
-import type { OpsDashboard, OpsTeamCell } from '../../../data/EventRepository';
+import type { OpsDashboard, OpsStation, OpsTeamCell } from '../../../data/EventRepository';
 import { useRepository } from '../../../data/RepositoryContext';
 import { MISSION_TYPE_INFO } from '../../../domain/catalog';
 import { ROUND_NUMBERS } from '../../../domain/rotation';
@@ -18,6 +18,7 @@ import {
 import type { FestivalEvent, Grade, RoundNo } from '../../../domain/types';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useOpsLive } from '../../../hooks/useFinalLive';
+import { getLiveRoundStatus } from '../../../domain/boothRound';
 import { useServerNow } from '../../../hooks/useServerNow';
 import { formatClock, formatTimeOfDay } from '../../../lib/time';
 import { ClassDetailPanel } from './ClassDetailPanel';
@@ -36,7 +37,7 @@ interface OpsBoardProps {
 /** 현재 학년의 실시간 운영 상황판: 요약, 확인 필요, 미션 교실별·학급별 현황, 최근 활동 */
 export function OpsBoard({ eventId, grade, event }: OpsBoardProps) {
   const repository = useRepository();
-  /** null이면 자동(활동 중엔 지금 라운드, 이동 중엔 다음 라운드) */
+  /** null이면 지금 모습(부스와 팀이 저마다 자기 라운드에 있다) */
   const [round, setRound] = useState<RoundNo | null>(null);
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const load = useCallback(
@@ -46,15 +47,15 @@ export function OpsBoard({ eventId, grade, event }: OpsBoardProps) {
   const board = useAsyncData(load);
   const { reload } = board;
 
-  // 체크인·미션 시작·결과 확정·라운드 변경이 생기면 조용히 다시 읽는다.
+  // 체크인·부스 라운드 단계·결과 확정이 바뀌면 조용히 다시 읽는다.
   const revision = useOpsLive(eventId, grade);
-  const refreshKey = `${revision}|${event.status}|${event.activeRound}|${event.activeGrade}`;
+  const refreshKey = `${revision}|${event.activeGrade}`;
   const [seenKey, setSeenKey] = useState(refreshKey);
   if (seenKey !== refreshKey) {
     setSeenKey(refreshKey);
     if (board.status === 'success') reload();
   }
-  const running = event.activeGrade === grade && event.status !== 'completed';
+  const running = event.activeGrade === grade;
   useEffect(() => {
     if (!running) return undefined;
     const id = window.setInterval(reload, ALERT_REFRESH_MS);
@@ -75,7 +76,7 @@ export function OpsBoard({ eventId, grade, event }: OpsBoardProps) {
             aria-pressed={round === null}
             onClick={() => setRound(null)}
           >
-            자동
+            지금
           </button>
           {ROUND_NUMBERS.map((value) => (
             <button
@@ -94,7 +95,7 @@ export function OpsBoard({ eventId, grade, event }: OpsBoardProps) {
         </Button>
       </div>
 
-      <SummaryTiles data={data} event={event} grade={grade} />
+      <SummaryTiles data={data} grade={grade} />
       <AlertList eventId={eventId} data={data} />
       <StationGrid eventId={eventId} data={data} />
       <ClassTable
@@ -116,33 +117,12 @@ export function OpsBoard({ eventId, grade, event }: OpsBoardProps) {
   );
 }
 
-function SummaryTiles({
-  data,
-  event,
-  grade,
-}: {
-  data: OpsDashboard;
-  event: FestivalEvent;
-  grade: Grade;
-}) {
+function SummaryTiles({ data, grade }: { data: OpsDashboard; grade: Grade }) {
   const now = useServerNow(1000);
   const { summary } = data;
-  let timerLabel = '남은 시간';
-  let timerValue = '--:--';
-  if (event.activeGrade === grade) {
-    if (summary.phase === 'active') {
-      const remaining =
-        event.status === 'paused'
-          ? (event.pausedRemainingMs ?? 0)
-          : Math.max(0, (event.roundEndsAt ?? now) - now);
-      timerLabel = event.status === 'paused' ? '활동(일시정지)' : '활동 남은 시간';
-      timerValue = formatClock(Math.ceil(remaining / 1000));
-    } else if (summary.phase === 'moving' && event.roundEndedAt !== null) {
-      const remaining = Math.max(0, event.roundEndedAt + event.moveDurationMs - now);
-      timerLabel = remaining > 0 ? '이동 남은 시간' : '이동 시간 끝';
-      timerValue = formatClock(Math.ceil(remaining / 1000));
-    }
-  }
+  const playing = data.stations.filter(
+    (station) => getLiveRoundStatus(station.round, now) === 'active',
+  ).length;
 
   return (
     <section className="ops-summary" aria-label={`${grade}학년 운영 요약`}>
@@ -158,9 +138,9 @@ function SummaryTiles({
           <dd>{ROUND_PHASE_LABELS[summary.phase]}</dd>
         </div>
         <div className="ops-tile">
-          <dt>{timerLabel}</dt>
-          <dd className="number" role="timer" aria-label={`${timerLabel} ${timerValue}`}>
-            {timerValue}
+          <dt>게임 중인 부스</dt>
+          <dd className="number">
+            {playing} / {data.stations.length}곳
           </dd>
         </div>
         <div className="ops-tile">
@@ -233,15 +213,40 @@ function TeamChip({ cell }: { cell: OpsTeamCell }) {
   );
 }
 
+/** 부스의 라운드와 단계. 게임 중이면 남은 시간도 보여 준다. */
+function BoothStage({ station, now }: { station: OpsStation; now: number }) {
+  const status = getLiveRoundStatus(station.round, now);
+  const badge = BOOTH_STATUS_BADGES[status];
+  const remaining =
+    status === 'active' && station.round.endsAt !== null
+      ? formatClock(Math.ceil(Math.max(0, station.round.endsAt - now) / 1000))
+      : null;
+  return (
+    <>
+      <StatusBadge tone={badge.tone} icon={badge.icon}>
+        {station.round.roundNo}라운드 · {MISSION_ROUND_STATUS_LABELS[status]}
+      </StatusBadge>
+      {remaining !== null ? (
+        <span className="number" role="timer" aria-label={`남은 시간 ${remaining}`}>
+          <Icon name="timer" size="sm" /> {remaining}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 function StationGrid({ eventId, data }: { eventId: string; data: OpsDashboard }) {
+  const now = useServerNow(1000);
   return (
     <section className="stack" aria-labelledby="ops-stations-title">
       <h2 id="ops-stations-title" className="section-title">
         <Icon name="meeting_room" /> 미션 교실별 현황
       </h2>
+      <p className="muted">
+        라운드는 부스마다 선생님이 따로 진행해요. 부스마다 라운드가 다를 수 있어요.
+      </p>
       <ul className="ops-stations">
         {data.stations.map((station) => {
-          const booth = BOOTH_STATUS_BADGES[station.round.status];
           return (
             <li
               key={station.mission.id}
@@ -253,9 +258,7 @@ function StationGrid({ eventId, data }: { eventId: string; data: OpsDashboard })
               </p>
               <h3 className="ops-station__title">{station.mission.title}</h3>
               <div className="cluster">
-                <StatusBadge tone={booth.tone} icon={booth.icon}>
-                  {MISSION_ROUND_STATUS_LABELS[station.round.status]}
-                </StatusBadge>
+                <BoothStage station={station} now={now} />
                 <span className="muted">
                   제출 {station.submitted}/{station.teams.length}
                 </span>
@@ -320,7 +323,9 @@ function ClassTable({
                   >
                     {row.classInfo.displayName}
                     <Icon
-                      name={selectedClassId === row.classInfo.id ? 'arrow_upward' : 'arrow_downward'}
+                      name={
+                        selectedClassId === row.classInfo.id ? 'arrow_upward' : 'arrow_downward'
+                      }
                       size="sm"
                     />
                   </button>

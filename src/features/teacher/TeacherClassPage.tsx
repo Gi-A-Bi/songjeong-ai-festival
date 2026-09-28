@@ -26,7 +26,7 @@ import { ClassTeamsTable } from './dashboard/ClassDetailPanel';
 import './dashboard/OpsBoard.css';
 import { useTeacherContext } from './teacherContext';
 
-/** 담임용 학급 상세: 팀 위치·순위·카드 진행도와 최종 미션 시작 */
+/** 학급 상세: 팀 위치·순위·카드 진행도와 최종 미션 시작 */
 export function TeacherClassPage() {
   const { eventId } = useTeacherContext();
   const { classId = '' } = useParams();
@@ -184,7 +184,7 @@ function FinalStartPanel({
   };
 
   const started = finalState.startedAt !== null;
-  const blocker = !canRunFinal ? '담당 학급의 최종 미션만 시작할 수 있어요.' : startBlocker;
+  const blocker = !canRunFinal ? '교사로 로그인해야 시작할 수 있어요.' : startBlocker;
 
   return (
     <section className="panel stack final-start" aria-labelledby="final-start-title">

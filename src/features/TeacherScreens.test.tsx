@@ -285,7 +285,7 @@ describe('부스 화면의 실시간 제출과 라운드 따라가기', () => {
     expect(participants.every((participant) => participant.result === null)).toBe(true);
   });
 
-  it('순위를 확정한 뒤 라운드가 끝나면 다음 라운드 화면으로 저절로 넘어간다', async () => {
+  it('다른 기기에서 라운드를 종료하면 다음 라운드 화면으로 저절로 넘어간다', async () => {
     const user = userEvent.setup();
     const repository = await signedInRepository();
     renderApp(stationPath, repository);
@@ -296,42 +296,76 @@ describe('부스 화면의 실시간 제출과 라운드 따라가기', () => {
     expect(await screen.findByText(/순위를 확정했어요/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /2라운드 참가 팀/ })).toBeInTheDocument();
 
-    await repository.controlRound(DEFAULT_EVENT_ID, 'end');
+    await repository.closeStationRound({
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      grade: 4,
+      roundNo: 2,
+    });
 
     expect(await screen.findByRole('heading', { name: /3라운드 참가 팀/ })).toBeInTheDocument();
-    expect(screen.queryByText(/지금 팀이 들어오는 라운드는/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/이 부스가 지금 진행할 라운드는/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '3라운드 열기' })).toBeEnabled();
   });
 
-  it('확정 전에 라운드가 끝나면 화면을 옮기지 않고 안내를 띄운다', async () => {
-    const user = userEvent.setup();
-    const repository = await signedInRepository();
-    renderApp(stationPath, repository);
-    expect(await screen.findByRole('heading', { name: /2라운드 참가 팀/ })).toBeInTheDocument();
-
-    await repository.controlRound(DEFAULT_EVENT_ID, 'end');
-
-    expect(await screen.findByText(/지금 팀이 들어오는 라운드는/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/2라운드 순위를 확정하면 3라운드로 자동으로 넘어가요/),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /2라운드 참가 팀/ })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /3라운드로 이동/ }));
-    expect(await screen.findByRole('heading', { name: /3라운드 참가 팀/ })).toBeInTheDocument();
-    expect(screen.queryByText(/지금 팀이 들어오는 라운드는/)).not.toBeInTheDocument();
-  });
-
-  it('지난 라운드를 직접 고르면 확정된 라운드여도 그대로 머문다', async () => {
+  it('지난 라운드를 직접 고르면 그 라운드에 머물고 지금 라운드로 돌아갈 수 있다', async () => {
     const user = userEvent.setup();
     const repository = await signedInRepository();
     renderApp(stationPath, repository);
     await screen.findByRole('heading', { name: /2라운드 참가 팀/ });
 
-    await user.click(screen.getByRole('button', { name: '1' }));
+    await user.click(screen.getByRole('button', { name: '1라운드 라운드 종료' }));
 
     expect(await screen.findByRole('heading', { name: /1라운드 참가 팀/ })).toBeInTheDocument();
     expect(await screen.findByText(/순위 확정됨/)).toBeInTheDocument();
-    expect(screen.getByText(/지금 팀이 들어오는 라운드는/)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /1라운드 참가 팀/ })).toBeInTheDocument();
+    expect(screen.getByText(/이 부스가 지금 진행할 라운드는/)).toBeInTheDocument();
+    // 종료한 라운드에는 진행 버튼이 없다.
+    const panel = within(screen.getByRole('region', { name: /1라운드 진행/ }));
+    expect(panel.getByText(/1라운드를 종료했어요/)).toBeInTheDocument();
+    expect(panel.queryByRole('button')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /2라운드로 이동/ }));
+    expect(await screen.findByRole('heading', { name: /2라운드 참가 팀/ })).toBeInTheDocument();
+    expect(screen.queryByText(/이 부스가 지금 진행할 라운드는/)).not.toBeInTheDocument();
+  });
+
+  it('아직 열지 않은 라운드를 미리 열 수 없고 이유를 알려 준다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(stationPath, repository);
+    await screen.findByRole('heading', { name: /2라운드 참가 팀/ });
+
+    await user.click(screen.getByRole('button', { name: '3라운드 열기 전' }));
+
+    expect(await screen.findByRole('heading', { name: /3라운드 진행/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '3라운드 열기' })).toBeDisabled();
+    expect(
+      screen.getByText(/앞 라운드를 종료한 뒤에 다음 라운드를 열 수 있어요/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('게임 시간 설정', () => {
+  it('총괄은 행사 설정에서 게임 시간을 바꾼다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/admin`, repository);
+
+    const field = await screen.findByRole<HTMLInputElement>('spinbutton', {
+      name: '게임 시간(분)',
+    });
+    expect(field.value).toBe('10');
+    expect(screen.getByRole('button', { name: '저장' })).toBeDisabled();
+
+    await user.clear(field);
+    await user.type(field, '45');
+    expect(screen.getByText(/게임 시간은 3~30분으로 정해 주세요/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '저장' })).toBeDisabled();
+
+    await user.clear(field);
+    await user.type(field, '12');
+    await user.click(screen.getByRole('button', { name: '저장' }));
+    expect(await screen.findByText('게임 시간을 12분으로 바꿨어요.')).toBeInTheDocument();
+    expect((await repository.getEvent(DEFAULT_EVENT_ID)).gameDurationMs).toBe(12 * 60_000);
   });
 });

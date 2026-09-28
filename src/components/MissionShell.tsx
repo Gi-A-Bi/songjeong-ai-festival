@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { missionImageKeys } from '../assets/manifest';
 import { MISSION_TYPE_INFO } from '../domain/catalog';
+import { getCheckInRound } from '../domain/tour';
 import type { FestivalEvent, Mission, MissionPhase, RoundNo, Team } from '../domain/types';
 import { AssetImage } from './AssetImage';
 import { Icon } from './Icon';
@@ -33,8 +34,12 @@ export function MissionShell({
   children,
 }: MissionShellProps) {
   const typeInfo = MISSION_TYPE_INFO[mission.type];
-  const isCurrentRound = event.activeGrade === team.grade && event.activeRound === roundNo;
-  const isPastRound = event.activeGrade === team.grade && roundNo < event.activeRound;
+  // event는 이 팀이 보는 행사 상태다. 부스에 들어가기 전에는 다음 라운드가 지금 차례다.
+  const touring = event.activeGrade === team.grade;
+  const turnRound = getCheckInRound(event, team.grade);
+  const isCurrentRound = turnRound === roundNo;
+  const isPastRound = touring && (turnRound === null || roundNo < turnRound);
+  const playing = isCurrentRound && event.status === 'active';
 
   return (
     <div className={`mission-shell accent-${typeInfo.accent}`}>
@@ -72,16 +77,11 @@ export function MissionShell({
             <Icon name="groups" />
             {team.displayName} · {roundNo}라운드
           </p>
-          {isCurrentRound ? (
-            <Timer
-              status={event.status}
-              endsAt={event.roundEndsAt}
-              pausedRemainingMs={event.pausedRemainingMs}
-              size="lg"
-            />
-          ) : (
-            <Timer status="ready" endsAt={null} pausedRemainingMs={null} size="lg" />
-          )}
+          <Timer
+            status={playing ? 'active' : 'ready'}
+            endsAt={playing ? event.roundEndsAt : null}
+            size="lg"
+          />
         </div>
       </section>
       {notice}

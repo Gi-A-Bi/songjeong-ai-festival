@@ -1,4 +1,5 @@
 import { CHECK_IN_GRACE_MS } from '../config';
+import { getBoothEndsAt, getBoothStatus, type BoothTimes, type RoundClock } from './boothRound';
 import type {
   AlertCode,
   FestivalEvent,
@@ -6,7 +7,6 @@ import type {
   MissionRoundState,
   MissionRoundStatus,
   RoundNo,
-  RoundStatus,
   TeamMissionState,
   TeamMissionStatus,
   TeamNo,
@@ -104,7 +104,7 @@ export function applyCheckIn(
   };
 }
 
-/** 부스 교사가 미션을 시작하면 입장한 팀이 진행 중이 된다. */
+/** 부스에서 미션을 시작하면 입장한 팀이 진행 중이 된다. */
 export function applyStationStart(record: TeamMissionRecord, now: number): TeamMissionRecord {
   if (record.checkedInAt === null || record.startedAt !== null || record.resultId !== null) {
     return record;
@@ -126,51 +126,6 @@ export function applyResultFinalized(
     wrongStationId: null,
     updatedAt: now,
   };
-}
-
-/** 한 팀 상태를 계산할 때 필요한 라운드 시계 */
-export interface RoundClock {
-  /** 이 라운드가 아직 시작 전인지, 활동 중인지, 끝났는지 */
-  phase: 'before' | 'active' | 'ended';
-  /** 활동을 시작한 뒤 흐른 시간(일시정지 시간 제외) */
-  activeElapsedMs: number;
-  /** 라운드가 끝난 뒤 흐른 시간. 다음 라운드가 이미 시작됐으면 Infinity */
-  endedElapsedMs: number;
-  /** 결과 미입력 경고를 띄우기까지 기다리는 시간(이동 시간) */
-  resultGraceMs: number;
-}
-
-export function getRoundClock(
-  event: FestivalEvent,
-  grade: Grade,
-  roundNo: RoundNo,
-  roundStatus: RoundStatus,
-  now: number,
-): RoundClock {
-  const isCurrent = event.activeGrade === grade && event.activeRound === roundNo;
-  const base = { resultGraceMs: event.moveDurationMs };
-  if (roundStatus === 'waiting') {
-    return { ...base, phase: 'before', activeElapsedMs: 0, endedElapsedMs: 0 };
-  }
-  if (roundStatus === 'active') {
-    let remaining = event.roundDurationMs;
-    if (isCurrent && event.status === 'paused') {
-      remaining = event.pausedRemainingMs ?? remaining;
-    } else if (isCurrent && event.roundEndsAt !== null) {
-      remaining = Math.max(0, event.roundEndsAt - now);
-    }
-    return {
-      ...base,
-      phase: 'active',
-      activeElapsedMs: Math.max(0, event.roundDurationMs - remaining),
-      endedElapsedMs: 0,
-    };
-  }
-  const endedElapsedMs =
-    isCurrent && event.roundEndedAt !== null
-      ? Math.max(0, now - event.roundEndedAt)
-      : Number.POSITIVE_INFINITY;
-  return { ...base, phase: 'ended', activeElapsedMs: event.roundDurationMs, endedElapsedMs };
 }
 
 /** 저장된 경고(오입장·수동 확인)와 시각으로 계산한 경고(미도착·결과 미입력) */
@@ -200,10 +155,11 @@ export function getTeamMissionStatus(
 ): TeamMissionStatus {
   if (record.resultId !== null) {
     if (alerts.length > 0) return 'attention';
-    return clock.phase === 'ended' ? 'moving' : 'completed';
+    // 순위를 확정하면 완료, 선생님이 라운드를 종료하면 다음 교실로 이동한다.
+    return clock.closed ? 'moving' : 'completed';
   }
   if (alerts.length > 0) return 'attention';
-  // 라운드가 끝난 뒤 결과를 기다리는 동안은 "결과 입력 중"으로 진행 중 색을 쓴다.
+  // 게임이 끝난 뒤 결과를 기다리는 동안은 "결과 입력 중"으로 진행 중 색을 쓴다.
   if (record.startedAt !== null || (clock.phase === 'ended' && record.checkedInAt !== null)) {
     return 'active';
   }
@@ -236,34 +192,47 @@ export function presentTeamMissionState(
   };
 }
 
-/** 부스 상태: 라운드가 끝났는데 결과를 확정하지 않았으면 채점 중 */
-export function presentMissionRoundStatus(
-  stored: Pick<MissionRoundState, 'status' | 'resultFinalizedAt'> | undefined,
-  roundStatus: RoundStatus,
-): MissionRoundStatus {
-  if (stored?.resultFinalizedAt != null) return 'completed';
-  if (roundStatus === 'scoring' || roundStatus === 'closed') return 'scoring';
-  return stored?.status === 'active' ? 'active' : 'ready';
+/** 저장된 부스 기록에 지금 시각으로 계산한 단계를 붙여 화면에 보낸다. */
+export function presentMissionRound(
+  key: Pick<MissionRoundState, 'id' | 'grade' | 'missionId' | 'roundNo'>,
+  booth: BoothTimes | undefined,
+  updatedBy: string | null,
+  now: number,
+): MissionRoundState {
+  return {
+    ...key,
+    status: getBoothStatus(booth, now),
+    openedAt: booth?.openedAt ?? null,
+    startedAt: booth?.startedAt ?? null,
+    endsAt: getBoothEndsAt(booth),
+    completedAt: booth?.completedAt ?? null,
+    resultFinalizedAt: booth?.resultFinalizedAt ?? null,
+    updatedBy,
+  };
 }
 
 /**
- * 지금 QR을 찍으면 몇 라운드 입장인지. 이동 시간에는 다음 라운드 교실에 미리 입장한다.
+ * 팀이 지금 가야 하는 라운드. event는 그 팀이 보는 행사 상태(scopeEventToTeam)여야 한다.
+ * 부스에 들어가기 전에는 다음 라운드, 게임 중에는 지금 라운드다.
  * 이 학년의 투어 중이 아니거나 5라운드까지 끝났으면 null
  */
 export function getCheckInRound(event: FestivalEvent, grade: Grade): RoundNo | null {
   if (event.activeGrade !== grade) return null;
   if (event.activeRound === 0) return 1;
-  if (event.status === 'active' || event.status === 'paused') return event.activeRound;
+  if (event.status === 'active') return event.activeRound;
   return event.activeRound < 5 ? ((event.activeRound + 1) as RoundNo) : null;
 }
 
 export type RoundPhase = 'ready' | 'active' | 'moving' | 'ended';
 
-/** 대시보드 상단의 라운드 상태: 준비, 활동 중, 이동 중, 종료 */
-export function getRoundPhase(event: FestivalEvent, grade: Grade): RoundPhase {
-  if (event.activeGrade !== grade || event.activeRound === 0) return 'ready';
-  if (event.status === 'active' || event.status === 'paused') return 'active';
-  return event.activeRound === 5 ? 'ended' : 'moving';
+/**
+ * 대시보드 상단의 학년 진행 상태. 부스마다 따로 진행하므로 모든 부스·라운드의 단계를 모아 본다.
+ * 준비(아무 부스도 열지 않음), 진행 중(열린 부스가 있음), 이동 중(열린 부스 없이 다음 라운드를 기다림), 종료
+ */
+export function getTourPhase(statuses: readonly MissionRoundStatus[]): RoundPhase {
+  if (statuses.length > 0 && statuses.every((status) => status === 'completed')) return 'ended';
+  if (statuses.some((status) => status !== 'ready' && status !== 'completed')) return 'active';
+  return statuses.some((status) => status === 'completed') ? 'moving' : 'ready';
 }
 
 export interface TourSummary {
@@ -303,15 +272,16 @@ export const ALERT_LABELS: Record<AlertCode, string> = {
 };
 
 export const MISSION_ROUND_STATUS_LABELS: Record<MissionRoundStatus, string> = {
-  ready: '준비',
-  active: '진행 중',
-  scoring: '결과 입력 중',
-  completed: '결과 확정',
+  ready: '열기 전',
+  open: '입장 중',
+  active: '게임 중',
+  scoring: '순위 매기는 중',
+  completed: '라운드 종료',
 };
 
 export const ROUND_PHASE_LABELS: Record<RoundPhase, string> = {
   ready: '준비',
-  active: '활동 중',
+  active: '진행 중',
   moving: '이동 중',
   ended: '종료',
 };

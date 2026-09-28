@@ -43,7 +43,6 @@ import type {
   FinalResponse,
   FinalSession,
   Grade,
-  RoundStatus,
 } from '../../domain/types';
 import { RepositoryError } from '../errors';
 import type {
@@ -69,7 +68,7 @@ const CLOSE_MARGIN_MS = 1500;
 const CHECKLIST_TTL_MS = 15_000;
 const QUESTION_SET_TTL_MS = 5 * 60_000;
 
-/** 담임교사 기기까지 내려가는 문제. 정답은 들어 있지 않다(정답 문서는 총괄 운영자만 읽는다). */
+/** 교사 기기까지 내려가는 문제. 정답은 들어 있지 않다(정답 문서는 총괄 운영자만 읽는다). */
 interface PublicQuestion extends FinalQuestion {
   hintRemoveChoiceId: string;
 }
@@ -557,8 +556,9 @@ export class FirestoreFinalStore {
     const key = `${eventId}|${grade}`;
     const cached = this.checklists.get(key);
     if (cached && Date.now() - cached.at < CHECKLIST_TTL_MS) return cached.value;
-    const [rounds, missions, finalized, pending] = await Promise.all([
-      getDocs(query(this.ctx.sub(eventId, 'rounds'), where('grade', '==', grade))),
+    const [booths, missions, finalized, pending] = await Promise.all([
+      // 부스 문서는 학년에 많아야 25개다. 점검 결과는 잠깐 기억해 되풀이해 읽지 않는다.
+      getDocs(query(this.ctx.sub(eventId, 'missionRoundStates'), where('grade', '==', grade))),
       this.ctx.missions(eventId),
       // 개수만 필요하므로 집계 쿼리를 쓴다(문서를 하나씩 읽지 않는다).
       getCountFromServer(
@@ -576,12 +576,9 @@ export class FirestoreFinalStore {
         ),
       ),
     ]);
-    const closed = rounds.docs.filter((snapshot) => {
-      const status = snapshot.data().status as RoundStatus | undefined;
-      return status === 'scoring' || status === 'closed';
-    }).length;
+    const closed = booths.docs.filter((snapshot) => snapshot.data().completedAt != null).length;
     const base = {
-      roundsClosed: closed >= ROUND_NUMBERS.length,
+      roundsClosed: missions.length > 0 && closed >= missions.length * ROUND_NUMBERS.length,
       missingResults: Math.max(0, missions.length * ROUND_NUMBERS.length - finalized.data().count),
       pendingAwards: pending.data().count,
     };
@@ -843,7 +840,7 @@ export class FirestoreFinalStore {
       response: state.status === 'active' ? response : null,
       confirmedCount: state.currentQuestionIndex,
       canViewResults,
-      canRunFinal: this.ctx.canRunClassFinal(classInfo.id),
+      canRunFinal: this.ctx.teacher() !== null,
     };
   }
 
@@ -857,7 +854,7 @@ export class FirestoreFinalStore {
     // 제한 시간이 지난 채 열었으면 저장된 답안으로 마감한다(진행 권한이 있을 때만).
     if (
       state.status === 'active' &&
-      this.ctx.canRunClassFinal(classId) &&
+      this.ctx.teacher() !== null &&
       isFinalExpired(session, state, this.ctx.serverNow() - CLOSE_MARGIN_MS)
     ) {
       state = await this.closeNow(eventId, classInfo, session).catch(() => state);
@@ -885,7 +882,7 @@ export class FirestoreFinalStore {
 
   async start(input: StartClassFinalInput): Promise<ClassFinalView> {
     await this.ctx.ensureUser();
-    this.ctx.requireClassAccess(input.classId);
+    this.ctx.requireTeacher();
     const classInfo = await this.ctx.getClass(input.eventId, input.classId);
     const session = await this.sessionOf(input.eventId, classInfo.grade);
     const state = await this.stateOf(input.eventId, classInfo, session);
@@ -954,7 +951,7 @@ export class FirestoreFinalStore {
     }) => { state?: Record<string, unknown>; answer: Record<string, unknown> },
   ): Promise<ClassFinalView> {
     await this.ctx.ensureUser();
-    this.ctx.requireClassAccess(input.classId);
+    this.ctx.requireTeacher();
     const classInfo = await this.ctx.getClass(input.eventId, input.classId);
     const session = await this.sessionOf(input.eventId, classInfo.grade);
     const questions = await this.questionsOf(input.eventId, classInfo.grade, session.questionCount);
@@ -1125,7 +1122,7 @@ export class FirestoreFinalStore {
 
   async closeExpired(eventId: string, classId: string): Promise<ClassFinalView> {
     await this.ctx.ensureUser();
-    this.ctx.requireClassAccess(classId);
+    this.ctx.requireTeacher();
     const classInfo = await this.ctx.getClass(eventId, classId);
     const session = await this.sessionOf(eventId, classInfo.grade);
     const state = await this.stateOf(eventId, classInfo, session);

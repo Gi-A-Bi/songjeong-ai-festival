@@ -9,49 +9,37 @@ import { InlineAlert } from '../../../components/StateViews';
 import type { StationArrivals } from '../../../data/EventRepository';
 import { toUserMessage } from '../../../data/errors';
 import { useRepository } from '../../../data/RepositoryContext';
-import {
-  ALERT_LABELS,
-  MISSION_ROUND_STATUS_LABELS,
-  TEAM_MISSION_STATUS_LABELS,
-} from '../../../domain/tour';
-import type { Grade, Mission, RoundNo, Team } from '../../../domain/types';
+import { ALERT_LABELS, TEAM_MISSION_STATUS_LABELS } from '../../../domain/tour';
+import type { Mission, RoundNo, Team } from '../../../domain/types';
 import { useAction } from '../../../hooks/useAction';
 import { copyText } from '../../../lib/download';
 import { formatTimeOfDay } from '../../../lib/time';
-import { BOOTH_STATUS_BADGES, TEAM_STATUS_BADGES } from '../dashboard/tourBadges';
+import { TEAM_STATUS_BADGES } from '../dashboard/tourBadges';
 
 interface StationArrivalsPanelProps {
   eventId: string;
   mission: Mission;
-  grade: Grade;
   round: RoundNo;
   teams: readonly Team[];
   arrivals: StationArrivals;
   onChanged: () => void;
 }
 
-/** 부스 교사용: 이번 라운드에 올 팀의 입장 상태, “미션 시작”, 수동 입장 처리 */
+/** 부스 운영: 이번 라운드에 올 팀의 입장 상태와 수동 입장 처리 */
 export function StationArrivalsPanel({
   eventId,
   mission,
-  grade,
   round,
   teams,
   arrivals,
   onChanged,
 }: StationArrivalsPanelProps) {
   const repository = useRepository();
-  const { booth } = arrivals;
+  const closed = arrivals.booth.status === 'completed';
   const rows = teams.flatMap((team) => {
     const movement = arrivals.movements.find((item) => item.teamId === team.id);
     return movement ? [{ team, movement }] : [];
   });
-  const start = useAction(
-    useCallback(
-      () => repository.startStationRound({ eventId, missionId: mission.id, grade, roundNo: round }),
-      [repository, eventId, mission.id, grade, round],
-    ),
-  );
   const arrive = useAction(
     useCallback(
       (teamId: string) =>
@@ -63,38 +51,16 @@ export function StationArrivalsPanel({
   const arrivedCount = rows.filter(
     ({ movement }) => movement.checkedInAt !== null || movement.resultId !== null,
   ).length;
-  const boothBadge = BOOTH_STATUS_BADGES[booth.status];
-  const started = booth.startedAt !== null;
-  const actionError =
-    start.status === 'error' ? start.error : arrive.status === 'error' ? arrive.error : null;
+  const actionError = arrive.status === 'error' ? arrive.error : null;
 
   return (
     <section className="panel stack" aria-labelledby="station-arrivals-title">
-      <div className="teacher-title">
-        <h2 id="station-arrivals-title" className="section-title">
-          <Icon name="meeting_room" /> {round}라운드 입장 현황 · {arrivedCount}/{rows.length}팀
-        </h2>
-        <div className="cluster">
-          <StatusBadge tone={boothBadge.tone} icon={boothBadge.icon} size="lg">
-            {MISSION_ROUND_STATUS_LABELS[booth.status]}
-          </StatusBadge>
-          <Button
-            size="lg"
-            icon="play_arrow"
-            disabled={started}
-            loading={start.isPending}
-            onClick={async () => {
-              const result = await start.run();
-              if (result?.ok) onChanged();
-            }}
-          >
-            {started ? `시작함 ${formatTimeOfDay(booth.startedAt)}` : '미션 시작'}
-          </Button>
-        </div>
-      </div>
+      <h2 id="station-arrivals-title" className="section-title">
+        <Icon name="meeting_room" /> {round}라운드 입장 현황 · {arrivedCount}/{rows.length}팀
+      </h2>
       <p className="muted">
-        팀이 교실 QR을 찍으면 “입장 완료”로 바뀌어요. “미션 시작”을 누르면 입장한 팀이 “진행 중”이
-        되고, 아래에서 결과를 확정하면 “완료”가 돼요.
+        라운드를 연 뒤 팀이 교실 QR을 찍으면 “입장 완료”로 바뀌어요. QR을 찍지 못한 팀은 “입장
+        처리”로 직접 기록해요.
       </p>
       {actionError ? <InlineAlert tone="danger">{toUserMessage(actionError)}</InlineAlert> : null}
 
@@ -130,7 +96,7 @@ export function StationArrivalsPanel({
                   </td>
                   <td className="number">{formatTimeOfDay(movement.checkedInAt)}</td>
                   <td>
-                    {arrived ? (
+                    {arrived || closed ? (
                       <span className="muted">-</span>
                     ) : (
                       <Button

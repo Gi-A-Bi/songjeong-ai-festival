@@ -1,4 +1,6 @@
 import { Bytes, Timestamp, type DocumentData, type DocumentSnapshot } from 'firebase/firestore';
+import { DEFAULT_GAME_DURATION_MS } from '../../config';
+import { toGlobalEvent, type BoothTimes } from '../../domain/boothRound';
 import { CARD_TYPES } from '../../domain/cards';
 import { createDefaultDrawingConfig } from '../../domain/drawingPrompts';
 import { emptyFinalSession, finalResponseId } from '../../domain/finalMission';
@@ -21,7 +23,6 @@ import type {
   MissionNo,
   MissionResult,
   RoundNo,
-  RoundStatus,
   Submission,
   SubmissionAnswer,
   Team,
@@ -41,22 +42,28 @@ function requireData(snapshot: DocumentSnapshot<DocumentData>, label: string): D
   return data;
 }
 
+/**
+ * 전체 행사 상태. 라운드는 부스 문서(missionRoundStates)에 있으므로 여기서는 비워 둔다.
+ * 예전 구조가 남긴 라운드 값(activeRound, roundEndsAt, roundDurationMs 등)은 읽지 않는다.
+ */
 export function mapEvent(snapshot: DocumentSnapshot<DocumentData>): FestivalEvent {
   const data = requireData(snapshot, '행사');
-  return {
+  return toGlobalEvent({
     id: snapshot.id,
     title: String(data.title ?? ''),
     schoolName: String(data.schoolName ?? ''),
-    status: data.status,
+    status: 'ready',
     activeGrade: (data.activeGrade ?? null) as Grade | null,
-    activeRound: (data.activeRound ?? 0) as FestivalEvent['activeRound'],
-    roundEndsAt: toMillis(data.roundEndsAt),
-    pausedRemainingMs: typeof data.pausedRemainingMs === 'number' ? data.pausedRemainingMs : null,
-    roundEndedAt: toMillis(data.roundEndedAt),
-    roundDurationMs: typeof data.roundDurationMs === 'number' ? data.roundDurationMs : 8 * 60_000,
-    moveDurationMs: typeof data.moveDurationMs === 'number' ? data.moveDurationMs : 2 * 60_000,
+    activeRound: 0,
+    roundEndsAt: null,
+    roundEndedAt: null,
+    boothStatus: null,
+    gameDurationMs:
+      typeof data.gameDurationMs === 'number' && data.gameDurationMs > 0
+        ? data.gameDurationMs
+        : DEFAULT_GAME_DURATION_MS,
     updatedAt: toMillis(data.updatedAt) ?? 0,
-  };
+  });
 }
 
 export function mapClass(snapshot: DocumentSnapshot<DocumentData>): ClassInfo {
@@ -262,25 +269,29 @@ export function mapDrawingFile(snapshot: DocumentSnapshot<DocumentData>): Drawin
 
 // ---- 팀 이동·부스·최종 미션 ----
 
-/** 부스 문서. resultTeamIds는 순위를 확정한 팀으로, 대시보드가 결과 문서를 다시 읽지 않게 해 준다. */
-export interface BoothDoc {
+/**
+ * 부스 라운드 문서. 단계는 저장하지 않고 시각으로 계산한다(getBoothStatus).
+ * resultTeamIds는 순위를 확정한 팀으로, 대시보드가 결과 문서를 다시 읽지 않게 해 준다.
+ */
+export interface BoothDoc extends BoothTimes {
   id: string;
   grade: Grade;
   missionId: string;
   roundNo: RoundNo;
-  status: 'ready' | 'active' | 'completed';
-  startedAt: number | null;
-  completedAt: number | null;
-  resultFinalizedAt: number | null;
   resultTeamIds: string[];
   updatedBy: string | null;
 }
 
-export interface RoundDoc {
-  grade: Grade;
-  roundNo: RoundNo;
-  status: RoundStatus;
-  startedAt: number | null;
+/** 부스 문서를 처음 만들 때 채우는 빈 값 */
+export function newBoothFields(durationMs: number) {
+  return {
+    openedAt: null,
+    startedAt: null,
+    durationMs,
+    completedAt: null,
+    resultFinalizedAt: null,
+    resultTeamIds: [],
+  };
 }
 
 function stringOrNull(value: unknown): string | null {
@@ -313,26 +324,20 @@ export function mapTeamMissionRecord(id: string, data: DocumentData): TeamMissio
 }
 
 export function mapBooth(id: string, data: DocumentData): BoothDoc {
+  const startedAt = toMillis(data.startedAt);
   return {
     id,
     grade: data.grade as Grade,
     missionId: String(data.missionId),
     roundNo: data.roundNo as RoundNo,
-    status: data.status === 'active' || data.status === 'completed' ? data.status : 'ready',
-    startedAt: toMillis(data.startedAt),
+    // 예전 문서에는 연 시각이 없다. 게임을 시작했으면 그때 연 것으로 본다.
+    openedAt: toMillis(data.openedAt) ?? startedAt,
+    startedAt,
+    durationMs: numberOr(data.durationMs, DEFAULT_GAME_DURATION_MS),
     completedAt: toMillis(data.completedAt),
     resultFinalizedAt: toMillis(data.resultFinalizedAt),
     resultTeamIds: Array.isArray(data.resultTeamIds) ? data.resultTeamIds.map(String) : [],
     updatedBy: stringOrNull(data.updatedBy),
-  };
-}
-
-export function mapRound(data: DocumentData): RoundDoc {
-  return {
-    grade: data.grade as Grade,
-    roundNo: data.roundNo as RoundNo,
-    status: (data.status as RoundStatus | undefined) ?? 'waiting',
-    startedAt: toMillis(data.startedAt),
   };
 }
 

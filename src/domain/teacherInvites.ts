@@ -41,17 +41,11 @@ export function parseInviteEmails(text: string): ParsedEmails {
 export interface TeacherInviteDraft {
   emails: readonly string[];
   role: TeacherRole;
-  missionId: string | null;
-  classId: string | null;
 }
 
-/** 역할에 맞지 않는 담당은 비운다(부스 교사만 미션, 담임교사만 학급). */
-export function normalizeInviteAssignment(draft: TeacherInviteDraft): TeacherInviteDraft {
-  return {
-    ...draft,
-    missionId: draft.role === 'station_teacher' ? draft.missionId : null,
-    classId: draft.role === 'homeroom_teacher' ? draft.classId : null,
-  };
+/** 저장된 역할값을 읽는다. 예전 값(부스 교사, 담임교사, teacher)은 모두 교사다. */
+export function toTeacherRole(value: unknown): TeacherRole {
+  return value === 'admin' ? 'admin' : 'teacher';
 }
 
 export function getTeacherInviteError(draft: TeacherInviteDraft): string | null {
@@ -63,8 +57,6 @@ export function getTeacherInviteError(draft: TeacherInviteDraft): string | null 
     (email) => email !== normalizeEmail(email) || !isValidEmail(email),
   );
   if (wrong !== undefined) return `이메일 주소를 확인해 주세요: ${wrong}`;
-  if (draft.role === 'homeroom_teacher' && !draft.classId) {
-    return '담임교사는 담당 학급을 골라 주세요.';
-  }
+  if (draft.role !== 'admin' && draft.role !== 'teacher') return '역할을 골라 주세요.';
   return null;
 }

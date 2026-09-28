@@ -334,7 +334,7 @@ function QuestionPanel({
       ) : null}
       {!canRunFinal ? (
         <InlineAlert tone="info" icon="visibility">
-          이 학급의 담임 선생님과 총괄 선생님만 문제를 풀 수 있어요. 지금은 보기 전용이에요.
+          교사로 로그인해야 문제를 풀 수 있어요. 지금은 보기 전용이에요.
         </InlineAlert>
       ) : null}
 

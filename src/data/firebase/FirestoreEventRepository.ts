@@ -43,10 +43,13 @@ import {
 } from '../../domain/finalMission';
 import { getDrawingConfigError } from '../../domain/drawingPrompts';
 import { getGoldenBellConfigError } from '../../domain/goldenBell';
+import { DEFAULT_GAME_DURATION_MS } from '../../config';
+import { toRoundStatus } from '../../domain/boothRound';
+import { getGameDurationError } from '../../domain/gameDuration';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
 import { getRankingEntryError } from '../../domain/rewards';
-import { missionRoundStateId, teamMissionStateId } from '../../domain/tour';
-import { getRoundForMission, getTeamNoForMission, ROUND_NUMBERS } from '../../domain/rotation';
+import { missionRoundStateId, presentMissionRound, teamMissionStateId } from '../../domain/tour';
+import { getRoundForMission, getTeamNoForMission } from '../../domain/rotation';
 import { resolveSubmissionScore } from '../../domain/scoring';
 import type {
   CardAward,
@@ -62,7 +65,6 @@ import type {
   MissionResult,
   MissionRoundState,
   RoundNo,
-  RoundStatus,
   Submission,
   Team,
   TeacherProfile,
@@ -91,12 +93,10 @@ import type {
   MarkArrivedInput,
   MissionLiveState,
   MissionParticipant,
-  MissionProgress,
   OpenFinalInput,
   OpsDashboard,
   ReopenSubmissionInput,
   ReviseRankingOutcome,
-  RoundControlAction,
   SaveSubmissionInput,
   SaveTeacherInvitesInput,
   SelectFinalChoiceInput,
@@ -132,6 +132,7 @@ import {
 import { FirestoreTourStore } from './firestoreTour';
 import {
   isCompleteSubmission,
+  mapBooth,
   mapCardAward,
   mapClass,
   mapDrawingFile,
@@ -140,6 +141,7 @@ import {
   mapResult,
   mapSubmission,
   mapTeam,
+  newBoothFields,
   toMillis,
 } from './mappers';
 
@@ -155,10 +157,6 @@ function resultKey(missionId: string, grade: Grade, roundNo: RoundNo): string {
 
 function resultId(missionId: string, grade: Grade, roundNo: RoundNo, teamId: string): string {
   return `${resultKey(missionId, grade, roundNo)}__${teamId}`;
-}
-
-function roundId(grade: Grade, roundNo: RoundNo): string {
-  return `g${grade}-r${roundNo}`;
 }
 
 /** Firestore 오류를 화면에 보여 줄 수 있는 한국어 오류로 바꾼다. */
@@ -269,14 +267,7 @@ export class FirestoreEventRepository implements EventRepository {
       teacher: () => this.teacher,
       requireTeacher: () => this.requireTeacher(),
       requireAdmin: () => this.requireAdmin(),
-      requireStationAccess: (missionId) => this.requireStationAccess(missionId),
-      requireClassAccess: (classId) => this.requireClassAccess(classId),
-      canRunClassFinal: (classId) => this.canRunClassFinal(classId),
-      currentEvent: async (eventId) => {
-        const live = this.liveEvents.get(eventId)?.event;
-        if (live) return live;
-        return mapEvent(await getDoc(this.eventRef(eventId)));
-      },
+      currentEvent: (eventId) => this.currentEvent(eventId),
       missions: (eventId) => this.cached(`missions|${eventId}`, () => this.listMissions(eventId)),
       classes: (eventId, grade) =>
         this.cached(`classes|${eventId}|${grade}`, () => this.listClasses(eventId, grade)),
@@ -289,6 +280,13 @@ export class FirestoreEventRepository implements EventRepository {
       classAwards: (eventId, classId) => this.classAwards(eventId, classId),
       classProgress: (eventId, classId) => this.classProgress(eventId, classId),
     };
+  }
+
+  /** 구독 중인 행사 상태가 있으면 그것을, 없으면 한 번 읽는다. */
+  private async currentEvent(eventId: string): Promise<FestivalEvent> {
+    const live = this.liveEvents.get(eventId)?.event;
+    if (live) return live;
+    return mapEvent(await getDoc(this.eventRef(eventId)));
   }
 
   // ---- 경로 ----
@@ -447,35 +445,6 @@ export class FirestoreEventRepository implements EventRepository {
     return teacher;
   }
 
-  /** 총괄 운영자 또는 그 미션 담당(담당이 정해지지 않은 부스 교사 포함) */
-  private requireStationAccess(missionId: string): TeacherProfile {
-    const teacher = this.requireTeacher();
-    const allowed =
-      teacher.role === 'admin' ||
-      (teacher.role === 'station_teacher' &&
-        (teacher.missionId === null || teacher.missionId === missionId));
-    if (!allowed) throw new RepositoryError('not-allowed', '담당 미션만 운영할 수 있어요.');
-    return teacher;
-  }
-
-  private canRunClassFinal(classId: string): boolean {
-    const teacher = this.teacher;
-    if (!teacher) return false;
-    return (
-      teacher.role === 'admin' ||
-      (teacher.role === 'homeroom_teacher' && teacher.classId === classId)
-    );
-  }
-
-  /** 총괄 운영자 또는 그 학급 담임 */
-  private requireClassAccess(classId: string): TeacherProfile {
-    const teacher = this.requireTeacher();
-    if (!this.canRunClassFinal(classId)) {
-      throw new RepositoryError('not-allowed', '담당 학급의 최종 미션만 진행할 수 있어요.');
-    }
-    return teacher;
-  }
-
   // ---- 행사 준비 ----
 
   /** 행사·학급·팀·미션 문서를 한 번에 만든다(126개 문서, 배치 한도 안). */
@@ -508,11 +477,7 @@ export class FirestoreEventRepository implements EventRepository {
         schoolName: structure.event.schoolName,
         status: 'ready',
         activeGrade: null,
-        activeRound: 0,
-        roundEndsAt: null,
-        pausedRemainingMs: null,
-        roundDurationMs: structure.event.roundDurationMs,
-        moveDurationMs: structure.event.moveDurationMs,
+        gameDurationMs: DEFAULT_GAME_DURATION_MS,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -621,145 +586,57 @@ export class FirestoreEventRepository implements EventRepository {
     };
   }
 
-  async controlRound(eventId: string, action: RoundControlAction): Promise<FestivalEvent> {
-    return run(async () => {
-      await this.ensureUser();
-      this.requireAdmin();
-      await this.syncClock(eventId);
-      const eventRef = this.eventRef(eventId);
-      await runTransaction(this.db, async (transaction) => {
-        const snapshot = await transaction.get(eventRef);
-        const event = mapEvent(snapshot);
-        // 학생 기기의 타이머와 같은 시계(서버 시각 추정값)로 종료 시각을 정한다.
-        const now = this.serverNow();
-        if (event.activeGrade === null) {
-          throw new RepositoryError('not-allowed', '먼저 진행할 학년을 골라 주세요.');
-        }
-
-        if (action === 'pause') {
-          if (event.status !== 'active' || event.roundEndsAt === null) {
-            throw new RepositoryError('not-allowed', '진행 중인 라운드만 일시정지할 수 있어요.');
-          }
-          transaction.update(eventRef, {
-            status: 'paused',
-            pausedRemainingMs: Math.max(0, event.roundEndsAt - now),
-            roundEndsAt: null,
-            updatedAt: serverTimestamp(),
-          });
-          return;
-        }
-
-        if (action === 'end') {
-          if ((event.status !== 'active' && event.status !== 'paused') || event.activeRound === 0) {
-            throw new RepositoryError('not-allowed', '진행 중인 라운드가 없어요.');
-          }
-          transaction.set(
-            doc(this.sub(eventId, 'rounds'), roundId(event.activeGrade, event.activeRound)),
-            {
-              grade: event.activeGrade,
-              roundNo: event.activeRound,
-              status: 'scoring',
-              endsAt: null,
-            },
-            { merge: true },
-          );
-          transaction.update(eventRef, {
-            status: 'ready',
-            roundEndsAt: null,
-            pausedRemainingMs: null,
-            roundEndedAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-          return;
-        }
-
-        if (event.status === 'active') return;
-
-        if (event.status === 'paused') {
-          transaction.update(eventRef, {
-            status: 'active',
-            roundEndsAt: new Date(now + (event.pausedRemainingMs ?? event.roundDurationMs)),
-            pausedRemainingMs: null,
-            updatedAt: serverTimestamp(),
-          });
-          return;
-        }
-
-        let nextRound = event.activeRound;
-        const currentStatus =
-          nextRound === 0
-            ? null
-            : (((
-                await transaction.get(
-                  doc(this.sub(eventId, 'rounds'), roundId(event.activeGrade, nextRound)),
-                )
-              ).data()?.status as RoundStatus | undefined) ?? 'waiting');
-        if (nextRound === 0 || currentStatus === 'scoring' || currentStatus === 'closed') {
-          if (nextRound === 5) throw new RepositoryError('not-allowed', '5라운드가 모두 끝났어요.');
-          if (nextRound !== 0) {
-            transaction.set(
-              doc(this.sub(eventId, 'rounds'), roundId(event.activeGrade, nextRound)),
-              { status: 'closed' },
-              { merge: true },
-            );
-          }
-          nextRound = (nextRound + 1) as RoundNo;
-        }
-        const endsAt = new Date(now + event.roundDurationMs);
-        transaction.set(
-          doc(this.sub(eventId, 'rounds'), roundId(event.activeGrade, nextRound)),
-          {
-            grade: event.activeGrade,
-            roundNo: nextRound,
-            status: 'active',
-            startedAt: serverTimestamp(),
-            endsAt,
-          },
-          { merge: true },
-        );
-        transaction.update(eventRef, {
-          status: 'active',
-          activeRound: nextRound,
-          roundEndsAt: endsAt,
-          pausedRemainingMs: null,
-          roundEndedAt: null,
-          updatedAt: serverTimestamp(),
-        });
-      });
-      return this.getEvent(eventId);
-    });
+  subscribeTeamEvent(
+    eventId: string,
+    teamId: string,
+    onChange: (event: FestivalEvent) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe {
+    const fail = (error: unknown) => onError(toRepositoryError(error));
+    return this.tour.subscribeTeam(
+      eventId,
+      teamId,
+      (onEvent) => this.subscribeEvent(eventId, onEvent, onError),
+      onChange,
+      fail,
+    );
   }
 
   async setActiveGrade(eventId: string, grade: Grade): Promise<FestivalEvent> {
     return run(async () => {
       await this.ensureUser();
       this.requireAdmin();
-      const event = await this.getEvent(eventId);
-      if (event.status === 'active' || event.status === 'paused') {
-        throw new RepositoryError('not-allowed', '라운드를 종료한 뒤 학년을 바꿀 수 있어요.');
-      }
-      let lastRound: 0 | RoundNo = 0;
-      for (const value of ROUND_NUMBERS) {
-        if ((await this.getRoundStatus(eventId, grade, value)) !== 'waiting') lastRound = value;
+      const current = (await this.getEvent(eventId)).activeGrade;
+      if (
+        current !== null &&
+        current !== grade &&
+        (await this.tour.hasOpenBooth(eventId, current))
+      ) {
+        throw new RepositoryError(
+          'not-allowed',
+          `${current}학년에 아직 종료하지 않은 부스 라운드가 있어요. 모두 종료한 뒤 학년을 바꿔 주세요.`,
+        );
       }
       await updateDoc(this.eventRef(eventId), {
         activeGrade: grade,
-        activeRound: lastRound,
-        status: 'ready',
-        roundEndsAt: null,
-        pausedRemainingMs: null,
-        roundEndedAt: null,
+        status: 'active',
         updatedAt: serverTimestamp(),
       });
       return this.getEvent(eventId);
     });
   }
 
-  async getRoundStatus(eventId: string, grade: Grade, roundNo: RoundNo): Promise<RoundStatus> {
+  async setGameDuration(eventId: string, minutes: number): Promise<FestivalEvent> {
     return run(async () => {
       await this.ensureUser();
-      const snapshot = await getDoc(doc(this.sub(eventId, 'rounds'), roundId(grade, roundNo)));
-      return (snapshot.data()?.status as RoundStatus | undefined) ?? 'waiting';
+      this.requireAdmin();
+      const error = getGameDurationError(minutes);
+      if (error) throw new RepositoryError('invalid-input', error);
+      await updateDoc(this.eventRef(eventId), {
+        gameDurationMs: minutes * 60_000,
+        updatedAt: serverTimestamp(),
+      });
+      return this.getEvent(eventId);
     });
   }
 
@@ -795,7 +672,7 @@ export class FirestoreEventRepository implements EventRepository {
   ): Promise<Mission> {
     return run(async () => {
       await this.ensureUser();
-      this.requireStationAccess(missionId);
+      this.requireTeacher();
       const mission = await this.getMission(eventId, missionId);
       if (config.type !== mission.type) {
         throw new RepositoryError('invalid-input', '미션 종류와 설정 형식이 달라요.');
@@ -939,8 +816,8 @@ export class FirestoreEventRepository implements EventRepository {
         this.getMission(eventId, missionId),
       ]);
       const roundNo = getRoundForMission(team.teamNo, mission.no);
-      const [roundStatus, submissionSnap, resultSnap, revealSnap] = await Promise.all([
-        this.getRoundStatus(eventId, team.grade, roundNo),
+      const [booth, submissionSnap, resultSnap, revealSnap] = await Promise.all([
+        this.boothOf(eventId, mission.id, team.grade, roundNo),
         getDoc(doc(this.sub(eventId, 'submissions'), submissionId(mission.id, team.id))),
         getDoc(
           doc(this.sub(eventId, 'results'), resultId(mission.id, team.grade, roundNo, team.id)),
@@ -951,7 +828,8 @@ export class FirestoreEventRepository implements EventRepository {
         team,
         mission,
         roundNo,
-        roundStatus,
+        roundStatus: toRoundStatus(booth.status),
+        booth,
         submission: isCompleteSubmission(submissionSnap.data())
           ? mapSubmission(submissionSnap)
           : null,
@@ -959,6 +837,41 @@ export class FirestoreEventRepository implements EventRepository {
         answerRevealed: revealSnap.data()?.answerRevealed === true,
       };
     });
+  }
+
+  private boothRef(eventId: string, missionId: string, grade: Grade, roundNo: RoundNo) {
+    return doc(
+      this.sub(eventId, 'missionRoundStates'),
+      missionRoundStateId(missionId, grade, roundNo),
+    );
+  }
+
+  /** 부스 라운드 문서를 읽어 지금 단계를 붙인다. 문서가 없으면 열기 전이다. */
+  private presentBoothSnapshot(
+    snapshot: {
+      id: string;
+      data(options: { serverTimestamps: 'estimate' }): DocumentData | undefined;
+    },
+    key: { missionId: string; grade: Grade; roundNo: RoundNo },
+  ): MissionRoundState {
+    const data = snapshot.data({ serverTimestamps: 'estimate' });
+    const booth = data ? mapBooth(snapshot.id, data) : undefined;
+    return presentMissionRound(
+      { id: snapshot.id, ...key },
+      booth,
+      booth?.updatedBy ?? null,
+      this.serverNow(),
+    );
+  }
+
+  private async boothOf(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+  ): Promise<MissionRoundState> {
+    const snapshot = await getDoc(this.boothRef(eventId, missionId, grade, roundNo));
+    return this.presentBoothSnapshot(snapshot, { missionId, grade, roundNo });
   }
 
   /** 미션·학년·라운드별 작은 상태 문서 하나만 실시간 구독한다. */
@@ -1034,14 +947,16 @@ export class FirestoreEventRepository implements EventRepository {
       }
       const roundNo = getRoundForMission(team.teamNo, mission.no);
       const ref = doc(this.sub(input.eventId, 'submissions'), submissionId(mission.id, team.id));
-      const eventRef = this.eventRef(input.eventId);
+      const boothRef = this.boothRef(input.eventId, mission.id, team.grade, roundNo);
+      const boothKey = { missionId: mission.id, grade: team.grade, roundNo };
+      const touring = (await this.currentEvent(input.eventId)).activeGrade === team.grade;
       const withScore = (submission: Submission): Submission => ({
         ...submission,
         score: resolveSubmissionScore(submission, mission),
       });
 
       /** 받을 수 있는 제출인지 확인한다. 같은 요청의 재시도면 true */
-      const isRetry = (data: DocumentData | undefined, event: FestivalEvent): boolean => {
+      const isRetry = (data: DocumentData | undefined, booth: MissionRoundState): boolean => {
         const existing = isCompleteSubmission(data) ? data : undefined;
         if (existing && existing.status !== 'draft') {
           if (existing.requestId === input.requestId) return true;
@@ -1051,18 +966,17 @@ export class FirestoreEventRepository implements EventRepository {
           );
         }
         const blocker = getSubmissionBlocker({
-          event,
-          grade: team.grade,
-          roundNo,
+          touring,
+          boothStatus: booth.status,
           reopened: existing?.status === 'draft' && existing.reopened === true,
         });
         if (blocker) throw new RepositoryError('not-allowed', blocker);
         return false;
       };
 
-      const [currentSnap, eventSnap, resultSnap] = await Promise.all([
+      const [currentSnap, boothSnap, resultSnap] = await Promise.all([
         getDoc(ref),
-        getDoc(eventRef),
+        getDoc(boothRef),
         getDoc(
           doc(
             this.sub(input.eventId, 'results'),
@@ -1070,7 +984,7 @@ export class FirestoreEventRepository implements EventRepository {
           ),
         ),
       ]);
-      if (isRetry(currentSnap.data(), mapEvent(eventSnap))) {
+      if (isRetry(currentSnap.data(), this.presentBoothSnapshot(boothSnap, boothKey))) {
         return withScore(mapSubmission(currentSnap));
       }
       if (resultSnap.exists()) {
@@ -1094,8 +1008,8 @@ export class FirestoreEventRepository implements EventRepository {
 
       await runTransaction(this.db, async (transaction) => {
         const existing = await transaction.get(ref);
-        const latestEvent = await transaction.get(eventRef);
-        if (isRetry(existing.data(), mapEvent(latestEvent))) return;
+        const latestBooth = await transaction.get(boothRef);
+        if (isRetry(existing.data(), this.presentBoothSnapshot(latestBooth, boothKey))) return;
         transaction.set(ref, {
           teamId: team.id,
           classId: team.classId,
@@ -1114,44 +1028,6 @@ export class FirestoreEventRepository implements EventRepository {
 
       // 자동 채점 점수는 저장하지 않고 읽을 때 계산한다(학생은 점수를 쓸 수 없다).
       return withScore(mapSubmission(await getDoc(ref)));
-    });
-  }
-
-  async getRoundProgress(
-    eventId: string,
-    grade: Grade,
-    roundNo: RoundNo,
-  ): Promise<MissionProgress[]> {
-    return run(async () => {
-      await this.ensureUser();
-      const [missions, classes, submissions, results] = await Promise.all([
-        this.listMissions(eventId),
-        this.listClasses(eventId, grade),
-        this.fetchAll(
-          query(
-            this.sub(eventId, 'submissions'),
-            where('grade', '==', grade),
-            where('roundNo', '==', roundNo),
-          ),
-          mapSubmission,
-        ),
-        this.fetchAll(
-          query(
-            this.sub(eventId, 'results'),
-            where('grade', '==', grade),
-            where('roundNo', '==', roundNo),
-          ),
-          mapResult,
-        ),
-      ]);
-      return missions.map((mission) => ({
-        missionId: mission.id,
-        submitted: submissions.filter(
-          (item) => item.missionId === mission.id && item.status !== 'draft',
-        ).length,
-        total: classes.length,
-        finalized: results.some((item) => item.missionId === mission.id),
-      }));
     });
   }
 
@@ -1238,7 +1114,7 @@ export class FirestoreEventRepository implements EventRepository {
   ): Promise<void> {
     return run(async () => {
       await this.ensureUser();
-      this.requireStationAccess(missionId);
+      this.requireTeacher();
       const state = this.missionStateWrite(eventId, missionId, grade, roundNo, {
         answerRevealed: revealed,
       });
@@ -1346,11 +1222,9 @@ export class FirestoreEventRepository implements EventRepository {
     teamIds: readonly string[],
     teacherUid: string,
   ) {
-    const ref = doc(
-      this.sub(input.eventId, 'missionRoundStates'),
-      missionRoundStateId(input.missionId, input.grade, input.roundNo),
-    );
-    const existing = (await getDoc(ref)).data();
+    const ref = this.boothRef(input.eventId, input.missionId, input.grade, input.roundNo);
+    const [snapshot, event] = await Promise.all([getDoc(ref), this.currentEvent(input.eventId)]);
+    const existing = snapshot.data();
     const stored = Array.isArray(existing?.resultTeamIds) ? existing.resultTeamIds.map(String) : [];
     const upToDate =
       existing?.resultFinalizedAt != null &&
@@ -1360,15 +1234,12 @@ export class FirestoreEventRepository implements EventRepository {
       ref,
       upToDate,
       data: {
+        ...(existing ? {} : newBoothFields(event.gameDurationMs)),
         grade: input.grade,
         missionId: input.missionId,
         roundNo: input.roundNo,
-        status: 'completed',
-        ...(existing ? {} : { startedAt: null }),
-        // 처음 확정한 시각은 순위를 고쳐도 그대로 둔다.
-        ...(existing?.resultFinalizedAt != null
-          ? {}
-          : { resultFinalizedAt: serverTimestamp(), completedAt: serverTimestamp() }),
+        // 처음 확정한 시각은 순위를 고쳐도 그대로 둔다. 라운드 종료는 선생님이 따로 누른다.
+        ...(existing?.resultFinalizedAt != null ? {} : { resultFinalizedAt: serverTimestamp() }),
         resultTeamIds: [...teamIds],
         updatedBy: teacherUid,
         updatedAt: serverTimestamp(),
@@ -1380,7 +1251,7 @@ export class FirestoreEventRepository implements EventRepository {
   async finalizeRanking(input: FinalizeRankingInput): Promise<FinalizeRankingOutcome> {
     return run(async () => {
       await this.ensureUser();
-      const teacher = this.requireStationAccess(input.missionId);
+      const teacher = this.requireTeacher();
 
       const existing = await this.resultsOf(input);
       if (existing.length > 0) {
@@ -1467,7 +1338,7 @@ export class FirestoreEventRepository implements EventRepository {
   async reviseRanking(input: FinalizeRankingInput): Promise<ReviseRankingOutcome> {
     return run(async () => {
       await this.ensureUser();
-      const teacher = this.requireStationAccess(input.missionId);
+      const teacher = this.requireTeacher();
       const existing = await this.resultsOf(input);
       if (existing.length === 0) {
         throw new RepositoryError(
@@ -1577,7 +1448,7 @@ export class FirestoreEventRepository implements EventRepository {
   async reopenSubmission(input: ReopenSubmissionInput): Promise<void> {
     return run(async () => {
       await this.ensureUser();
-      this.requireStationAccess(input.missionId);
+      this.requireTeacher();
       const ref = doc(
         this.sub(input.eventId, 'submissions'),
         submissionId(input.missionId, input.teamId),
@@ -1861,7 +1732,7 @@ export class FirestoreEventRepository implements EventRepository {
         session,
         finalState: redactFinalClassState(finalState, canViewFinalResults(session, teacher.role)),
         finalStatus: presentFinalClassStatus(session, finalState, this.serverNow()),
-        canRunFinal: this.canRunClassFinal(classId),
+        canRunFinal: this.teacher !== null,
         startBlocker: getFinalStartBlocker(session, finalState),
       };
     });
@@ -1896,8 +1767,24 @@ export class FirestoreEventRepository implements EventRepository {
     return run(() => this.tour.arrivals(eventId, missionId, grade, roundNo));
   }
 
+  async getStationRounds(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+  ): Promise<MissionRoundState[]> {
+    return run(() => this.tour.stationRounds(eventId, missionId, grade));
+  }
+
+  async openStationRound(input: StartStationInput): Promise<MissionRoundState> {
+    return run(() => this.tour.advanceStation('open', input));
+  }
+
   async startStationRound(input: StartStationInput): Promise<MissionRoundState> {
-    return run(() => this.tour.startStation(input));
+    return run(() => this.tour.advanceStation('start', input));
+  }
+
+  async closeStationRound(input: StartStationInput): Promise<MissionRoundState> {
+    return run(() => this.tour.advanceStation('close', input));
   }
 
   async markTeamArrived(input: MarkArrivedInput): Promise<TeamMissionState> {

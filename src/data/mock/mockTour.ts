@@ -1,3 +1,13 @@
+import {
+  canCheckInAtBooth,
+  getBoothActionBlocker,
+  getBoothClock,
+  getBoothCurrentRound,
+  getBoothStatus,
+  getTeamCurrentRound,
+  scopeEventToTeam,
+  type BoothAction,
+} from '../../domain/boothRound';
 import { getMissionNoForRound, getTeamNoForMission, ROUND_NUMBERS } from '../../domain/rotation';
 import {
   ALERT_LABELS,
@@ -6,10 +16,9 @@ import {
   applyStationStart,
   emptyTeamMissionRecord,
   getCheckInRound,
-  getRoundClock,
-  getRoundPhase,
+  getTourPhase,
   missionRoundStateId,
-  presentMissionRoundStatus,
+  presentMissionRound,
   presentTeamMissionState,
   summarizeTeamStates,
   teamMissionStateId,
@@ -18,8 +27,10 @@ import {
 import type {
   ActivityEvent,
   CardType,
+  FestivalEvent,
   Grade,
   Mission,
+  MissionNo,
   MissionResult,
   MissionRoundState,
   RoundNo,
@@ -41,10 +52,17 @@ import type {
 } from '../EventRepository';
 import { resultId, resultKey, submissionId } from './keys';
 import type { MockStoreContext } from './mockContext';
+import type { MockBooth } from './seed';
 
 const ACTIVITY_LIMIT = 30;
 
-/** 팀 이동(QR 체크인), 부스 상태, 운영 대시보드의 mock 구현 */
+const ACTION_LABELS: Record<BoothAction, string> = {
+  open: '라운드 열기',
+  start: '게임 시작',
+  close: '라운드 종료',
+};
+
+/** 팀 이동(QR 체크인), 부스 라운드, 운영 대시보드의 mock 구현 */
 export class MockTourStore {
   private readonly ctx: MockStoreContext;
 
@@ -52,14 +70,81 @@ export class MockTourStore {
     this.ctx = ctx;
   }
 
-  // ---- 팀 이동 기록 ----
+  // ---- 부스 기록 ----
 
-  private missionForRound(team: Team, roundNo: RoundNo): Mission {
-    const missionNo = getMissionNoForRound(team.teamNo, roundNo);
+  private missionByNo(missionNo: MissionNo): Mission {
     const mission = this.ctx.state().missions.find((item) => item.no === missionNo);
     if (!mission) throw new RepositoryError('not-found', '미션을 찾을 수 없어요.');
     return mission;
   }
+
+  private missionForRound(team: Team, roundNo: RoundNo): Mission {
+    return this.missionByNo(getMissionNoForRound(team.teamNo, roundNo));
+  }
+
+  /**
+   * 저장된 부스 기록. 순위 결과가 원본이므로, 기록이 없어도 결과가 있으면 순위를 확정한 부스로 본다.
+   */
+  boothOf(missionId: string, grade: Grade, roundNo: RoundNo): MockBooth | undefined {
+    const id = missionRoundStateId(missionId, grade, roundNo);
+    const stored = this.ctx.state().missionRoundStates[id];
+    if (stored?.resultFinalizedAt != null) return stored;
+    const prefix = `${resultKey(missionId, grade, roundNo)}__`;
+    const finalized = this.ctx.state().results.find((item) => item.id.startsWith(prefix));
+    if (!finalized) return stored;
+    const base: MockBooth = stored ?? {
+      id,
+      grade,
+      missionId,
+      roundNo,
+      openedAt: null,
+      startedAt: null,
+      durationMs: this.ctx.state().event.gameDurationMs,
+      resultFinalizedAt: null,
+      completedAt: null,
+      updatedBy: null,
+    };
+    return { ...base, resultFinalizedAt: finalized.finalizedAt };
+  }
+
+  private boothByNo(grade: Grade) {
+    return (missionNo: MissionNo, roundNo: RoundNo) =>
+      this.boothOf(this.missionByNo(missionNo).id, grade, roundNo);
+  }
+
+  /** 이 학년의 모든 부스·라운드가 끝났는지(최종 미션을 열 수 있는지 볼 때 쓴다) */
+  allRoundsCompleted(grade: Grade): boolean {
+    return this.ctx
+      .state()
+      .missions.every((mission) =>
+        ROUND_NUMBERS.every(
+          (roundNo) => (this.boothOf(mission.id, grade, roundNo)?.completedAt ?? null) !== null,
+        ),
+      );
+  }
+
+  /** 이 학년에 열어 두고 아직 종료하지 않은 부스가 있는지(학년을 바꾸기 전에 확인한다) */
+  hasOpenBooth(grade: Grade): boolean {
+    const now = this.ctx.now();
+    return this.ctx.state().missions.some((mission) =>
+      ROUND_NUMBERS.some((roundNo) => {
+        const status = getBoothStatus(this.boothOf(mission.id, grade, roundNo), now);
+        return status !== 'ready' && status !== 'completed';
+      }),
+    );
+  }
+
+  /** 한 팀이 보는 행사 상태. 팀이 지금 가야 하는 부스의 단계로 채운다. */
+  teamEvent(team: Team): FestivalEvent {
+    return scopeEventToTeam(
+      this.ctx.state().event,
+      team,
+      this.boothByNo(team.grade),
+      this.ctx.now(),
+    );
+  }
+
+  // ---- 팀 이동 기록 ----
 
   private resultOf(team: Team, mission: Mission, roundNo: RoundNo): MissionResult | undefined {
     const id = resultId(resultKey(mission.id, team.grade, roundNo), team.id);
@@ -93,21 +178,20 @@ export class MockTourStore {
   }
 
   present(team: Team, roundNo: RoundNo): TeamMissionState {
-    const clock = getRoundClock(
-      this.ctx.state().event,
-      team.grade,
-      roundNo,
-      this.ctx.roundStatusOf(team.grade, roundNo),
-      this.ctx.now(),
-    );
+    const mission = this.missionForRound(team, roundNo);
+    const clock = getBoothClock(this.boothOf(mission.id, team.grade, roundNo), this.ctx.now());
     return presentTeamMissionState(this.recordOf(team, roundNo), clock);
   }
 
   // ---- 체크인 ----
 
+  private boothStatus(mission: Mission, grade: Grade, roundNo: RoundNo) {
+    return getBoothStatus(this.boothOf(mission.id, grade, roundNo), this.ctx.now());
+  }
+
   checkIn(team: Team, stationId: string): CheckInOutcome {
     const scannedMission = this.ctx.findMission(stationId);
-    const roundNo = getCheckInRound(this.ctx.state().event, team.grade);
+    const roundNo = getCheckInRound(this.teamEvent(team), team.grade);
     if (roundNo === null) {
       throw new RepositoryError(
         'not-allowed',
@@ -126,12 +210,18 @@ export class MockTourStore {
         state: this.present(team, roundNo),
       };
     }
-    const booth = this.storedRound(expectedMission.id, team.grade, roundNo);
+    const status = this.boothStatus(expectedMission, team.grade, roundNo);
+    if (scannedMission.id === expectedMission.id && !canCheckInAtBooth(status)) {
+      throw new RepositoryError(
+        'not-allowed',
+        '선생님이 라운드를 열면 들어갈 수 있어요. 교실 앞에서 잠깐 기다려 주세요.',
+      );
+    }
     const { record, kind } = applyCheckIn(
       before,
       scannedMission.id,
       this.ctx.now(),
-      booth?.status === 'active',
+      status === 'active',
     );
     if (record !== before) this.save(record);
 
@@ -164,20 +254,18 @@ export class MockTourStore {
 
   /** QR을 찍지 못한 팀을 교사가 직접 입장 처리한다. */
   markArrived(input: MarkArrivedInput): TeamMissionState {
-    this.ctx.requireStationAccess(input.missionId);
+    this.ctx.requireTeacher();
     const team = this.ctx.findTeam(input.teamId);
     const mission = this.ctx.findMission(input.missionId);
     if (this.missionForRound(team, input.roundNo).id !== mission.id) {
       throw new RepositoryError('invalid-input', '이 라운드에 이 교실로 오는 팀이 아니에요.');
     }
+    const status = this.boothStatus(mission, team.grade, input.roundNo);
+    if (status === 'completed') {
+      throw new RepositoryError('not-allowed', '이미 종료한 라운드예요.');
+    }
     const before = this.recordOf(team, input.roundNo);
-    const booth = this.storedRound(mission.id, team.grade, input.roundNo);
-    const { record, kind } = applyCheckIn(
-      before,
-      mission.id,
-      this.ctx.now(),
-      booth?.status === 'active',
-    );
+    const { record, kind } = applyCheckIn(before, mission.id, this.ctx.now(), status === 'active');
     if (kind === 'checked_in') {
       this.save(record);
       this.ctx.addActivity({
@@ -196,7 +284,7 @@ export class MockTourStore {
   }
 
   tourStatus(team: Team): TeamTourStatus {
-    const roundNo = getCheckInRound(this.ctx.state().event, team.grade);
+    const roundNo = getCheckInRound(this.teamEvent(team), team.grade);
     if (roundNo === null) {
       return { roundNo: null, state: null, expectedMission: null, nextMission: null };
     }
@@ -210,37 +298,25 @@ export class MockTourStore {
 
   // ---- 부스 ----
 
-  private storedRound(missionId: string, grade: Grade, roundNo: RoundNo) {
-    return this.ctx.state().missionRoundStates[missionRoundStateId(missionId, grade, roundNo)];
-  }
-
   missionRound(missionId: string, grade: Grade, roundNo: RoundNo): MissionRoundState {
     const mission = this.ctx.findMission(missionId);
-    const stored = this.storedRound(mission.id, grade, roundNo);
-    // 순위 결과가 원본이다. 결과가 있으면 기록이 없어도 확정한 부스로 본다.
-    const prefix = `${resultKey(mission.id, grade, roundNo)}__`;
-    const finalized = this.ctx.state().results.find((item) => item.id.startsWith(prefix));
-    const base: MissionRoundState = stored ?? {
-      id: missionRoundStateId(mission.id, grade, roundNo),
-      grade,
-      missionId: mission.id,
-      roundNo,
-      status: 'ready',
-      startedAt: null,
-      completedAt: null,
-      resultFinalizedAt: null,
-      updatedBy: null,
-    };
-    const resultFinalizedAt = base.resultFinalizedAt ?? finalized?.finalizedAt ?? null;
-    return {
-      ...base,
-      resultFinalizedAt,
-      completedAt: base.completedAt ?? resultFinalizedAt,
-      status: presentMissionRoundStatus(
-        { status: base.status, resultFinalizedAt },
-        this.ctx.roundStatusOf(grade, roundNo),
-      ),
-    };
+    const booth = this.boothOf(mission.id, grade, roundNo);
+    return presentMissionRound(
+      {
+        id: missionRoundStateId(mission.id, grade, roundNo),
+        grade,
+        missionId: mission.id,
+        roundNo,
+      },
+      booth,
+      booth?.updatedBy ?? null,
+      this.ctx.now(),
+    );
+  }
+
+  /** 이 부스의 1~5라운드 상태 */
+  stationRounds(missionId: string, grade: Grade): MissionRoundState[] {
+    return ROUND_NUMBERS.map((roundNo) => this.missionRound(missionId, grade, roundNo));
   }
 
   arrivals(missionId: string, grade: Grade, roundNo: RoundNo): StationArrivals {
@@ -253,35 +329,64 @@ export class MockTourStore {
     };
   }
 
-  startStation(input: StartStationInput): MissionRoundState {
-    const teacher = this.ctx.requireStationAccess(input.missionId);
+  /** 라운드 열기 → 게임 시작 → 라운드 종료. 같은 단계를 다시 눌러도 처음 기록을 그대로 둔다. */
+  advanceStation(action: BoothAction, input: StartStationInput): MissionRoundState {
+    const teacher = this.ctx.requireTeacher();
     const mission = this.ctx.findMission(input.missionId);
-    const current = this.missionRound(mission.id, input.grade, input.roundNo);
-    // 다시 눌러도 처음 시작 시각을 그대로 쓴다.
-    if (current.startedAt !== null || current.status === 'completed') return current;
-    if (this.ctx.roundStatusOf(input.grade, input.roundNo) !== 'active') {
-      throw new RepositoryError(
-        'not-allowed',
-        '총괄 선생님이 라운드를 시작한 뒤에 미션을 시작할 수 있어요.',
-      );
-    }
-    const now = this.ctx.now();
-    this.ctx.state().missionRoundStates[current.id] = {
-      ...current,
-      status: 'active',
-      startedAt: now,
-      updatedBy: teacher.uid,
-    };
-    for (const team of this.scheduledTeams(mission, input.grade, input.roundNo)) {
-      const record = this.recordOf(team, input.roundNo);
-      const next = applyStationStart(record, now);
-      if (next !== record) this.save(next);
-    }
-    this.ctx.addActivity({
-      id: `start__${current.id}`,
+    const state = this.ctx.state();
+    const id = missionRoundStateId(mission.id, input.grade, input.roundNo);
+    const stored = this.boothOf(mission.id, input.grade, input.roundNo);
+    const current: MockBooth = stored ?? {
+      id,
       grade: input.grade,
-      type: 'mission_started',
-      message: `${input.roundNo}라운드 ${mission.title} 미션 시작`,
+      missionId: mission.id,
+      roundNo: input.roundNo,
+      openedAt: null,
+      startedAt: null,
+      durationMs: state.event.gameDurationMs,
+      resultFinalizedAt: null,
+      completedAt: null,
+      updatedBy: null,
+    };
+    const done =
+      (action === 'open' && current.openedAt !== null) ||
+      (action === 'start' && current.startedAt !== null) ||
+      (action === 'close' && current.completedAt !== null);
+    if (done) return this.missionRound(mission.id, input.grade, input.roundNo);
+
+    const previous =
+      input.roundNo === 1
+        ? undefined
+        : this.boothOf(mission.id, input.grade, (input.roundNo - 1) as RoundNo);
+    const blocker = getBoothActionBlocker(action, {
+      status: getBoothStatus(current, this.ctx.now()),
+      touring: state.event.activeGrade === input.grade,
+      previousCompleted: input.roundNo === 1 || (previous?.completedAt ?? null) !== null,
+      rankingFinalized: current.resultFinalizedAt !== null,
+    });
+    if (blocker) throw new RepositoryError('not-allowed', blocker);
+
+    const now = this.ctx.now();
+    const next: MockBooth = { ...current, updatedBy: teacher.uid };
+    if (action === 'open') next.openedAt = now;
+    if (action === 'start') {
+      next.openedAt ??= now;
+      next.startedAt = now;
+      next.durationMs = state.event.gameDurationMs;
+      for (const team of this.scheduledTeams(mission, input.grade, input.roundNo)) {
+        const record = this.recordOf(team, input.roundNo);
+        const started = applyStationStart(record, now);
+        if (started !== record) this.save(started);
+      }
+    }
+    if (action === 'close') next.completedAt = now;
+    state.missionRoundStates[id] = next;
+
+    this.ctx.addActivity({
+      id: `${action}__${id}`,
+      grade: input.grade,
+      type: action === 'close' ? 'round_changed' : 'mission_started',
+      message: `${mission.title}(${mission.room}) ${input.roundNo}라운드 · ${ACTION_LABELS[action]}`,
       classId: null,
       teamId: null,
       missionId: mission.id,
@@ -291,7 +396,7 @@ export class MockTourStore {
     return this.missionRound(mission.id, input.grade, input.roundNo);
   }
 
-  /** 순위 확정(또는 수정) 뒤 팀 상태와 부스 상태를 맞춘다. */
+  /** 순위 확정(또는 수정) 뒤 팀 상태와 부스 상태를 맞춘다. 라운드는 선생님이 따로 종료한다. */
   onRankingFinalized(
     mission: Mission,
     results: readonly MissionResult[],
@@ -304,16 +409,23 @@ export class MockTourStore {
       const team = this.ctx.findTeam(result.teamId);
       this.save(applyResultFinalized(this.recordOf(team, roundNo), result.id, now));
     }
-    const current = this.missionRound(mission.id, grade, roundNo);
-    this.ctx.state().missionRoundStates[current.id] = {
+    const id = missionRoundStateId(mission.id, grade, roundNo);
+    const current = this.boothOf(mission.id, grade, roundNo);
+    this.ctx.state().missionRoundStates[id] = {
+      id,
+      grade,
+      missionId: mission.id,
+      roundNo,
+      openedAt: null,
+      startedAt: null,
+      durationMs: this.ctx.state().event.gameDurationMs,
+      completedAt: null,
       ...current,
-      status: 'completed',
-      completedAt: current.completedAt ?? now,
-      resultFinalizedAt: current.resultFinalizedAt ?? now,
+      resultFinalizedAt: current?.resultFinalizedAt ?? now,
       updatedBy: teacherUid,
     };
     this.ctx.addActivity({
-      id: `result__${current.id}`,
+      id: `result__${id}`,
       grade,
       type: 'result_finalized',
       message: `${roundNo}라운드 ${mission.title} 결과 확정(${results.length}팀)`,
@@ -366,23 +478,22 @@ export class MockTourStore {
 
   // ---- 대시보드 ----
 
-  /** 대시보드에 보여 줄 라운드: 활동 중이면 지금 라운드, 이동 중이면 다음 라운드(입장 확인용) */
-  private displayRound(grade: Grade, requested?: RoundNo): RoundNo {
-    if (requested) return requested;
-    const event = this.ctx.state().event;
-    const target = getCheckInRound(event, grade);
-    if (target !== null) return target;
-    if (event.activeGrade === grade && event.activeRound !== 0) return event.activeRound;
-    // 이 학년이 지금 진행 중이 아니면 마지막으로 진행한 라운드를 보여 준다.
-    const played = ROUND_NUMBERS.filter(
-      (roundNo) => this.ctx.roundStatusOf(grade, roundNo) !== 'waiting',
-    );
-    return played.length > 0 ? played[played.length - 1] : 1;
+  /** 이 부스가 지금 진행할 라운드. 다섯 라운드를 모두 끝냈으면 5라운드를 보여 준다. */
+  stationRound(mission: Mission, grade: Grade): RoundNo {
+    return getBoothCurrentRound((roundNo) => this.boothOf(mission.id, grade, roundNo)) ?? 5;
   }
 
+  private teamRound(team: Team): RoundNo {
+    return getTeamCurrentRound(team.teamNo, this.boothByNo(team.grade)) ?? 5;
+  }
+
+  /**
+   * roundNo를 주면 그 라운드의 모습을, 주지 않으면 지금 모습을 보여 준다.
+   * 부스마다 따로 진행하므로 지금 모습에서는 부스와 팀이 저마다 자기 라운드에 있다.
+   */
   dashboard(grade: Grade, requestedRound?: RoundNo): OpsDashboard {
     const state = this.ctx.state();
-    const roundNo = this.displayRound(grade, requestedRound);
+    const now = this.ctx.now();
     const missions = [...state.missions].sort((a, b) => a.no - b.no);
     const classes = this.ctx.classesOf(grade);
 
@@ -394,12 +505,16 @@ export class MockTourStore {
 
     const classRows = classes.map((classInfo) => ({
       classInfo,
-      cells: this.ctx.teamsOfClass(classInfo.id).map((team) => cellOf(team, roundNo)),
+      cells: this.ctx
+        .teamsOfClass(classInfo.id)
+        .map((team) => cellOf(team, requestedRound ?? this.teamRound(team))),
     }));
-    const cells = classRows.flatMap((row) => row.cells);
 
     const stations: OpsStation[] = missions.map((mission) => {
-      const teams = cells.filter((cell) => cell.mission.id === mission.id);
+      const roundNo = requestedRound ?? this.stationRound(mission, grade);
+      const teams = this.scheduledTeams(mission, grade, roundNo).map((team) =>
+        cellOf(team, roundNo),
+      );
       return {
         mission,
         round: this.missionRound(mission.id, grade, roundNo),
@@ -411,16 +526,16 @@ export class MockTourStore {
       };
     });
 
-    // 이동 시간에는 다음 라운드를 보여 주므로, 직전 라운드의 결과 미입력도 함께 알린다.
-    const previousCells =
-      roundNo > 1 && !requestedRound
-        ? classes.flatMap((classInfo) =>
-            this.ctx
-              .teamsOfClass(classInfo.id)
-              .map((team) => cellOf(team, (roundNo - 1) as RoundNo)),
-          )
-        : [];
-    const alerts: OpsAlert[] = [...cells, ...previousCells].flatMap((cell) =>
+    const seen = new Set<string>();
+    const watched = [
+      ...classRows.flatMap((row) => row.cells),
+      ...stations.flatMap((station) => station.teams),
+    ].filter((cell) => {
+      if (seen.has(cell.state.id)) return false;
+      seen.add(cell.state.id);
+      return true;
+    });
+    const alerts: OpsAlert[] = watched.flatMap((cell) =>
       cell.state.alertCodes.map((code) => ({
         id: `${cell.state.id}__${code}`,
         code,
@@ -445,12 +560,21 @@ export class MockTourStore {
       });
     }
 
-    const summary = summarizeTeamStates(cells.map((cell) => cell.state));
+    const statuses = missions.flatMap((mission) =>
+      ROUND_NUMBERS.map((roundNo) => getBoothStatus(this.boothOf(mission.id, grade, roundNo), now)),
+    );
+    const started = statuses.some((status) => status !== 'ready');
+    // 부스마다 라운드가 다를 수 있어 가장 늦은 부스의 라운드를 대표로 쓴다.
+    const slowestRound = stations.reduce<RoundNo>(
+      (slowest, station) => (station.round.roundNo < slowest ? station.round.roundNo : slowest),
+      5,
+    );
+    const summary = summarizeTeamStates(classRows.flatMap((row) => row.cells).map((c) => c.state));
     return {
       summary: {
         grade,
-        roundNo: state.event.activeGrade === grade && state.event.activeRound === 0 ? 0 : roundNo,
-        phase: getRoundPhase(state.event, grade),
+        roundNo: requestedRound ?? (started ? slowestRound : 0),
+        phase: getTourPhase(statuses),
         ...summary,
         alertCount: alerts.length,
       },

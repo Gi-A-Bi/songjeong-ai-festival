@@ -66,10 +66,10 @@ function WaitingNotice({ event, view }: { event: FestivalEvent; view: TeamMissio
     roundStatus: view.roundStatus,
   });
   switch (reason) {
-    case 'paused':
+    case 'idle':
       return (
-        <NoticeBox tone="info" icon="pause" mascot="mascotTimer">
-          잠시 멈췄어요. 선생님 안내를 기다려 주세요.
+        <NoticeBox tone="info" icon="hourglass_top" mascot="mascotTimer">
+          지금은 미션 투어 시간이 아니에요. 선생님 안내를 기다려 주세요.
         </NoticeBox>
       );
     case 'upcoming':
@@ -84,10 +84,16 @@ function WaitingNotice({ event, view }: { event: FestivalEvent; view: TeamMissio
           이 미션 시간이 끝났어요. 제출하지 못했다면 선생님께 말해 주세요.
         </NoticeBox>
       );
-    case 'not-started':
+    case 'not-opened':
+      return (
+        <NoticeBox tone="info" icon="meeting_room" mascot="mascotTimer">
+          {view.mission.room} 앞에서 기다려요. 선생님이 라운드를 열면 교실 QR을 찍고 들어가요.
+        </NoticeBox>
+      );
+    case 'opened':
       return (
         <NoticeBox tone="info" icon="hourglass_top" mascot="mascotTimer">
-          선생님이 라운드를 시작하면 제출할 수 있어요.
+          곧 시작해요! 선생님이 게임을 시작하면 미션이 열려요.
         </NoticeBox>
       );
   }

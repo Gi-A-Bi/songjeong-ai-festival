@@ -10,8 +10,16 @@ export const DEV_DEFAULT_TEAM: { grade: Grade; classNo: number; teamNo: TeamNo }
   teamNo: 3,
 };
 
-/** 라운드 시작 뒤 이 시간이 지나도 체크인하지 않으면 미도착 경고를 띄운다(행사 설정으로 조정). */
+/** 게임 시간 기본값. 부스에서 “게임 시작”을 누른 때부터 센다. 총괄 운영자가 행사 설정에서 바꿀 수 있다. */
+export const DEFAULT_GAME_DURATION_MS = 10 * 60_000;
+export const MIN_GAME_DURATION_MINUTES = 3;
+export const MAX_GAME_DURATION_MINUTES = 30;
+
+/** 게임 시작 뒤 이 시간이 지나도 체크인하지 않으면 미도착 경고를 띄운다. */
 export const CHECK_IN_GRACE_MS = 2 * 60_000;
+
+/** 게임 시간이 끝난 뒤 이 시간이 지나도 순위를 확정하지 않으면 결과 미입력 경고를 띄운다. */
+export const RESULT_GRACE_MS = 3 * 60_000;
 
 /** 학급 최종 미션 문제 수 */
 export const FINAL_QUESTION_COUNT = 10;

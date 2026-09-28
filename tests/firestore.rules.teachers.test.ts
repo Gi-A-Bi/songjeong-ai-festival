@@ -19,6 +19,7 @@ import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 
 const PROJECT_ID = 'demo-songjeong';
 const INVITED = 'invited@example.com';
+const LEGACY = 'legacy@example.com';
 
 let testEnv: RulesTestEnvironment;
 
@@ -42,9 +43,7 @@ const studentDb = () => testEnv.authenticatedContext('student-a').firestore();
 const invite = (email: string, overrides: Record<string, unknown> = {}) => ({
   email,
   displayName: '',
-  role: 'station_teacher',
-  missionId: 'drawing',
-  classId: null,
+  role: 'teacher',
   active: true,
   createdBy: 'admin-1',
   createdAt: serverTimestamp(),
@@ -54,9 +53,7 @@ const invite = (email: string, overrides: Record<string, unknown> = {}) => ({
 const claim = (email: string, overrides: Record<string, unknown> = {}) => ({
   email,
   displayName: '초대받은 선생님',
-  role: 'station_teacher',
-  missionId: 'drawing',
-  classId: null,
+  role: 'teacher',
   active: true,
   createdAt: serverTimestamp(),
   ...overrides,
@@ -88,19 +85,25 @@ beforeEach(async () => {
       active: true,
     });
     await setDoc(doc(db, 'teachers/booth-1'), {
-      displayName: '부스 선생님',
+      displayName: '선생님',
       email: 'booth@example.com',
-      role: 'station_teacher',
-      missionId: null,
-      classId: null,
+      role: 'teacher',
       active: true,
     });
     await setDoc(doc(db, `teacherInvites/${INVITED}`), {
       email: INVITED,
       displayName: '',
-      role: 'station_teacher',
-      missionId: 'drawing',
-      classId: null,
+      role: 'teacher',
+      active: true,
+      createdBy: 'admin-1',
+    });
+    // 역할을 나누던 때에 담당과 함께 등록한 초대장
+    await setDoc(doc(db, `teacherInvites/${LEGACY}`), {
+      email: LEGACY,
+      displayName: '',
+      role: 'homeroom_teacher',
+      missionId: null,
+      classId: 'g4-c2',
       active: true,
       createdBy: 'admin-1',
     });
@@ -116,7 +119,7 @@ describe('이메일로 교사 등록(teacherInvites)', () => {
     await assertSucceeds(
       setDoc(
         doc(db, 'teacherInvites/head@example.com'),
-        invite('head@example.com', { role: 'admin', missionId: null }),
+        invite('head@example.com', { role: 'admin' }),
       ),
     );
     await assertSucceeds(getDocs(collection(db, 'teacherInvites')));
@@ -137,7 +140,7 @@ describe('이메일로 교사 등록(teacherInvites)', () => {
     await assertFails(
       setDoc(
         doc(strangerDb(), 'teacherInvites/stranger@example.com'),
-        invite('stranger@example.com', { role: 'admin', missionId: null }),
+        invite('stranger@example.com', { role: 'admin' }),
       ),
     );
   });
@@ -153,6 +156,19 @@ describe('이메일로 교사 등록(teacherInvites)', () => {
     );
     await assertFails(
       setDoc(doc(db, 'teacherInvites/a@example.com'), invite('a@example.com', { extra: true })),
+    );
+    // 부스·담임 역할은 없앴다. 새로 등록할 때는 교사와 총괄만 받고 담당은 적지 않는다.
+    await assertFails(
+      setDoc(
+        doc(db, 'teacherInvites/a@example.com'),
+        invite('a@example.com', { role: 'station_teacher' }),
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(db, 'teacherInvites/a@example.com'),
+        invite('a@example.com', { missionId: 'drawing' }),
+      ),
     );
   });
 
@@ -187,7 +203,7 @@ describe('이메일로 교사 등록(teacherInvites)', () => {
 });
 
 describe('초대받은 계정의 첫 로그인(teachers)', () => {
-  it('초대장과 같은 역할·담당으로 자기 교사 문서를 만들 수 있다', async () => {
+  it('초대장과 같은 역할로 자기 교사 문서를 만들 수 있다', async () => {
     await assertSucceeds(setDoc(doc(invitedDb(), 'teachers/invited-1'), claim(INVITED)));
     // 교사가 된 뒤에는 담당 미션 설정을 바꿀 수 있다.
     await testEnv.withSecurityRulesDisabled(async (context) => {
@@ -203,18 +219,28 @@ describe('초대받은 계정의 첫 로그인(teachers)', () => {
     await assertSucceeds(setDoc(doc(upper, 'teachers/invited-1'), claim(INVITED)));
   });
 
-  it('초대장보다 높은 역할이나 다른 담당으로는 만들 수 없다', async () => {
+  it('초대장보다 높은 역할로는 만들 수 없다', async () => {
     const db = invitedDb();
-    await assertFails(
-      setDoc(doc(db, 'teachers/invited-1'), claim(INVITED, { role: 'admin', missionId: null })),
-    );
-    await assertFails(setDoc(doc(db, 'teachers/invited-1'), claim(INVITED, { missionId: null })));
-    await assertFails(setDoc(doc(db, 'teachers/invited-1'), claim(INVITED, { classId: 'g4-c1' })));
+    await assertFails(setDoc(doc(db, 'teachers/invited-1'), claim(INVITED, { role: 'admin' })));
     await assertFails(setDoc(doc(db, 'teachers/invited-1'), claim(INVITED, { active: false })));
     await assertFails(setDoc(doc(db, 'teachers/invited-1'), claim(INVITED, { extra: 1 })));
     await assertFails(
       setDoc(doc(db, 'teachers/invited-1'), claim(INVITED, { email: 'other@example.com' })),
     );
+  });
+
+  it('예전 역할로 등록된 초대장도 그 역할값 그대로 받아 교사가 된다', async () => {
+    const legacy = googleDb('legacy-1', LEGACY);
+    // 역할을 총괄로 올려 받을 수는 없다.
+    await assertFails(setDoc(doc(legacy, 'teachers/legacy-1'), claim(LEGACY, { role: 'admin' })));
+    await assertSucceeds(
+      setDoc(doc(legacy, 'teachers/legacy-1'), claim(LEGACY, { role: 'homeroom_teacher' })),
+    );
+    // 담당을 나누지 않으므로 교사로서 어느 부스든 운영할 수 있다.
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'events/e1/missions/drawing'), { no: 3 });
+    });
+    await assertSucceeds(updateDoc(doc(legacy, 'events/e1/missions/drawing'), { room: '미술실' }));
   });
 
   it('초대받지 않은 계정과 학생은 교사 문서를 만들 수 없다', async () => {

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   getTeacherInviteError,
   MAX_INVITES_PER_SAVE,
-  normalizeInviteAssignment,
   parseInviteEmails,
+  toTeacherRole,
 } from './teacherInvites';
 
 describe('교사 등록 이메일 읽기', () => {
@@ -35,12 +35,7 @@ describe('교사 등록 이메일 읽기', () => {
 });
 
 describe('교사 등록 확인', () => {
-  const draft = {
-    emails: ['one@example.com'],
-    role: 'admin' as const,
-    missionId: null,
-    classId: null,
-  };
+  const draft = { emails: ['one@example.com'], role: 'teacher' as const };
 
   it('이메일이 없거나 너무 많으면 등록하지 않는다', () => {
     expect(getTeacherInviteError({ ...draft, emails: [] })).toMatch(/이메일을 적어/);
@@ -50,36 +45,21 @@ describe('교사 등록 확인', () => {
     );
     expect(getTeacherInviteError({ ...draft, emails: many })).toMatch(/50개까지/);
     expect(getTeacherInviteError(draft)).toBeNull();
+    expect(getTeacherInviteError({ ...draft, role: 'admin' })).toBeNull();
   });
 
   it('소문자가 아니거나 모양이 틀린 이메일은 받지 않는다', () => {
     expect(getTeacherInviteError({ ...draft, emails: ['One@example.com'] })).toMatch(/확인/);
     expect(getTeacherInviteError({ ...draft, emails: ['a/b@example.com'] })).toMatch(/확인/);
   });
+});
 
-  it('담임교사는 담당 학급이 있어야 한다', () => {
-    expect(getTeacherInviteError({ ...draft, role: 'homeroom_teacher' })).toMatch(/담당 학급/);
-    expect(
-      getTeacherInviteError({ ...draft, role: 'homeroom_teacher', classId: 'g4-c2' }),
-    ).toBeNull();
-  });
-
-  it('역할에 맞지 않는 담당은 비운다', () => {
-    expect(
-      normalizeInviteAssignment({
-        ...draft,
-        role: 'admin',
-        missionId: 'drawing',
-        classId: 'g4-c2',
-      }),
-    ).toMatchObject({ missionId: null, classId: null });
-    expect(
-      normalizeInviteAssignment({
-        ...draft,
-        role: 'station_teacher',
-        missionId: 'drawing',
-        classId: 'g4-c2',
-      }),
-    ).toMatchObject({ missionId: 'drawing', classId: null });
+describe('역할 읽기', () => {
+  it('총괄이 아니면 모두 교사다. 예전의 부스 교사·담임교사도 교사로 읽는다', () => {
+    expect(toTeacherRole('admin')).toBe('admin');
+    expect(toTeacherRole('teacher')).toBe('teacher');
+    expect(toTeacherRole('station_teacher')).toBe('teacher');
+    expect(toTeacherRole('homeroom_teacher')).toBe('teacher');
+    expect(toTeacherRole(undefined)).toBe('teacher');
   });
 });

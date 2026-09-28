@@ -811,3 +811,155 @@
   color: var(--color-primary-active);
   box-shadow: var(--shadow-sm);
 }
+
+/* 대시보드: 부스 바로 가기 */
+.booth-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+}
+
+.booth-links__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-body);
+}
+
+.booth-links__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+/* 대시보드: 진행 학년 */
+.control-bar__grade {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+}
+
+.control-bar__label {
+  font-size: var(--font-size-body);
+}
+
+.control-bar__fact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.control-bar__fact strong {
+  font-size: var(--font-size-xl);
+}
+
+.segmented__button:disabled {
+  cursor: default;
+}
+
+.segmented__button:disabled:not([aria-pressed='true']) {
+  opacity: 0.55;
+}
+
+/* 부스 라운드 진행: 라운드 열기 → 게임 시작 → 순위 매기기 → 라운드 종료 */
+.booth-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.booth-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch-min);
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-bold);
+}
+
+.booth-step__mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-surface-sunken);
+}
+
+.booth-step--done {
+  border-color: var(--color-success);
+  color: var(--color-text);
+}
+
+.booth-step--done .booth-step__mark {
+  background: transparent;
+  color: var(--color-success);
+}
+
+.booth-step--current {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-active);
+}
+
+.booth-step--current .booth-step__mark {
+  background: var(--color-primary);
+  color: var(--color-surface);
+}
+
+.booth-round__guide {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+.booth-round__arrivals,
+.booth-round__blocker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.booth-round__arrivals strong {
+  font-size: var(--font-size-xl);
+}
+
+.booth-round__blocker {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.flow-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-sm);
+}
+
+.flow-guide li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+@media (max-width: 760px) {
+  .booth-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

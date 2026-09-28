@@ -13,7 +13,14 @@ import type { IconName } from '../../components/icons';
 import { useRepository } from '../../data/RepositoryContext';
 import { MISSION_TYPE_INFO } from '../../domain/catalog';
 import { getMissionNoForRound, ROUND_NUMBERS } from '../../domain/rotation';
-import type { FestivalEvent, RoundNo, Team, TeamMissionState } from '../../domain/types';
+import { getCheckInRound } from '../../domain/tour';
+import type {
+  FestivalEvent,
+  MissionRoundStatus,
+  RoundNo,
+  Team,
+  TeamMissionState,
+} from '../../domain/types';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { useMissionLiveState } from '../../hooks/useMissionLiveState';
 import { useTeamContext } from './teamContext';
@@ -21,18 +28,21 @@ import './TeamHomePage.css';
 
 type FocusKind = 'now' | 'next' | 'first' | 'done';
 
-/** 팀 홈에서 가장 크게 보여 줄 미션 라운드를 고른다. 5라운드를 모두 제출했으면 투어가 끝난 것이다. */
+/**
+ * 팀 홈에서 가장 크게 보여 줄 미션 라운드를 고른다. event는 이 팀이 보는 행사 상태다.
+ * 5라운드를 모두 제출했거나 마지막 부스가 라운드를 종료했으면 투어가 끝난 것이다.
+ */
 function getFocus(
   event: FestivalEvent,
   team: Team,
   allSubmitted: boolean,
 ): { roundNo: RoundNo; kind: FocusKind } {
   if (allSubmitted) return { roundNo: 5, kind: 'done' };
-  if (event.activeGrade !== team.grade || event.activeRound === 0)
-    return { roundNo: 1, kind: 'first' };
-  if (event.status === 'active' || event.status === 'paused') {
+  if (event.activeGrade !== team.grade) return { roundNo: 1, kind: 'first' };
+  if (event.status === 'active' && event.activeRound !== 0) {
     return { roundNo: event.activeRound, kind: 'now' };
   }
+  if (event.activeRound === 0) return { roundNo: 1, kind: 'first' };
   if (event.activeRound < 5) return { roundNo: (event.activeRound + 1) as RoundNo, kind: 'next' };
   return { roundNo: 5, kind: 'done' };
 }
@@ -61,7 +71,7 @@ export function TeamHomePage() {
   const data = useAsyncData(load);
   const loaded = data.status === 'success' ? data.data : null;
 
-  // 선생님이 지금 라운드의 순위를 확정하거나 다음 라운드를 시작하면 새로고침 없이 다시 읽는다.
+  // 선생님이 지금 라운드의 순위를 확정하거나 부스 단계가 바뀌면 새로고침 없이 다시 읽는다.
   // 그래야 "카드 보상 고르기" 버튼과 다음 미션 안내가 바로 나타난다.
   const liveRound =
     event.activeGrade === team.grade && event.activeRound !== 0 ? event.activeRound : null;
@@ -75,7 +85,7 @@ export function TeamHomePage() {
       ? { missionId: liveMission.id, grade: team.grade, roundNo: liveRound }
       : null,
   );
-  const refreshKey = `${event.status}|${event.activeGrade}|${event.activeRound}|${liveRevision}`;
+  const refreshKey = `${event.status}|${event.activeGrade}|${event.activeRound}|${event.boothStatus}|${liveRevision}`;
   const [seenRefreshKey, setSeenRefreshKey] = useState(refreshKey);
   if (seenRefreshKey !== refreshKey) {
     setSeenRefreshKey(refreshKey);
@@ -115,6 +125,8 @@ export function TeamHomePage() {
   // 지금 안내하는 라운드의 도착(체크인) 상태
   const arrival = tour && tour.roundNo === focus.roundNo ? tour.state : null;
   const focusMission = schedule.find((item) => item.roundNo === focus.roundNo)?.mission;
+  // 이 라운드보다 앞선 라운드는 이미 지나갔다. 투어가 끝났으면 다섯 라운드가 모두 지나간 것이다.
+  const passedBefore = isMyGrade ? (getCheckInRound(event, team.grade) ?? 6) : 1;
 
   return (
     <>
@@ -158,15 +170,12 @@ export function TeamHomePage() {
                   </>
                 )}
               </p>
-              {arrival && focus.kind !== 'done' ? <ArrivalNotice state={arrival} /> : null}
+              {arrival && focus.kind !== 'done' ? (
+                <ArrivalNotice state={arrival} boothStatus={event.boothStatus} />
+              ) : null}
               <div className="team-focus__actions">
                 {isMyGrade ? (
-                  <Timer
-                    status={event.status}
-                    endsAt={event.roundEndsAt}
-                    pausedRemainingMs={event.pausedRemainingMs}
-                    size="lg"
-                  />
+                  <Timer status={event.status} endsAt={event.roundEndsAt} size="lg" />
                 ) : null}
                 {focus.kind === 'done' ? (
                   <ButtonLink to={paths.cards(eventId, team.id)} size="xl" icon="style">
@@ -195,7 +204,7 @@ export function TeamHomePage() {
             <ol className="team-progress__list">
               {schedule.map(({ roundNo, mission, done }) => {
                 if (!mission) return null;
-                const status = getRowStatus({ done, roundNo, focus, event, isMyGrade });
+                const status = getRowStatus({ done, roundNo, focus, passedBefore });
                 return (
                   <li key={roundNo}>
                     <Link
@@ -271,8 +280,14 @@ export function TeamHomePage() {
   );
 }
 
-/** 미션 교실 QR 체크인 상태. 색뿐 아니라 아이콘과 문구로 알린다. */
-function ArrivalNotice({ state }: { state: TeamMissionState }) {
+/** 미션 교실 QR 체크인 상태와 부스 단계. 색뿐 아니라 아이콘과 문구로 알린다. */
+function ArrivalNotice({
+  state,
+  boothStatus,
+}: {
+  state: TeamMissionState;
+  boothStatus: MissionRoundStatus | null;
+}) {
   if (state.alertCodes.includes('wrong_station')) {
     return (
       <p className="team-focus__arrival team-focus__arrival--warning" role="status">
@@ -280,16 +295,31 @@ function ArrivalNotice({ state }: { state: TeamMissionState }) {
       </p>
     );
   }
+  if (boothStatus === 'scoring') {
+    return (
+      <p className="team-focus__arrival" role="status">
+        <Icon name="pending" /> 게임 시간이 끝났어요. 선생님이 순위를 정하고 있어요.
+      </p>
+    );
+  }
   if (state.checkedInAt !== null) {
     return (
       <p className="team-focus__arrival team-focus__arrival--done" role="status">
         <Icon name="check_circle" /> 도착 기록 완료
+        {boothStatus === 'open' ? ' · 선생님이 게임을 시작하면 미션이 열려요.' : ''}
+      </p>
+    );
+  }
+  if (boothStatus === 'ready') {
+    return (
+      <p className="team-focus__arrival" role="status">
+        <Icon name="hourglass_top" /> 교실 앞에서 기다려요. 선생님이 라운드를 열면 교실 QR을 찍어요.
       </p>
     );
   }
   return (
     <p className="team-focus__arrival" role="status">
-      <Icon name="qr_code_scanner" /> 교실에 도착하면 교실 QR을 찍어 도착을 알려요.
+      <Icon name="qr_code_scanner" /> 교실 QR을 찍고 들어가요.
     </p>
   );
 }
@@ -298,14 +328,14 @@ function getRowStatus(input: {
   done: boolean;
   roundNo: RoundNo;
   focus: { roundNo: RoundNo; kind: FocusKind };
-  event: FestivalEvent;
-  isMyGrade: boolean;
+  /** 이 번호보다 앞선 라운드는 이미 지나갔다 */
+  passedBefore: number;
 }): { tone: StatusTone; icon: IconName; label: string } {
   if (input.done) return { tone: 'success', icon: 'check_circle', label: '완료' };
   if (input.focus.kind === 'now' && input.focus.roundNo === input.roundNo) {
     return { tone: 'primary', icon: 'play_arrow', label: '지금' };
   }
-  if (input.isMyGrade && input.roundNo < input.event.activeRound) {
+  if (input.roundNo < input.passedBefore) {
     return { tone: 'warning', icon: 'warning', label: '미제출' };
   }
   return { tone: 'neutral', icon: 'schedule', label: '예정' };

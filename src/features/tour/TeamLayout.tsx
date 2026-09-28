@@ -17,7 +17,8 @@ export function TeamLayout() {
     [repository, eventId, teamId],
   );
   const team = useAsyncData(loadTeam);
-  const event = useLiveEvent(eventId);
+  // 라운드는 부스마다 따로 진행하므로 이 팀이 보는 행사 상태를 받는다.
+  const event = useLiveEvent(eventId, teamId);
 
   if (team.status === 'error' || event.status === 'error') {
     const error = team.status === 'error' ? team.error : event.error;

@@ -105,10 +105,8 @@ export function DrawingPromptPicker({
 
   const initial = toSelection(config);
   const changedGrades = GRADES.filter((grade) => selection[grade] !== initial[grade]);
-  /** 이미 미션 투어를 시작한 학년의 프롬프트를 바꾸려는지 */
-  const changesRunningGrade = changedGrades.some(
-    (grade) => event.activeGrade === grade && event.activeRound >= 1,
-  );
+  /** 지금 미션 투어를 진행하는 학년의 프롬프트를 바꾸려는지 */
+  const changesRunningGrade = changedGrades.some((grade) => event.activeGrade === grade);
   const outdated = !matchesDefaults(config.prompts);
 
   const handleSave = async () => {
@@ -221,7 +219,7 @@ export function DrawingPromptPicker({
               >
                 <span className="prompt-grade__name">
                   {grade}학년
-                  {event.activeGrade === grade && event.activeRound >= 1 ? (
+                  {event.activeGrade === grade ? (
                     <StatusBadge tone="primary" icon="play_arrow">
                       진행 중
                     </StatusBadge>

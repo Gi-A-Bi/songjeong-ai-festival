@@ -315,12 +315,12 @@ describe('MockEventRepository 학급 최종 미션', () => {
     expect(closed.state).toMatchObject({ correctCount: 2, durationMs: 12 * MINUTE });
   });
 
-  it('모든 반이 제출하기 전에는 결과를 공개할 수 없고, 공개 전에는 담임교사에게 점수와 순위를 숨긴다', async () => {
+  it('모든 반이 제출하기 전에는 결과를 공개할 수 없고, 공개 전에는 교사에게 점수와 순위를 숨긴다', async () => {
     await expect(repository.publishFinalResults(EVENT, 3)).rejects.toSatisfy((error) =>
       isRepositoryError(error, 'not-allowed'),
     );
 
-    repository.signInAs('homeroom_teacher', { classId: 'g3-c2' });
+    repository.signInAs('teacher');
     const hiddenBoard = await repository.getFinalBoard(EVENT, 3);
     expect(hiddenBoard.canViewResults).toBe(false);
     expect(hiddenBoard.rows.every((row) => row.state.correctCount === null)).toBe(true);
@@ -352,7 +352,7 @@ describe('MockEventRepository 학급 최종 미션', () => {
     const published = await repository.publishFinalResults(EVENT, 3);
     expect(published.status).toBe('results_published');
 
-    repository.signInAs('homeroom_teacher', { classId: 'g3-c2' });
+    repository.signInAs('teacher');
     board = await repository.getFinalBoard(EVENT, 3);
     expect(board.canViewResults).toBe(true);
     // 네 반 모두 8문제 정답: 5종을 완성한 1반이 1위, 나머지는 소요 시간 순서
@@ -404,8 +404,8 @@ describe('MockEventRepository 학급 최종 미션', () => {
     expect(reset).toMatchObject({ status: 'ready', startedAt: null, hintUsed: 0 });
     expect((await repository.getClassFinalView(EVENT, 'g3-c3')).confirmedCount).toBe(0);
 
-    // 담임교사는 보정·초기화·강제 마감을 할 수 없다.
-    repository.signInAs('homeroom_teacher', { classId: 'g3-c3' });
+    // 교사는 보정·초기화·강제 마감을 할 수 없다.
+    repository.signInAs('teacher');
     await expect(
       repository.resetClassFinal({ eventId: EVENT, classId: 'g3-c3', reason: '다시' }),
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
@@ -507,8 +507,8 @@ describe('MockEventRepository 학급 최종 미션', () => {
       expect(await repository.listFinalQuestionSets(EVENT)).toEqual(before);
     });
 
-    it('담임·부스 선생님은 올릴 수 없다', async () => {
-      repository.signInAs('homeroom_teacher', { classId: 'g4-c1' });
+    it('교사는 올릴 수 없다', async () => {
+      repository.signInAs('teacher');
       await expect(
         repository.uploadFinalQuestionSets({ eventId: EVENT, sets: parsed() }),
       ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));

@@ -4,8 +4,6 @@ import type {
   ClassInfo,
   Grade,
   Mission,
-  RoundNo,
-  RoundStatus,
   Team,
   TeacherProfile,
 } from '../../domain/types';
@@ -21,18 +19,14 @@ export interface MockStoreContext {
   teacher(): TeacherProfile | null;
   requireTeacher(): TeacherProfile;
   requireAdmin(): TeacherProfile;
-  /** 총괄 운영자 또는 그 미션 담당(담당이 정해지지 않은 부스 교사 포함) */
-  requireStationAccess(missionId: string): TeacherProfile;
-  /** 총괄 운영자 또는 그 학급 담임 */
-  requireClassAccess(classId: string): TeacherProfile;
-  canRunClassFinal(classId: string): boolean;
   findTeam(teamId: string): Team;
   findClass(classId: string): ClassInfo;
   findMission(missionId: string): Mission;
   classesOf(grade: Grade): ClassInfo[];
   teamsOfClass(classId: string): Team[];
   classProgress(classId: string): ClassCardProgress;
-  roundStatusOf(grade: Grade, roundNo: RoundNo): RoundStatus;
+  /** 이 학년의 모든 부스가 5라운드를 끝냈는지 */
+  allRoundsCompleted(grade: Grade): boolean;
   /** 같은 원인은 같은 ID라 한 번만 기록된다. */
   addActivity(event: Omit<ActivityEvent, 'at'> & { at?: number }): void;
   notifyOps(grade: Grade): void;

@@ -263,9 +263,8 @@ describe('결과 공개와 관리자 보정', () => {
   it('결과를 공개하기 전에는 총괄 운영자만 점수와 순위를 본다', () => {
     const hidden = { status: 'results_hidden' as const };
     expect(canViewFinalResults(hidden, 'admin')).toBe(true);
-    expect(canViewFinalResults(hidden, 'homeroom_teacher')).toBe(false);
-    expect(canViewFinalResults(hidden, 'station_teacher')).toBe(false);
-    expect(canViewFinalResults({ status: 'results_published' }, 'homeroom_teacher')).toBe(true);
+    expect(canViewFinalResults(hidden, 'teacher')).toBe(false);
+    expect(canViewFinalResults({ status: 'results_published' }, 'teacher')).toBe(true);
 
     const state = finished('a', { correctCount: 9, finalRank: 1, durationMs: MINUTE });
     expect(redactFinalClassState(state, false)).toMatchObject({

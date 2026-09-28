@@ -16,22 +16,30 @@ export type CardType = 'thinking' | 'observation' | 'expression' | 'command' | '
 /** 미션 공통 셸에서 보여 주는 팀 기준 미션 상태 */
 export type MissionPhase = 'waiting' | 'active' | 'submitted' | 'scoring' | 'closed';
 
+/**
+ * 행사 상태. 라운드는 부스마다 선생님이 여닫으므로(2026-09-28) 행사 전체의 라운드는 없다.
+ *
+ * activeRound, roundEndsAt, roundEndedAt, boothStatus는 “한 팀이 보는 라운드”다.
+ * 저장소가 학생 화면에 넘길 때 그 팀이 지금 가야 하는 부스의 상태로 채운다(scopeEventToTeam).
+ * 교사 화면이 받는 전체 행사 상태에서는 늘 비어 있다(0, null).
+ */
 export interface FestivalEvent {
   id: string;
   title: string;
   schoolName: string;
+  /** 팀이 보는 값: 그 팀의 부스가 게임 중이면 active. 전체 상태: 진행할 학년을 골랐으면 active */
   status: EventStatus;
   activeGrade: Grade | null;
-  /** 0이면 아직 라운드를 시작하지 않은 상태 */
+  /** 팀이 지금 하고 있는 라운드. 부스에 들어가기 전이면 앞 라운드(첫 라운드 전이면 0) */
   activeRound: 0 | RoundNo;
-  /** 진행 중인 라운드의 종료 시각(epoch ms) */
+  /** 지금 게임이 끝나는 시각(epoch ms). 지나면 제출할 수 없다. */
   roundEndsAt: number | null;
-  /** 일시정지 중일 때 남아 있던 시간(ms) */
-  pausedRemainingMs: number | null;
-  /** 지금 라운드를 종료한 시각(epoch ms). 이동 시간 타이머의 기준이며 다음 라운드를 시작하면 null */
+  /** 앞 라운드를 끝낸 시각(epoch ms). 다음 부스로 이동하는 동안에만 있다. */
   roundEndedAt: number | null;
-  roundDurationMs: number;
-  moveDurationMs: number;
+  /** 팀이 지금 가야 하는 부스의 단계. 투어 중이 아니면 null */
+  boothStatus: MissionRoundStatus | null;
+  /** 게임 한 번의 시간(ms). 부스에서 “게임 시작”을 누른 때부터 센다. */
+  gameDurationMs: number;
   updatedAt: number;
 }
 
@@ -276,17 +284,17 @@ export interface ClassCardProgress {
   allComplete: boolean;
 }
 
-/** 총괄 운영자, 부스 교사, 담임교사(CARD_FINALE_UPDATE_SPEC 3장) */
-export type TeacherRole = 'admin' | 'station_teacher' | 'homeroom_teacher';
+/**
+ * 총괄 운영자와 교사. 교사는 모든 부스를 운영하고 모든 학급의 최종 미션을 진행할 수 있다.
+ * 행사 전체에 영향을 주는 일(라운드 제어, 최종 미션 열기·결과 공개, 행사 설정, 교사 등록)은 총괄만 한다.
+ * 예전에는 부스 교사와 담임교사를 담당별로 나눴다(2026-09-28에 합침).
+ */
+export type TeacherRole = 'admin' | 'teacher';
 
 export interface TeacherProfile {
   uid: string;
   displayName: string;
   role: TeacherRole;
-  /** 부스 교사의 담당 미션. null이면 담당이 정해지지 않아 모든 부스를 운영할 수 있다. */
-  missionId: string | null;
-  /** 담임교사의 담당 학급 */
-  classId: string | null;
 }
 
 /**
@@ -298,8 +306,6 @@ export interface TeacherInvite {
   /** 비어 있으면 첫 로그인 때 Google 계정 이름을 쓴다. */
   displayName: string;
   role: TeacherRole;
-  missionId: string | null;
-  classId: string | null;
   createdAt: number | null;
 }
 
@@ -309,8 +315,6 @@ export interface TeacherAccount {
   displayName: string;
   email: string;
   role: TeacherRole;
-  missionId: string | null;
-  classId: string | null;
   active: boolean;
 }
 
@@ -343,7 +347,12 @@ export interface TeamMissionState {
   updatedAt: number;
 }
 
-export type MissionRoundStatus = 'ready' | 'active' | 'scoring' | 'completed';
+/**
+ * 부스 라운드의 단계. 선생님이 자기 부스에서 차례로 진행한다.
+ * ready(열기 전) → open(라운드를 열어 팀이 들어오는 중) → active(게임 중)
+ * → scoring(게임 시간이 끝나 순위를 매기는 중) → completed(라운드 종료, 팀은 다음 교실로 이동)
+ */
+export type MissionRoundStatus = 'ready' | 'open' | 'active' | 'scoring' | 'completed';
 
 /** 부스(미션 교실)의 라운드별 상태. ID는 `${missionId}_g${grade}_r${roundNo}` */
 export interface MissionRoundState {
@@ -351,8 +360,14 @@ export interface MissionRoundState {
   grade: Grade;
   missionId: string;
   roundNo: RoundNo;
+  /** 시각으로 계산한 단계. 게임 시간이 끝나면 저절로 scoring이 된다. */
   status: MissionRoundStatus;
+  openedAt: number | null;
+  /** 게임을 시작한 시각 */
   startedAt: number | null;
+  /** 게임이 끝나는 시각(시작 시각 + 게임 시간) */
+  endsAt: number | null;
+  /** 라운드를 종료한 시각 */
   completedAt: number | null;
   resultFinalizedAt: number | null;
   updatedBy: string | null;
