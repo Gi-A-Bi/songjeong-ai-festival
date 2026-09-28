@@ -43,7 +43,6 @@ import type {
   FinalResponse,
   FinalSession,
   Grade,
-  RoundStatus,
 } from '../../domain/types';
 import { RepositoryError } from '../errors';
 import type {
@@ -557,8 +556,9 @@ export class FirestoreFinalStore {
     const key = `${eventId}|${grade}`;
     const cached = this.checklists.get(key);
     if (cached && Date.now() - cached.at < CHECKLIST_TTL_MS) return cached.value;
-    const [rounds, missions, finalized, pending] = await Promise.all([
-      getDocs(query(this.ctx.sub(eventId, 'rounds'), where('grade', '==', grade))),
+    const [booths, missions, finalized, pending] = await Promise.all([
+      // 부스 문서는 학년에 많아야 25개다. 점검 결과는 잠깐 기억해 되풀이해 읽지 않는다.
+      getDocs(query(this.ctx.sub(eventId, 'missionRoundStates'), where('grade', '==', grade))),
       this.ctx.missions(eventId),
       // 개수만 필요하므로 집계 쿼리를 쓴다(문서를 하나씩 읽지 않는다).
       getCountFromServer(
@@ -576,12 +576,9 @@ export class FirestoreFinalStore {
         ),
       ),
     ]);
-    const closed = rounds.docs.filter((snapshot) => {
-      const status = snapshot.data().status as RoundStatus | undefined;
-      return status === 'scoring' || status === 'closed';
-    }).length;
+    const closed = booths.docs.filter((snapshot) => snapshot.data().completedAt != null).length;
     const base = {
-      roundsClosed: closed >= ROUND_NUMBERS.length,
+      roundsClosed: missions.length > 0 && closed >= missions.length * ROUND_NUMBERS.length,
       missingResults: Math.max(0, missions.length * ROUND_NUMBERS.length - finalized.data().count),
       pendingAwards: pending.data().count,
     };

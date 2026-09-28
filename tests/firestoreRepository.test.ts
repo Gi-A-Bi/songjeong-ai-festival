@@ -5,6 +5,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
+import { doc, setDoc, Timestamp } from 'firebase/firestore';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../src/config';
 import { FirestoreEventRepository } from '../src/data/firebase/FirestoreEventRepository';
@@ -12,7 +13,7 @@ import { getFirebase } from '../src/data/firebase/firebaseApp';
 import { isRepositoryError } from '../src/data/errors';
 import type { MissionLiveState } from '../src/data/EventRepository';
 import { resolveDrawingPrompt } from '../src/domain/drawingPrompts';
-import type { FestivalEvent } from '../src/domain/types';
+import type { FestivalEvent, RoundNo } from '../src/domain/types';
 
 const PROJECT_ID = 'demo-songjeong';
 const FIRESTORE_HOST = 'http://127.0.0.1:8080';
@@ -72,11 +73,58 @@ async function signInAsStudent() {
   await repository.signOutTeacher();
 }
 
+/** 행사 구조를 만들고 4학년을 진행 학년으로 고른다. */
+async function prepareTour() {
+  await signInAsTeacher();
+  await repository.setupEvent(DEFAULT_EVENT_ID);
+  await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
+}
+
+/** 부스에서 라운드를 열고 게임을 시작한다(4학년). */
+async function startGame(missionId: string, roundNo: RoundNo = 1) {
+  const input = { eventId: DEFAULT_EVENT_ID, missionId, grade: 4 as const, roundNo };
+  await repository.openStationRound(input);
+  return repository.startStationRound(input);
+}
+
+/** 게임을 11분 전에 시작한 것으로 바꿔 게임 시간(10분)이 끝난 상태를 만든다. */
+async function endGameTime(missionId: string, roundNo: RoundNo = 1) {
+  const { db } = getFirebase();
+  await setDoc(
+    doc(db, 'events', DEFAULT_EVENT_ID, 'missionRoundStates', `${missionId}_g4_r${roundNo}`),
+    { startedAt: Timestamp.fromMillis(Date.now() - 11 * 60_000) },
+    { merge: true },
+  );
+}
+
+async function finalize(missionId: string, roundNo: RoundNo = 1) {
+  const participants = await repository.listMissionParticipants(
+    DEFAULT_EVENT_ID,
+    missionId,
+    4,
+    roundNo,
+  );
+  return repository.finalizeRanking({
+    eventId: DEFAULT_EVENT_ID,
+    missionId,
+    grade: 4,
+    roundNo,
+    requestId: `finalize-${missionId}-${roundNo}`,
+    entries: participants.map((participant, index) => ({
+      teamId: participant.team.id,
+      score: 500 - index * 100,
+      rank: index + 1,
+    })),
+  });
+}
+
 beforeAll(async () => {
   repository = new FirestoreEventRepository();
 });
 
 beforeEach(async () => {
+  // 앞 테스트의 구독을 끊고 시작한다.
+  await repository.signOutTeacher();
   await clearEmulators();
 });
 
@@ -90,10 +138,9 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
     expect(again).toEqual({ created: false, classes: 20, teams: 100, missions: 5 });
   });
 
-  it('교사가 라운드를 시작하면 구독 중인 화면에 바뀐 상태가 전달된다', async () => {
+  it('총괄이 진행 학년과 게임 시간을 바꾸면 구독 중인 화면에 전달된다', async () => {
     await signInAsTeacher();
     await repository.setupEvent(DEFAULT_EVENT_ID);
-    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
 
     const updates: FestivalEvent[] = [];
     const stop = repository.subscribeEvent(
@@ -104,29 +151,136 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
       },
     );
     await vi.waitFor(() => expect(updates.length).toBeGreaterThan(0));
-
-    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
-    await vi.waitFor(() => {
-      const latest = updates[updates.length - 1];
-      expect(latest.status).toBe('active');
-      expect(latest.activeRound).toBe(1);
-      expect(latest.roundEndsAt).not.toBeNull();
+    // 기본 게임 시간은 10분이고, 전체 행사 상태에는 라운드가 없다.
+    expect(updates[0]).toMatchObject({
+      status: 'ready',
+      activeGrade: null,
+      activeRound: 0,
+      gameDurationMs: 10 * 60_000,
     });
 
-    await repository.controlRound(DEFAULT_EVENT_ID, 'pause');
+    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
+    await repository.setGameDuration(DEFAULT_EVENT_ID, 8);
     await vi.waitFor(() => {
-      const latest = updates[updates.length - 1];
-      expect(latest.status).toBe('paused');
-      expect(latest.pausedRemainingMs).toBeGreaterThan(0);
+      expect(updates[updates.length - 1]).toMatchObject({
+        status: 'active',
+        activeGrade: 4,
+        activeRound: 0,
+        gameDurationMs: 8 * 60_000,
+      });
     });
+    await expect(repository.setGameDuration(DEFAULT_EVENT_ID, 2)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'invalid-input'),
+    );
     stop();
   });
 
+  it('부스가 라운드를 열고 게임을 시작하고 종료하면 그 부스에 오는 팀의 화면에 전달된다', async () => {
+    await prepareTour();
+    const booth = { eventId: DEFAULT_EVENT_ID, missionId: 'golden-bell', grade: 4 as const };
+
+    // 4학년 1반 1팀은 1라운드에 골든벨, 2라운드에 틀린그림 찾기로 간다.
+    const updates: FestivalEvent[] = [];
+    const stop = repository.subscribeTeamEvent(
+      DEFAULT_EVENT_ID,
+      TEAM_ID,
+      (event) => updates.push(event),
+      (error) => {
+        throw error;
+      },
+    );
+    const latest = () => updates[updates.length - 1];
+    await vi.waitFor(() => expect(updates.length).toBeGreaterThan(0));
+    expect(latest()).toMatchObject({ status: 'ready', activeRound: 0, boothStatus: 'ready' });
+
+    // 다른 팀이 가는 부스가 바뀌어도 이 팀의 상태는 그대로다.
+    await repository.openStationRound({ ...booth, missionId: 'drawing', roundNo: 1 });
+    await repository.openStationRound({ ...booth, roundNo: 1 });
+    await vi.waitFor(() => expect(latest().boothStatus).toBe('open'));
+    expect(latest()).toMatchObject({ status: 'ready', activeRound: 0 });
+
+    const started = await repository.startStationRound({ ...booth, roundNo: 1 });
+    expect(started.status).toBe('active');
+    await vi.waitFor(() => expect(latest().status).toBe('active'));
+    expect(latest()).toMatchObject({ activeRound: 1, boothStatus: 'active' });
+    // 게임은 시작한 때부터 10분이다.
+    const endsAt = latest().roundEndsAt ?? 0;
+    expect(Math.abs(endsAt - (Date.now() + 10 * 60_000))).toBeLessThan(10_000);
+
+    // 순위를 확정하기 전에는 종료할 수 없다.
+    await expect(repository.closeStationRound({ ...booth, roundNo: 1 })).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed'),
+    );
+    await finalize('golden-bell');
+    await vi.waitFor(() => expect(latest().boothStatus).toBe('scoring'));
+
+    const closed = await repository.closeStationRound({ ...booth, roundNo: 1 });
+    expect(closed.status).toBe('completed');
+    // 종료하면 다음 부스(틀린그림 찾기 2라운드)를 기다린다.
+    await vi.waitFor(() =>
+      expect(latest()).toMatchObject({ status: 'ready', activeRound: 1, boothStatus: 'ready' }),
+    );
+    stop();
+
+    const rounds = await repository.getStationRounds(DEFAULT_EVENT_ID, 'golden-bell', 4);
+    expect(rounds.map((round) => round.status)).toEqual([
+      'completed',
+      'ready',
+      'ready',
+      'ready',
+      'ready',
+    ]);
+  });
+
+  it('게임 시간이 끝나면 구독 중인 팀 화면이 스스로 채점 단계로 바뀐다', async () => {
+    await prepareTour();
+    await startGame('golden-bell');
+    // 게임이 끝나기 1초 전으로 맞춘다.
+    const { db } = getFirebase();
+    await setDoc(
+      doc(db, 'events', DEFAULT_EVENT_ID, 'missionRoundStates', 'golden-bell_g4_r1'),
+      { startedAt: Timestamp.fromMillis(Date.now() - 10 * 60_000 + 1000) },
+      { merge: true },
+    );
+
+    const updates: FestivalEvent[] = [];
+    const stop = repository.subscribeTeamEvent(
+      DEFAULT_EVENT_ID,
+      TEAM_ID,
+      (event) => updates.push(event),
+      (error) => {
+        throw error;
+      },
+    );
+    await vi.waitFor(() => expect(updates.length).toBeGreaterThan(0));
+    await vi.waitFor(
+      () => expect(updates[updates.length - 1]).toMatchObject({ boothStatus: 'scoring' }),
+      { timeout: 5000 },
+    );
+    stop();
+  });
+
+  it('종료하지 않은 부스 라운드가 있으면 진행 학년을 바꿀 수 없다', async () => {
+    await prepareTour();
+    await startGame('golden-bell');
+    await expect(repository.setActiveGrade(DEFAULT_EVENT_ID, 5)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    await finalize('golden-bell');
+    await repository.closeStationRound({
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      grade: 4,
+      roundNo: 1,
+    });
+    await expect(repository.setActiveGrade(DEFAULT_EVENT_ID, 5)).resolves.toMatchObject({
+      activeGrade: 5,
+    });
+  });
+
   it('학생은 자기 팀으로 입장해 한 번만 제출할 수 있다', async () => {
-    await signInAsTeacher();
-    await repository.setupEvent(DEFAULT_EVENT_ID);
-    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
-    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+    await prepareTour();
+    await startGame('golden-bell');
 
     await signInAsStudent();
     const session = await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
@@ -134,6 +288,8 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
 
     const view = await repository.getTeamMissionView(DEFAULT_EVENT_ID, TEAM_ID, 'golden-bell');
     expect(view.roundNo).toBe(1);
+    expect(view.roundStatus).toBe('active');
+    expect(view.booth).toMatchObject({ status: 'active', roundNo: 1 });
     expect(view.submission).toBeNull();
 
     const saved = await repository.saveSubmission({
@@ -167,10 +323,8 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
   });
 
   it('순위 확정으로 팀마다 카드 보상이 하나씩 생기고, 한 번만 받을 수 있다', async () => {
-    await signInAsTeacher();
-    await repository.setupEvent(DEFAULT_EVENT_ID);
-    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
-    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+    await prepareTour();
+    await startGame('golden-bell');
 
     const participants = await repository.listMissionParticipants(
       DEFAULT_EVENT_ID,
@@ -248,14 +402,43 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
     expect(classBoard?.progress.cards[selectedType].earned).toBe(claimed.after.earned);
   });
 
-  it('지금 라운드가 아닌 미션은 제출할 수 없다', async () => {
-    await signInAsTeacher();
-    await repository.setupEvent(DEFAULT_EVENT_ID);
-    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
-    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+  it('게임을 시작하지 않은 부스와 게임 시간이 끝난 부스는 제출을 받지 않는다', async () => {
+    await prepareTour();
+    await repository.openStationRound({
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      grade: 4,
+      roundNo: 1,
+    });
 
     await signInAsStudent();
     await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
+    const bell = {
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      teamId: TEAM_ID,
+      answer: { type: 'golden_bell' as const, selections: { q1: 1 } },
+    };
+    // 라운드만 열었을 때
+    await expect(repository.saveSubmission({ ...bell, requestId: 'too-early' })).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed'),
+    );
+
+    await signInAsTeacher();
+    await repository.startStationRound({
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      grade: 4,
+      roundNo: 1,
+    });
+    await endGameTime('golden-bell');
+    await signInAsStudent();
+    await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
+    // 게임 시간이 끝난 뒤
+    await expect(repository.saveSubmission({ ...bell, requestId: 'too-late' })).rejects.toSatisfy(
+      (error) =>
+        isRepositoryError(error, 'not-allowed') && /게임 시간이 끝났어요/.test(error.message),
+    );
     // 1팀의 오류찾기(5번 미션)는 5라운드 미션이다.
     await expect(
       repository.saveSubmission({
@@ -275,10 +458,8 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
   });
 
   it('교사 화면은 자동 채점 점수를 계산해 보여 준다', async () => {
-    await signInAsTeacher();
-    await repository.setupEvent(DEFAULT_EVENT_ID);
-    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
-    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+    await prepareTour();
+    await startGame('golden-bell');
 
     await signInAsStudent();
     await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
@@ -302,11 +483,9 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
     expect(row?.submission?.score).toBe(200);
   });
 
-  it('교사가 재제출을 허용하면 라운드가 끝난 뒤에도 다시 제출하고, 학생 화면에 알림이 간다', async () => {
-    await signInAsTeacher();
-    await repository.setupEvent(DEFAULT_EVENT_ID);
-    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
-    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+  it('교사가 재제출을 허용하면 게임 시간이 끝난 뒤에도 다시 제출하고, 학생 화면에 알림이 간다', async () => {
+    await prepareTour();
+    await startGame('golden-bell');
 
     await signInAsStudent();
     await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
@@ -330,7 +509,7 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
       () => undefined,
     );
     await vi.waitFor(() => expect(states.length).toBeGreaterThan(0));
-    await repository.controlRound(DEFAULT_EVENT_ID, 'end');
+    await endGameTime('golden-bell');
     await repository.reopenSubmission({
       eventId: DEFAULT_EVENT_ID,
       missionId: 'golden-bell',
@@ -345,7 +524,8 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
     expect(view.submission?.status).toBe('draft');
     expect(view.submission?.reopened).toBe(true);
 
-    // 라운드가 끝났어도 재제출은 받는다.
+    // 게임 시간이 끝났어도 재제출은 받는다.
+    expect(view.roundStatus).toBe('scoring');
     const again = await repository.saveSubmission({
       ...input,
       answer: { type: 'golden_bell', selections: { q1: 1 } },
@@ -356,10 +536,8 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
   });
 
   it('확정한 순위를 고치면 고르기 전 카드 보상의 후보 수가 새 순위에 맞춰진다', async () => {
-    await signInAsTeacher();
-    await repository.setupEvent(DEFAULT_EVENT_ID);
-    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
-    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+    await prepareTour();
+    await startGame('golden-bell');
     const participants = await repository.listMissionParticipants(
       DEFAULT_EVENT_ID,
       'golden-bell',
@@ -401,10 +579,8 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
   });
 
   it('그림 파일은 제출과 함께 저장되고 교사가 불러올 수 있다', async () => {
-    await signInAsTeacher();
-    await repository.setupEvent(DEFAULT_EVENT_ID);
-    await repository.setActiveGrade(DEFAULT_EVENT_ID, 4);
-    await repository.controlRound(DEFAULT_EVENT_ID, 'start');
+    await prepareTour();
+    await startGame('drawing');
 
     // 3팀은 1라운드에 그리기 미션을 한다.
     const drawingTeam = 'g4-c1-t3';

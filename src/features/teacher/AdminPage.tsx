@@ -10,6 +10,7 @@ import { toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
 import { useAction } from '../../hooks/useAction';
 import { FinalQuestionUploadPanel } from './FinalQuestionUploadPanel';
+import { GameDurationPanel } from './GameDurationPanel';
 import { TeacherRegistrationPanel } from './TeacherRegistrationPanel';
 import { EVENT_STATUS_BADGES, useTeacherContext } from './teacherContext';
 
@@ -91,6 +92,8 @@ export function AdminPage() {
           행사 구조 만들기
         </Button>
       </section>
+
+      <GameDurationPanel eventId={eventId} event={event} />
 
       <FinalQuestionUploadPanel eventId={eventId} />
 

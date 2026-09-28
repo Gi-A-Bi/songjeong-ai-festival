@@ -10,7 +10,8 @@ import { renderApp } from '../test/renderApp';
 
 /*
  * 샘플 데이터
- * - 4학년: 2라운드 진행 중. 2반 3팀(과학실)·4반 5팀은 미도착, 5반 4팀은 다른 교실 QR을 찍었다.
+ * - 4학년: 2라운드. 네 부스는 게임 중이고 도서관은 라운드만 열어 두었다.
+ *   2반 3팀(과학실)·4반 5팀은 미도착, 5반 4팀은 도서관 대신 다른 교실 QR을 찍었다.
  * - 3학년: 최종 미션이 열려 있다. 1반은 4번 문제를 푸는 중(힌트 5개 중 1개 사용),
  *   2·3반은 제출 완료, 4반은 시작 전이다. 결과는 아직 공개 전이다.
  */
@@ -43,25 +44,59 @@ describe('실시간 운영 대시보드', () => {
     expect(within(stations).getAllByRole('heading', { level: 3 })).toHaveLength(5);
     expect(screen.getByRole('region', { name: '학급·팀별 현황' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: '최근 활동' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '라운드 종료' })).toBeEnabled();
+    // 부스마다 자기 라운드와 단계를 보여 준다.
+    expect(within(stations).getAllByText('2라운드 · 게임 중')).toHaveLength(4);
+    expect(within(stations).getByText('2라운드 · 입장 중')).toBeInTheDocument();
+    expect(within(stations).getAllByRole('timer')).toHaveLength(4);
+
+    // 총괄은 진행 학년을 고른다. 라운드는 부스에서 진행하므로 여기에는 라운드 버튼이 없다.
+    const grades = screen.getByRole('group', { name: '진행 학년' });
+    expect(within(grades).getByRole('button', { name: '4학년' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(within(grades).getByRole('button', { name: '5학년' })).toBeEnabled();
+    expect(screen.getByText(/게임 시간/)).toHaveTextContent('10분');
+    expect(screen.queryByRole('button', { name: /라운드 종료|일시정지/ })).toBeNull();
   });
 
-  it('교사에게는 같은 화면이 보이고 라운드 제어만 꺼져 있다', async () => {
+  it('종료하지 않은 부스 라운드가 있으면 진행 학년을 바꾸지 못하고 이유를 알려 준다', async () => {
+    const user = userEvent.setup();
+    const repository = await repositoryAs();
+    renderApp(`/teacher/${EVENT}/dashboard`, repository);
+    const grades = await screen.findByRole('group', { name: '진행 학년' });
+    await user.click(within(grades).getByRole('button', { name: '5학년' }));
+    const dialog = await screen.findByRole('dialog', { name: '5학년을 진행할까요?' });
+    await user.click(within(dialog).getByRole('button', { name: '5학년 진행' }));
+    expect(
+      await screen.findByText(/4학년에 아직 종료하지 않은 부스 라운드가 있어요/),
+    ).toBeInTheDocument();
+    expect((await repository.getEvent(EVENT)).activeGrade).toBe(4);
+  });
+
+  it('교사에게는 같은 화면이 보이고 진행 학년 고르기만 꺼져 있다', async () => {
     renderApp(`/teacher/${EVENT}/dashboard`, await repositoryAs('teacher'));
-    expect(await screen.findByText(/라운드는 총괄 선생님이 진행해요/)).toBeInTheDocument();
+    expect(await screen.findByText(/라운드는 부스마다 선생님이 진행해요/)).toBeInTheDocument();
+    expect(screen.getByText(/진행 학년은 총괄 선생님이 골라요/)).toBeInTheDocument();
     // 메뉴는 총괄과 같고 행사 설정만 없다.
     expect(screen.getByRole('link', { name: 'QR 인쇄' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '행사 설정' })).toBeNull();
     const booths = await screen.findByRole('navigation', { name: '부스 바로 가기' });
     expect(within(booths).getAllByRole('link')).toHaveLength(5);
-    expect(screen.getByRole('button', { name: '라운드 종료' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '일시정지' })).toBeDisabled();
+    const grades = screen.getByRole('group', { name: '진행 학년' });
+    for (const button of within(grades).getAllByRole('button')) expect(button).toBeDisabled();
     expect(await screen.findByRole('region', { name: '미션 교실별 현황' })).toBeInTheDocument();
   });
 });
 
 describe('부스 교사 화면', () => {
-  it('미도착 팀을 직접 입장 처리하고 미션 시작을 누르면 입장한 팀이 진행 중이 된다', async () => {
+  const steps = () => within(screen.getByRole('list', { name: '라운드 진행 순서' }));
+  const currentStep = () =>
+    steps()
+      .getAllByRole('listitem')
+      .find((item) => item.getAttribute('aria-current') === 'step')?.textContent;
+
+  it('미도착 팀을 직접 입장 처리할 수 있다', async () => {
     const user = userEvent.setup();
     const repository = await repositoryAs('teacher');
     renderApp(`/teacher/${EVENT}/station/ozobot`, repository);
@@ -74,26 +109,84 @@ describe('부스 교사 화면', () => {
     );
     const status = await repository.getTeamTourStatus(EVENT, DEMO_TEAM_ID);
     expect(status.state?.checkedInAt).toEqual(expect.any(Number));
-
-    await user.click(screen.getByRole('button', { name: '미션 시작' }));
-    expect(await screen.findByRole('button', { name: /시작함/ })).toBeDisabled();
-    await waitFor(() => expect(demoRow().getAllByText('진행 중').length).toBeGreaterThan(1));
+    // 과학실은 게임 중이라 입장하면 바로 진행 중이 된다.
+    await waitFor(() => expect(demoRow().getAllByText('진행 중')).toHaveLength(5));
     expect(screen.getByText(new RegExp(`/check-in/${EVENT}/ozobot`))).toBeInTheDocument();
   });
 
-  it('교사는 담당을 나누지 않고 어느 부스든 운영한다', async () => {
+  it('게임 중인 부스는 남은 시간을 보여 주고, 순위를 확정하기 전에는 라운드를 종료할 수 없다', async () => {
+    renderApp(`/teacher/${EVENT}/station/golden-bell`, await repositoryAs('teacher'));
+
+    const panel = within(await screen.findByRole('region', { name: /2라운드 진행/ }));
+    expect(panel.getByText('게임 중')).toBeInTheDocument();
+    expect(panel.getByRole('timer', { name: /남은 시간/ })).toBeInTheDocument();
+    expect(currentStep()).toMatch(/순위 매기기/);
+    expect(panel.getByRole('button', { name: '2라운드 종료' })).toBeDisabled();
+    expect(panel.getByText(/순위를 확정한 뒤에 라운드를 종료할 수 있어요/)).toBeInTheDocument();
+    expect(panel.getByRole('button', { name: '순위표로 이동' })).toBeInTheDocument();
+  });
+
+  it('라운드 열기 → 게임 시작 → 순위 매기기 → 라운드 종료 순서로 진행한다', async () => {
     const user = userEvent.setup();
     const repository = await repositoryAs('teacher');
-    renderApp(`/teacher/${EVENT}/station/drawing`, repository);
+    // 도서관은 2라운드를 열어 두고 아직 게임을 시작하지 않았다. 5반 4팀은 아직 오지 않았다.
+    renderApp(`/teacher/${EVENT}/station/library-check`, repository);
 
-    await user.click(await screen.findByRole('button', { name: '미션 시작' }));
-    expect(await screen.findByRole('button', { name: /시작함/ })).toBeDisabled();
-    expect(
-      (await repository.getMissionRoundState(EVENT, 'drawing', 4, 2)).startedAt,
-    ).not.toBeNull();
+    const panel = () => within(screen.getByRole('region', { name: /라운드 진행/ }));
+    expect(await screen.findByRole('heading', { name: /2라운드 진행/ })).toBeInTheDocument();
+    expect(currentStep()).toMatch(/게임 시작/);
+    expect(await panel().findByText('4 / 5팀')).toBeInTheDocument();
+
+    // 아직 오지 않은 팀이 있으면 한 번 더 묻는다.
+    await user.click(panel().getByRole('button', { name: '게임 시작' }));
+    const startDialog = await screen.findByRole('dialog', {
+      name: /아직 1팀이 입장하지 않았어요/,
+    });
+    await user.click(within(startDialog).getByRole('button', { name: '게임 시작' }));
+    expect(await screen.findByText(/2라운드: 게임을 시작했어요/)).toBeInTheDocument();
+    expect(panel().getByText('게임 중')).toBeInTheDocument();
+    expect(currentStep()).toMatch(/순위 매기기/);
+    expect(panel().getByRole('button', { name: '2라운드 종료' })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: '순위 확정' }));
+    const rankDialog = await screen.findByRole('dialog', { name: /순위를 확정할까요/ });
+    await user.click(within(rankDialog).getByRole('button', { name: '순위 확정' }));
+    expect(await screen.findByText(/순위를 확정했어요/)).toBeInTheDocument();
+    await waitFor(() => expect(currentStep()).toMatch(/라운드 종료/));
+
+    await user.click(panel().getByRole('button', { name: '2라운드 종료' }));
+    const closeDialog = await screen.findByRole('dialog', { name: '2라운드를 종료할까요?' });
+    await user.click(within(closeDialog).getByRole('button', { name: '2라운드 종료' }));
+
+    // 종료하면 화면이 다음 라운드로 넘어가 다시 "라운드 열기"부터 시작한다.
+    expect(await screen.findByRole('heading', { name: /3라운드 진행/ })).toBeInTheDocument();
+    expect(screen.getByText(/2라운드: 라운드를 종료했어요/)).toBeInTheDocument();
+    expect(currentStep()).toMatch(/라운드 열기/);
+    await user.click(panel().getByRole('button', { name: '3라운드 열기' }));
+    expect(await panel().findByText('입장 중')).toBeInTheDocument();
+
+    const rounds = await repository.getStationRounds(EVENT, 'library-check', 4);
+    expect(rounds.map((round) => round.status)).toEqual([
+      'completed',
+      'completed',
+      'open',
+      'ready',
+      'ready',
+    ]);
+  });
+
+  it('교사는 담당을 나누지 않고 어느 부스든 운영한다', async () => {
+    const repository = await repositoryAs('teacher');
+    renderApp(`/teacher/${EVENT}/station/drawing`, repository);
+    expect(await screen.findByRole('heading', { name: /2라운드 진행/ })).toBeInTheDocument();
     // 같은 계정으로 다른 부스도 운영할 수 있다.
     await expect(
-      repository.startStationRound({ eventId: EVENT, missionId: 'ozobot', grade: 4, roundNo: 2 }),
+      repository.startStationRound({
+        eventId: EVENT,
+        missionId: 'library-check',
+        grade: 4,
+        roundNo: 2,
+      }),
     ).resolves.toMatchObject({ status: 'active' });
   });
 });

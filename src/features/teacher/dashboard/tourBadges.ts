@@ -15,6 +15,7 @@ export const TEAM_STATUS_BADGES: Record<TeamMissionStatus, { tone: StatusTone; i
 export const BOOTH_STATUS_BADGES: Record<MissionRoundStatus, { tone: StatusTone; icon: IconName }> =
   {
     ready: { tone: 'neutral', icon: 'hourglass_top' },
+    open: { tone: 'info', icon: 'login' },
     active: { tone: 'warning', icon: 'play_arrow' },
     scoring: { tone: 'warning', icon: 'pending' },
     completed: { tone: 'success', icon: 'task_alt' },

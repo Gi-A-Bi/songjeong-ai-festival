@@ -148,10 +148,7 @@ export class MockFinalStore {
 
   checklist(grade: Grade): FinalOpenChecklist {
     const state = this.ctx.state();
-    const roundsClosed = ROUND_NUMBERS.every((roundNo) => {
-      const status = this.ctx.roundStatusOf(grade, roundNo);
-      return status === 'scoring' || status === 'closed';
-    });
+    const roundsClosed = this.ctx.allRoundsCompleted(grade);
     const missingResults = state.missions.reduce(
       (count, mission) =>
         count +

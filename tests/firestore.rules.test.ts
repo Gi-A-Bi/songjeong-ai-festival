@@ -4,7 +4,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { Bytes, doc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+import { Bytes, doc, serverTimestamp, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 
@@ -54,8 +54,10 @@ beforeEach(async () => {
       title: '2026 송정 AI 미션 챌린지',
       status: 'active',
       activeGrade: 4,
-      activeRound: 1,
+      gameDurationMs: 600_000,
     });
+    // 골든벨 부스는 1라운드 게임을 1분 전에 시작했다(게임 시간 10분).
+    await setDoc(doc(db, `${EVENT}/missionRoundStates/golden-bell_g4_r1`), playingBooth());
     await setDoc(doc(db, `${EVENT}/missions/golden-bell`), { no: 1, type: 'golden_bell' });
     await setDoc(doc(db, `${EVENT}/missions/drawing`), { no: 3, type: 'drawing' });
     for (const teamId of ['t1', 't2']) {
@@ -102,9 +104,26 @@ async function seedSubmission(id: string, data: Record<string, unknown>) {
   });
 }
 
-async function setEvent(data: Record<string, unknown>) {
+const minutesAgo = (minutes: number) => Timestamp.fromMillis(Date.now() - minutes * 60_000);
+
+function playingBooth(extra: Record<string, unknown> = {}) {
+  return {
+    grade: 4,
+    missionId: 'golden-bell',
+    roundNo: 1,
+    openedAt: minutesAgo(2),
+    startedAt: minutesAgo(1),
+    durationMs: 600_000,
+    resultFinalizedAt: null,
+    completedAt: null,
+    resultTeamIds: [],
+    ...extra,
+  };
+}
+
+async function setBooth(data: Record<string, unknown>) {
   await testEnv.withSecurityRulesDisabled(async (context) => {
-    await setDoc(doc(context.firestore(), EVENT), data, { merge: true });
+    await setDoc(doc(context.firestore(), `${EVENT}/missionRoundStates/golden-bell_g4_r1`), data);
   });
 }
 
@@ -172,16 +191,16 @@ describe('제출물', () => {
     await assertFails(setDoc(doc(db, `${EVENT}/submissions/golden-bell__t1`), submission('t1')));
   });
 
-  it('지금 라운드가 아닌 미션은 제출할 수 없다', async () => {
+  it('게임 중이 아닌 부스의 미션은 제출할 수 없다', async () => {
     const db = studentDb();
-    // t1(1팀)의 그리기 미션은 3라운드인데 지금은 1라운드
+    // t1(1팀)의 그리기 미션은 3라운드인데 그리기 부스는 아직 3라운드를 열지 않았다.
     await assertFails(
       setDoc(
         doc(db, `${EVENT}/submissions/drawing__t1`),
         submission('t1', { missionId: 'drawing', roundNo: 3 }),
       ),
     );
-    // 라운드 번호를 지금 라운드로 속여도 팀·미션으로 다시 계산해 막는다.
+    // 라운드 번호를 속여도 팀·미션으로 다시 계산해 막는다.
     await assertFails(
       setDoc(
         doc(db, `${EVENT}/submissions/drawing__t1`),
@@ -190,12 +209,31 @@ describe('제출물', () => {
     );
   });
 
-  it('라운드가 멈췄거나 끝나면 제출할 수 없다', async () => {
-    await setEvent({ status: 'paused' });
+  it('라운드만 열고 게임을 시작하지 않았으면 제출할 수 없다', async () => {
+    await setBooth(playingBooth({ startedAt: null }));
     await assertFails(
       setDoc(doc(studentDb(), `${EVENT}/submissions/golden-bell__t1`), submission('t1')),
     );
-    await setEvent({ status: 'ready' });
+  });
+
+  it('게임 시간이 끝나면 제출할 수 없다', async () => {
+    await setBooth(playingBooth({ startedAt: minutesAgo(11) }));
+    await assertFails(
+      setDoc(doc(studentDb(), `${EVENT}/submissions/golden-bell__t1`), submission('t1')),
+    );
+    // 게임 시간은 게임을 시작할 때 부스에 적은 값을 쓴다.
+    await setBooth(playingBooth({ startedAt: minutesAgo(11), durationMs: 900_000 }));
+    await assertSucceeds(
+      setDoc(doc(studentDb(), `${EVENT}/submissions/golden-bell__t1`), submission('t1')),
+    );
+  });
+
+  it('순위를 확정했거나 라운드를 종료한 부스는 제출을 받지 않는다', async () => {
+    await setBooth(playingBooth({ resultFinalizedAt: minutesAgo(0) }));
+    await assertFails(
+      setDoc(doc(studentDb(), `${EVENT}/submissions/golden-bell__t1`), submission('t1')),
+    );
+    await setBooth(playingBooth({ completedAt: minutesAgo(0) }));
     await assertFails(
       setDoc(doc(studentDb(), `${EVENT}/submissions/golden-bell__t1`), submission('t1')),
     );
@@ -214,7 +252,7 @@ describe('제출물', () => {
     );
   });
 
-  it('교사가 재제출을 허용하면 라운드가 끝나도 다시 낼 수 있다', async () => {
+  it('교사가 재제출을 허용하면 게임 시간이 끝나도 다시 낼 수 있다', async () => {
     await seedSubmission('golden-bell__t1', {
       ...submission('t1'),
       status: 'draft',
@@ -222,7 +260,7 @@ describe('제출물', () => {
       submittedAt: 1,
       updatedAt: 1,
     });
-    await setEvent({ status: 'ready' });
+    await setBooth(playingBooth({ startedAt: minutesAgo(11) }));
     await assertSucceeds(
       setDoc(
         doc(studentDb(), `${EVENT}/submissions/golden-bell__t1`),

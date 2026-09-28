@@ -10,9 +10,11 @@ import { toDeviceCode } from '../../domain/device';
 import { getDrawingConfigError } from '../../domain/drawingPrompts';
 import { getTeacherInviteError } from '../../domain/teacherInvites';
 import { getGoldenBellConfigError } from '../../domain/goldenBell';
+import { toRoundStatus, type BoothAction } from '../../domain/boothRound';
+import { getGameDurationError } from '../../domain/gameDuration';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
 import { getRankingEntryError } from '../../domain/rewards';
-import { getRoundForMission, getTeamNoForMission, ROUND_NUMBERS } from '../../domain/rotation';
+import { getRoundForMission, getTeamNoForMission } from '../../domain/rotation';
 import { resolveSubmissionScore } from '../../domain/scoring';
 import { CARD_INFO } from '../../domain/catalog';
 import {
@@ -36,7 +38,6 @@ import type {
   MissionResult,
   MissionRoundState,
   RoundNo,
-  RoundStatus,
   Submission,
   Team,
   TeacherProfile,
@@ -67,12 +68,10 @@ import type {
   MarkArrivedInput,
   MissionLiveState,
   MissionParticipant,
-  MissionProgress,
   OpenFinalInput,
   OpsDashboard,
   ReopenSubmissionInput,
   ReviseRankingOutcome,
-  RoundControlAction,
   SaveSubmissionInput,
   SaveTeacherInvitesInput,
   SelectFinalChoiceInput,
@@ -89,7 +88,7 @@ import type {
   Unsubscribe,
   UploadFinalQuestionSetsInput,
 } from '../EventRepository';
-import { resultId, resultKey, roundKey, submissionId, toTeamId } from './keys';
+import { resultId, resultKey, submissionId, toTeamId } from './keys';
 import type { MockStoreContext } from './mockContext';
 import { MockFinalStore } from './mockFinal';
 import { MockTourStore } from './mockTour';
@@ -223,99 +222,78 @@ export class MockEventRepository implements EventRepository, DevTools {
     };
   }
 
-  async controlRound(eventId: string, action: RoundControlAction): Promise<FestivalEvent> {
-    await this.request();
-    this.assertEvent(eventId);
-    this.requireAdmin();
-    const event = this.state.event;
-    const now = this.now();
-
-    if (action === 'pause') {
-      if (event.status !== 'active' || event.roundEndsAt === null) {
-        throw new RepositoryError('not-allowed', '진행 중인 라운드만 일시정지할 수 있어요.');
+  subscribeTeamEvent(
+    eventId: string,
+    teamId: string,
+    onChange: (event: FestivalEvent) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe {
+    let active = true;
+    let grade: Grade | null = null;
+    let last = '';
+    const emit = () => {
+      if (!active) return;
+      const scoped = this.tour.teamEvent(this.findTeam(teamId));
+      // 같은 상태를 되풀이해 알리지 않는다.
+      const signature = JSON.stringify(scoped);
+      if (signature === last) return;
+      last = signature;
+      onChange(clone(scoped));
+    };
+    const timer = setTimeout(() => {
+      if (!active) return;
+      try {
+        if (eventId !== this.state.event.id) throw new RepositoryError('not-found');
+        grade = this.findTeam(teamId).grade;
+      } catch (error) {
+        onError(
+          error instanceof RepositoryError
+            ? error
+            : new RepositoryError('not-found', '행사를 찾을 수 없어요.'),
+        );
+        return;
       }
-      this.updateEvent({
-        status: 'paused',
-        pausedRemainingMs: Math.max(0, event.roundEndsAt - now),
-        roundEndsAt: null,
-      });
-    } else if (action === 'end') {
-      if (
-        (event.status !== 'active' && event.status !== 'paused') ||
-        event.activeGrade === null ||
-        event.activeRound === 0
-      ) {
-        throw new RepositoryError('not-allowed', '진행 중인 라운드가 없어요.');
-      }
-      this.state.roundStatuses[roundKey(event.activeGrade, event.activeRound)] = 'scoring';
-      this.updateEvent({
-        status: 'ready',
-        roundEndsAt: null,
-        pausedRemainingMs: null,
-        roundEndedAt: now,
-      });
-      this.logRound(event.activeGrade, event.activeRound, '종료', `end`);
-    } else if (event.status === 'paused') {
-      this.updateEvent({
-        status: 'active',
-        roundEndsAt: now + (event.pausedRemainingMs ?? event.roundDurationMs),
-        pausedRemainingMs: null,
-      });
-    } else if (event.status !== 'active') {
-      const grade = event.activeGrade;
-      if (grade === null) {
-        throw new RepositoryError('not-allowed', '먼저 진행할 학년을 골라 주세요.');
-      }
-      let roundNo = event.activeRound;
-      const currentStatus = roundNo === 0 ? null : this.roundStatusOf(grade, roundNo);
-      if (roundNo === 0 || currentStatus === 'scoring' || currentStatus === 'closed') {
-        if (roundNo === 5) {
-          throw new RepositoryError('not-allowed', '5라운드가 모두 끝났어요.');
-        }
-        if (roundNo !== 0) this.state.roundStatuses[roundKey(grade, roundNo)] = 'closed';
-        roundNo = (roundNo + 1) as RoundNo;
-      }
-      this.state.roundStatuses[roundKey(grade, roundNo)] = 'active';
-      this.updateEvent({
-        status: 'active',
-        activeRound: roundNo,
-        roundEndsAt: now + event.roundDurationMs,
-        pausedRemainingMs: null,
-        roundEndedAt: null,
-      });
-      this.logRound(grade, roundNo, '시작', 'start');
-    }
-    if (this.state.event.activeGrade !== null) this.notifyOps(this.state.event.activeGrade);
-    return clone(this.state.event);
+      this.eventListeners.add(emit);
+      const listeners = this.opsListeners.get(grade) ?? new Set();
+      listeners.add(emit);
+      this.opsListeners.set(grade, listeners);
+      emit();
+    }, this.latencyMs);
+    // 게임 시간이 끝나는 순간에는 저장된 값이 바뀌지 않으므로 주기적으로 다시 계산한다.
+    const ticker = setInterval(emit, 1000);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      clearInterval(ticker);
+      this.eventListeners.delete(emit);
+      if (grade !== null) this.opsListeners.get(grade)?.delete(emit);
+    };
   }
 
   async setActiveGrade(eventId: string, grade: Grade): Promise<FestivalEvent> {
     await this.request();
     this.assertEvent(eventId);
     this.requireAdmin();
-    const event = this.state.event;
-    if (event.status === 'active' || event.status === 'paused') {
-      throw new RepositoryError('not-allowed', '라운드를 종료한 뒤 학년을 바꿀 수 있어요.');
+    const current = this.state.event.activeGrade;
+    if (current !== null && current !== grade && this.tour.hasOpenBooth(current)) {
+      throw new RepositoryError(
+        'not-allowed',
+        `${current}학년에 아직 종료하지 않은 부스 라운드가 있어요. 모두 종료한 뒤 학년을 바꿔 주세요.`,
+      );
     }
-    let lastRound: 0 | RoundNo = 0;
-    for (const roundNo of ROUND_NUMBERS) {
-      if (this.roundStatusOf(grade, roundNo) !== 'waiting') lastRound = roundNo;
-    }
-    this.updateEvent({
-      activeGrade: grade,
-      activeRound: lastRound,
-      status: 'ready',
-      roundEndsAt: null,
-      pausedRemainingMs: null,
-      roundEndedAt: null,
-    });
+    this.updateEvent({ activeGrade: grade, status: 'active' });
+    this.notifyOps(grade);
     return clone(this.state.event);
   }
 
-  async getRoundStatus(eventId: string, grade: Grade, roundNo: RoundNo): Promise<RoundStatus> {
+  async setGameDuration(eventId: string, minutes: number): Promise<FestivalEvent> {
     await this.request();
     this.assertEvent(eventId);
-    return this.roundStatusOf(grade, roundNo);
+    this.requireAdmin();
+    const error = getGameDurationError(minutes);
+    if (error) throw new RepositoryError('invalid-input', error);
+    this.updateEvent({ gameDurationMs: minutes * 60_000 });
+    return clone(this.state.event);
   }
 
   // ---- 미션·학급·팀 ----
@@ -439,11 +417,13 @@ export class MockEventRepository implements EventRepository, DevTools {
     const mission = this.findMission(missionId);
     const roundNo = getRoundForMission(team.teamNo, mission.no);
     const key = resultKey(mission.id, team.grade, roundNo);
+    const booth = this.tour.missionRound(mission.id, team.grade, roundNo);
     return clone({
       team,
       mission,
       roundNo,
-      roundStatus: this.roundStatusOf(team.grade, roundNo),
+      roundStatus: toRoundStatus(booth.status),
+      booth,
       submission: this.state.submissions[submissionId(mission.id, team.id)] ?? null,
       finalized: this.isFinalized(mission.id, team.grade, roundNo),
       answerRevealed: this.state.missionStates[key]?.answerRevealed ?? false,
@@ -516,9 +496,8 @@ export class MockEventRepository implements EventRepository, DevTools {
       throw new RepositoryError('not-allowed', '순위가 이미 확정되어 제출할 수 없어요.');
     }
     const blocker = getSubmissionBlocker({
-      event: this.state.event,
-      grade: team.grade,
-      roundNo,
+      touring: this.state.event.activeGrade === team.grade,
+      boothStatus: this.tour.missionRound(mission.id, team.grade, roundNo).status,
       reopened: existing?.status === 'draft' && existing.reopened,
     });
     if (blocker) throw new RepositoryError('not-allowed', blocker);
@@ -555,32 +534,6 @@ export class MockEventRepository implements EventRepository, DevTools {
     this.state.processedRequests[input.requestId] = id;
     this.notifyStation(resultKey(mission.id, team.grade, roundNo));
     return clone(submission);
-  }
-
-  async getRoundProgress(
-    eventId: string,
-    grade: Grade,
-    roundNo: RoundNo,
-  ): Promise<MissionProgress[]> {
-    await this.request();
-    this.assertEvent(eventId);
-    const classes = this.classesOf(grade);
-    return this.state.missions.map((mission) => {
-      const teamNo = getTeamNoForMission(mission.no, roundNo);
-      const submitted = classes.filter((classInfo) => {
-        const item =
-          this.state.submissions[
-            submissionId(mission.id, toTeamId(grade, classInfo.classNo, teamNo))
-          ];
-        return item !== undefined && item.status !== 'draft';
-      }).length;
-      return {
-        missionId: mission.id,
-        submitted,
-        total: classes.length,
-        finalized: this.isFinalized(mission.id, grade, roundNo),
-      };
-    });
   }
 
   // ---- 교사 운영 ----
@@ -1009,10 +962,39 @@ export class MockEventRepository implements EventRepository, DevTools {
     return clone(this.tour.arrivals(missionId, grade, roundNo));
   }
 
+  async getStationRounds(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+  ): Promise<MissionRoundState[]> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    return clone(this.tour.stationRounds(missionId, grade));
+  }
+
+  async openStationRound(input: StartStationInput): Promise<MissionRoundState> {
+    return this.advanceStation('open', input);
+  }
+
   async startStationRound(input: StartStationInput): Promise<MissionRoundState> {
+    return this.advanceStation('start', input);
+  }
+
+  async closeStationRound(input: StartStationInput): Promise<MissionRoundState> {
+    return this.advanceStation('close', input);
+  }
+
+  private async advanceStation(
+    action: BoothAction,
+    input: StartStationInput,
+  ): Promise<MissionRoundState> {
     await this.request();
     this.assertEvent(input.eventId);
-    return clone(this.tour.startStation(input));
+    const round = this.tour.advanceStation(action, input);
+    // 학생 화면과 부스 화면이 새 단계를 바로 그리게 알린다.
+    this.touchMissionState(round.missionId, input.grade, input.roundNo, {});
+    return clone(round);
   }
 
   async markTeamArrived(input: MarkArrivedInput): Promise<TeamMissionState> {
@@ -1329,7 +1311,7 @@ export class MockEventRepository implements EventRepository, DevTools {
       classesOf: (grade) => this.classesOf(grade),
       teamsOfClass: (classId) => this.teamsOfClass(classId),
       classProgress: (classId) => this.classProgress(classId),
-      roundStatusOf: (grade, roundNo) => this.roundStatusOf(grade, roundNo),
+      allRoundsCompleted: (grade) => this.tour.allRoundsCompleted(grade),
       addActivity: (event) => this.addActivity(event),
       notifyOps: (grade) => this.notifyOps(grade),
       notifyFinal: (grade) => this.notifyFinal(grade),
@@ -1340,19 +1322,6 @@ export class MockEventRepository implements EventRepository, DevTools {
   private addActivity(event: Omit<ActivityEvent, 'at'> & { at?: number }): void {
     if (this.state.activityEvents[event.id]) return;
     this.state.activityEvents[event.id] = { ...event, at: event.at ?? this.now() };
-  }
-
-  private logRound(grade: Grade, roundNo: RoundNo, label: string, action: string): void {
-    this.addActivity({
-      id: `round__g${grade}__r${roundNo}__${action}__${this.now()}`,
-      grade,
-      type: 'round_changed',
-      message: `${grade}학년 ${roundNo}라운드 ${label}`,
-      classId: null,
-      teamId: null,
-      missionId: null,
-      roundNo,
-    });
   }
 
   private logCardEarned(award: CardAward): void {
@@ -1441,10 +1410,6 @@ export class MockEventRepository implements EventRepository, DevTools {
     return this.state.classes
       .filter((classInfo) => classInfo.grade === grade)
       .sort((a, b) => a.classNo - b.classNo);
-  }
-
-  private roundStatusOf(grade: Grade, roundNo: RoundNo): RoundStatus {
-    return this.state.roundStatuses[roundKey(grade, roundNo)] ?? 'waiting';
   }
 
   private isFinalized(missionId: string, grade: Grade, roundNo: RoundNo): boolean {

@@ -1,5 +1,6 @@
 import {
   doc,
+  documentId,
   getDoc,
   getDocs,
   query,
@@ -8,7 +9,19 @@ import {
   where,
   type DocumentData,
 } from 'firebase/firestore';
-import { CHECK_IN_GRACE_MS } from '../../config';
+import { CHECK_IN_GRACE_MS, RESULT_GRACE_MS } from '../../config';
+import {
+  canCheckInAtBooth,
+  getBoothActionBlocker,
+  getBoothClock,
+  getBoothCurrentRound,
+  getBoothEndsAt,
+  getBoothStatus,
+  getNextBoothChangeAt,
+  getTeamCurrentRound,
+  scopeEventToTeam,
+  type BoothAction,
+} from '../../domain/boothRound';
 import { CARD_PIECES } from '../../domain/cards';
 import { CARD_INFO } from '../../domain/catalog';
 import { emptyFinalSession } from '../../domain/finalMission';
@@ -19,10 +32,9 @@ import {
   applyResultFinalized,
   emptyTeamMissionRecord,
   getCheckInRound,
-  getRoundClock,
-  getRoundPhase,
+  getTourPhase,
   missionRoundStateId,
-  presentMissionRoundStatus,
+  presentMissionRound,
   presentTeamMissionState,
   summarizeTeamStates,
   teamMissionStateId,
@@ -36,9 +48,9 @@ import type {
   FinalSession,
   Grade,
   Mission,
+  MissionNo,
   MissionRoundState,
   RoundNo,
-  RoundStatus,
   Team,
   TeamMissionState,
 } from '../../domain/types';
@@ -67,16 +79,18 @@ import {
   mapFinalClassState,
   mapFinalSession,
   mapResult,
-  mapRound,
   mapTeamMissionRecord,
+  newBoothFields,
   type BoothDoc,
-  type RoundDoc,
 } from './mappers';
 
 const ACTIVITY_LIMIT = 30;
-function roundDocId(grade: Grade, roundNo: RoundNo): string {
-  return `g${grade}-r${roundNo}`;
-}
+
+const ACTION_LABELS: Record<BoothAction, string> = {
+  open: '라운드 열기',
+  start: '게임 시작',
+  close: '라운드 종료',
+};
 
 function resultDocId(missionId: string, grade: Grade, roundNo: RoundNo, teamId: string): string {
   return `${missionId}__g${grade}__r${roundNo}__${teamId}`;
@@ -93,20 +107,44 @@ interface TourData {
   event: FestivalEvent;
   record(id: string): TeamMissionRecord | undefined;
   booth(id: string): BoothDoc | undefined;
-  roundStatus(grade: Grade, roundNo: RoundNo): RoundStatus;
+}
+
+function boothsById(booths: readonly BoothDoc[]): (id: string) => BoothDoc | undefined {
+  const byId = new Map(booths.map((item) => [item.id, item]));
+  return (id) => byId.get(id);
 }
 
 /**
- * 한 학년의 팀 이동·부스·라운드 구독 묶음.
- * 팀 상태 문서는 QR 체크인 때만, 부스 문서는 미션 시작과 결과 확정 때만 바뀌므로
+ * 한 팀이 도는 다섯 부스의 구독. 부스 문서는 선생님이 라운드를 열고, 게임을 시작하고,
+ * 순위를 확정하고, 라운드를 종료할 때만 바뀌어 학생 기기가 받는 읽기가 작다.
+ */
+class TeamLive extends LiveGroup {
+  readonly booths: LiveQuery<BoothDoc>;
+
+  constructor(ctx: FirestoreStoreContext, eventId: string, boothIds: string[], onIdle: () => void) {
+    super(onIdle);
+    this.booths = this.track(
+      new LiveQuery(
+        query(ctx.sub(eventId, 'missionRoundStates'), where(documentId(), 'in', boothIds)),
+        (snapshot, data) => mapBooth(snapshot.id, data),
+        () => this.notifier.bump(),
+        // 끊긴 구독은 다시 살아나지 않는다. 묶음을 닫아 다음에 새로 붙게 한다.
+        () => this.stop(),
+      ),
+    );
+  }
+}
+
+/**
+ * 한 학년의 팀 이동·부스 구독 묶음.
+ * 팀 상태 문서는 QR 체크인 때만, 부스 문서는 라운드 단계가 바뀔 때만 바뀌므로
  * 구독으로 받는 읽기는 "바뀐 문서 수 × 보고 있는 교사 수"에 그친다.
  */
 class OpsLive extends LiveGroup {
   readonly event: LiveDoc<FestivalEvent>;
   readonly records: LiveQuery<TeamMissionRecord>;
   readonly booths: LiveQuery<BoothDoc>;
-  readonly rounds: LiveQuery<RoundDoc>;
-  private submissions: { roundNo: RoundNo; live: LiveQuery<SubmissionMark> } | null = null;
+  private submissions: LiveQuery<SubmissionMark> | null = null;
   private awards: LiveQuery<CardAward> | null = null;
   private finalSession: LiveDoc<DocumentData> | null = null;
   private finalStates: LiveQuery<{ id: string; data: DocumentData }> | null = null;
@@ -121,7 +159,8 @@ class OpsLive extends LiveGroup {
     this.eventId = eventId;
     this.grade = grade;
     const bump = () => this.notifier.bump();
-    const fail = () => undefined;
+    // 끊긴 구독은 다시 살아나지 않는다. 옛 자료를 계속 쓰지 않게 묶음을 닫아 다음에 새로 붙게 한다.
+    const fail = () => this.stop();
     const byGrade = (name: string) => query(ctx.sub(eventId, name), where('grade', '==', grade));
     this.event = this.track(
       new LiveDoc(ctx.eventRef(eventId), (snapshot) => mapEvent(snapshot), bump, fail),
@@ -142,37 +181,27 @@ class OpsLive extends LiveGroup {
         fail,
       ),
     );
-    this.rounds = this.track(
-      new LiveQuery(byGrade('rounds'), (_snapshot, data) => mapRound(data), bump, fail),
-    );
   }
 
-  /** 대시보드에서만 쓰는 구독: 보고 있는 라운드의 제출물, 학년의 카드 보상, 최종 미션 상태 */
-  async watchDashboard(roundNo: RoundNo): Promise<void> {
+  /**
+   * 대시보드에서만 쓰는 구독: 학년의 제출물, 카드 보상, 최종 미션 상태.
+   * 부스마다 라운드가 달라 제출물은 학년 전체를 본다(팀 25개 × 미션 5개가 가장 많을 때다).
+   */
+  async watchDashboard(): Promise<void> {
     const bump = () => this.notifier.bump();
     const fail = () => undefined;
-    if (this.submissions?.roundNo !== roundNo) {
-      if (this.submissions) this.untrack(this.submissions.live);
-      this.submissions = {
-        roundNo,
-        live: this.track(
-          new LiveQuery(
-            query(
-              this.ctx.sub(this.eventId, 'submissions'),
-              where('grade', '==', this.grade),
-              where('roundNo', '==', roundNo),
-            ),
-            (_snapshot, data) => ({
-              missionId: String(data.missionId),
-              teamId: String(data.teamId),
-              submitted: data.status !== 'draft' && typeof data.answer === 'object',
-            }),
-            bump,
-            fail,
-          ),
-        ),
-      };
-    }
+    this.submissions ??= this.track(
+      new LiveQuery(
+        query(this.ctx.sub(this.eventId, 'submissions'), where('grade', '==', this.grade)),
+        (_snapshot, data) => ({
+          missionId: String(data.missionId),
+          teamId: String(data.teamId),
+          submitted: data.status !== 'draft' && typeof data.answer === 'object',
+        }),
+        bump,
+        fail,
+      ),
+    );
     this.awards ??= this.track(
       new LiveQuery(
         query(this.ctx.sub(this.eventId, 'cardAwards'), where('grade', '==', this.grade)),
@@ -201,7 +230,7 @@ class OpsLive extends LiveGroup {
   }
 
   get submissionMarks(): readonly SubmissionMark[] {
-    return this.submissions?.live.docs ?? [];
+    return this.submissions?.docs ?? [];
   }
 
   get awardDocs(): readonly CardAward[] {
@@ -222,20 +251,11 @@ class OpsLive extends LiveGroup {
     const event = this.event.value;
     if (!event) throw new RepositoryError('not-found', '행사 정보를 찾을 수 없어요.');
     const records = new Map(this.records.docs.map((item) => [item.id, item]));
-    const booths = new Map(this.booths.docs.map((item) => [item.id, item]));
-    const rounds = new Map(
-      this.rounds.docs.map((item) => [roundDocId(item.grade, item.roundNo), item.status]),
-    );
     return {
       event,
       record: (id) => records.get(id),
-      booth: (id) => booths.get(id),
-      roundStatus: (grade, roundNo) => rounds.get(roundDocId(grade, roundNo)) ?? 'waiting',
+      booth: boothsById(this.booths.docs),
     };
-  }
-
-  roundStartedAt(roundNo: RoundNo): number | null {
-    return this.rounds.docs.find((item) => item.roundNo === roundNo)?.startedAt ?? null;
   }
 }
 
@@ -243,6 +263,7 @@ class OpsLive extends LiveGroup {
 export class FirestoreTourStore {
   private readonly ctx: FirestoreStoreContext;
   private readonly lives = new Map<string, OpsLive>();
+  private readonly teamLives = new Map<string, TeamLive>();
 
   constructor(ctx: FirestoreStoreContext) {
     this.ctx = ctx;
@@ -303,6 +324,154 @@ export class FirestoreTourStore {
   /** 로그아웃처럼 권한이 바뀔 때 모든 구독을 끊는다. */
   stopAll(): void {
     for (const live of [...this.lives.values()]) live.stop();
+    for (const live of [...this.teamLives.values()]) live.stop();
+  }
+
+  // ---- 한 팀이 보는 행사 상태 ----
+
+  /** 팀이 1~5라운드에 가는 부스 문서의 ID */
+  private teamBoothIds(missions: readonly Mission[], team: Team): string[] {
+    return ROUND_NUMBERS.map((roundNo) =>
+      missionRoundStateId(this.missionForRound(missions, team, roundNo).id, team.grade, roundNo),
+    );
+  }
+
+  private boothLookup(
+    missions: readonly Mission[],
+    grade: Grade,
+    boothOf: (id: string) => BoothDoc | undefined,
+  ) {
+    return (missionNo: MissionNo, roundNo: RoundNo) => {
+      const mission = missions.find((item) => item.no === missionNo);
+      return mission ? boothOf(missionRoundStateId(mission.id, grade, roundNo)) : undefined;
+    };
+  }
+
+  /** 구독 중이면 캐시를, 아니면 한 번 읽는다(많아야 다섯 문서). */
+  private async teamBooths(
+    eventId: string,
+    team: Team,
+    missions: readonly Mission[],
+  ): Promise<readonly BoothDoc[]> {
+    const live = this.teamLives.get(`${eventId}|${team.id}`);
+    if (live && !live.isStopped) {
+      try {
+        await live.ready();
+        return live.booths.docs;
+      } catch {
+        // 구독이 끊겼으면 아래에서 직접 읽는다.
+      }
+    }
+    const snapshot = await getDocs(
+      query(
+        this.ctx.sub(eventId, 'missionRoundStates'),
+        where(documentId(), 'in', this.teamBoothIds(missions, team)),
+      ),
+    );
+    return snapshot.docs.map((item) =>
+      mapBooth(item.id, item.data({ serverTimestamps: 'estimate' })),
+    );
+  }
+
+  /** 한 팀이 보는 행사 상태. 팀이 지금 가야 하는 부스의 단계로 채운다. */
+  private async teamEvent(
+    eventId: string,
+    team: Team,
+    missions: readonly Mission[],
+    event: FestivalEvent,
+  ): Promise<FestivalEvent> {
+    const booths = await this.teamBooths(eventId, team, missions);
+    return scopeEventToTeam(
+      event,
+      team,
+      this.boothLookup(missions, team.grade, boothsById(booths)),
+      this.ctx.serverNow(),
+    );
+  }
+
+  /**
+   * 팀 화면용 구독. 행사 문서와 팀이 도는 다섯 부스 문서가 바뀔 때,
+   * 그리고 게임 시간이 끝나는 순간에 팀이 보는 상태를 다시 알린다.
+   */
+  subscribeTeam(
+    eventId: string,
+    teamId: string,
+    subscribeEvent: (onEvent: (event: FestivalEvent) => void) => Unsubscribe,
+    onChange: (event: FestivalEvent) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe {
+    const key = `${eventId}|${teamId}`;
+    let stopped = false;
+    let event: FestivalEvent | null = null;
+    let source: { team: Team; missions: Mission[]; live: TeamLive } | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let remove: () => void = () => undefined;
+    let last = '';
+
+    const emit = () => {
+      if (stopped || !event || !source) return;
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      const now = this.ctx.serverNow();
+      const booths = source.live.booths.docs;
+      const scoped = scopeEventToTeam(
+        event,
+        source.team,
+        this.boothLookup(source.missions, source.team.grade, boothsById(booths)),
+        now,
+      );
+      const signature = JSON.stringify(scoped);
+      if (signature !== last) {
+        last = signature;
+        onChange(scoped);
+      }
+      // 게임 시간이 끝나는 순간에는 문서가 바뀌지 않으므로 그때 다시 계산한다.
+      const nextAt = getNextBoothChangeAt(booths, now);
+      if (nextAt !== null) timer = setTimeout(emit, Math.max(0, nextAt - now) + 50);
+    };
+
+    const stopEvent = subscribeEvent((value) => {
+      event = value;
+      emit();
+    });
+    void (async () => {
+      await this.ctx.ensureUser();
+      const [team, missions] = await Promise.all([
+        this.ctx.getTeam(eventId, teamId),
+        this.ctx.missions(eventId),
+      ]);
+      if (stopped) return;
+      let live = this.teamLives.get(key);
+      if (!live || live.isStopped) {
+        live = new TeamLive(this.ctx, eventId, this.teamBoothIds(missions, team), () =>
+          this.teamLives.delete(key),
+        );
+        this.teamLives.set(key, live);
+      }
+      live.touch();
+      try {
+        await live.ready();
+      } catch (error) {
+        live.stop();
+        throw error;
+      }
+      if (stopped) {
+        live.touch();
+        return;
+      }
+      source = { team, missions, live };
+      remove = live.notifier.add(emit);
+      live.touch();
+      emit();
+    })().catch(onError);
+
+    return () => {
+      stopped = true;
+      stopEvent();
+      remove();
+      if (timer !== null) clearTimeout(timer);
+      this.teamLives.get(key)?.touch();
+    };
   }
 
   // ---- 상태 계산 ----
@@ -316,7 +485,7 @@ export class FirestoreTourStore {
 
   /**
    * 저장된 체크인 기록에 부스 문서를 겹쳐 진행 중·완료를 계산한다.
-   * 부스가 미션을 시작했으면 입장한 팀은 진행 중, 순위를 확정한 팀은 완료다.
+   * 부스가 게임을 시작했으면 입장한 팀은 진행 중, 순위를 확정한 팀은 완료다.
    */
   private recordOf(data: TourData, team: Team, roundNo: RoundNo, mission: Mission) {
     let record =
@@ -349,14 +518,18 @@ export class FirestoreTourStore {
     roundNo: RoundNo,
     mission: Mission,
   ): TeamMissionState {
-    const clock = getRoundClock(
-      data.event,
-      team.grade,
-      roundNo,
-      data.roundStatus(team.grade, roundNo),
+    const clock = getBoothClock(
+      data.booth(missionRoundStateId(mission.id, team.grade, roundNo)),
       this.ctx.serverNow(),
     );
     return presentTeamMissionState(this.recordOf(data, team, roundNo, mission), clock);
+  }
+
+  private boothStatus(data: TourData, mission: Mission, grade: Grade, roundNo: RoundNo) {
+    return getBoothStatus(
+      data.booth(missionRoundStateId(mission.id, grade, roundNo)),
+      this.ctx.serverNow(),
+    );
   }
 
   private presentBooth(
@@ -367,27 +540,15 @@ export class FirestoreTourStore {
   ): MissionRoundState {
     const id = missionRoundStateId(missionId, grade, roundNo);
     const stored = data.booth(id);
-    const resultFinalizedAt = stored?.resultFinalizedAt ?? null;
-    return {
-      id,
-      grade,
-      missionId,
-      roundNo,
-      status: presentMissionRoundStatus(
-        stored ? { status: stored.status, resultFinalizedAt } : undefined,
-        data.roundStatus(grade, roundNo),
-      ),
-      startedAt: stored?.startedAt ?? null,
-      completedAt: stored?.completedAt ?? resultFinalizedAt,
-      resultFinalizedAt,
-      updatedBy: stored?.updatedBy ?? null,
-    };
+    return presentMissionRound(
+      { id, grade, missionId, roundNo },
+      stored,
+      stored?.updatedBy ?? null,
+      this.ctx.serverNow(),
+    );
   }
 
-  /**
-   * 구독 없이 한 팀·한 라운드만 읽는다(학생 기기용). 라운드 상태는 행사 문서로 알 수 있다:
-   * 체크인 대상은 지금 라운드(활동 중)이거나 다음 라운드(아직 시작 전)뿐이다.
-   */
+  /** 구독 없이 한 팀·한 라운드의 체크인 기록과 부스 문서만 읽는다(학생 기기용). */
   private async directData(
     eventId: string,
     event: FestivalEvent,
@@ -409,13 +570,55 @@ export class FirestoreTourStore {
       event,
       record: (id) => (id === recordId ? record : undefined),
       booth: (id) => (id === boothId ? booth : undefined),
-      roundStatus: (grade, round) => {
-        if (event.activeGrade !== grade || event.activeRound === 0) return 'waiting';
-        if (round > event.activeRound) return 'waiting';
-        if (round < event.activeRound) return 'closed';
-        return event.status === 'active' || event.status === 'paused' ? 'active' : 'scoring';
-      },
     };
+  }
+
+  /** 구독 중이 아닌 학년의 학급 상세를 볼 때: 학년의 부스 문서와 학급의 체크인 기록을 한 번 읽는다. */
+  private async classData(
+    eventId: string,
+    event: FestivalEvent,
+    grade: Grade,
+    classId: string,
+  ): Promise<TourData> {
+    const [booths, recordSnap] = await Promise.all([
+      this.gradeBooths(eventId, grade),
+      getDocs(query(this.ctx.sub(eventId, 'teamMissionStates'), where('classId', '==', classId))),
+    ]);
+    const records = new Map(
+      recordSnap.docs.map((item) => [
+        item.id,
+        mapTeamMissionRecord(item.id, item.data({ serverTimestamps: 'estimate' })),
+      ]),
+    );
+    return { event, record: (id) => records.get(id), booth: boothsById(booths) };
+  }
+
+  /** 한 학년의 부스 문서. 구독 중이면 캐시를, 아니면 한 번 읽는다(많아야 25개). */
+  private async gradeBooths(eventId: string, grade: Grade): Promise<readonly BoothDoc[]> {
+    const live = this.peek(eventId, grade);
+    if (live && !live.isStopped) {
+      try {
+        await live.ready();
+        return live.booths.docs;
+      } catch {
+        // 구독이 끊겼으면 아래에서 직접 읽는다.
+      }
+    }
+    const snapshot = await getDocs(
+      query(this.ctx.sub(eventId, 'missionRoundStates'), where('grade', '==', grade)),
+    );
+    return snapshot.docs.map((item) =>
+      mapBooth(item.id, item.data({ serverTimestamps: 'estimate' })),
+    );
+  }
+
+  /** 이 학년에 열어 두고 아직 종료하지 않은 부스가 있는지(학년을 바꾸기 전에 확인한다) */
+  async hasOpenBooth(eventId: string, grade: Grade): Promise<boolean> {
+    const now = this.ctx.serverNow();
+    return (await this.gradeBooths(eventId, grade)).some((booth) => {
+      const status = getBoothStatus(booth, now);
+      return status !== 'ready' && status !== 'completed';
+    });
   }
 
   // ---- 체크인 ----
@@ -447,7 +650,10 @@ export class FirestoreTourStore {
     ]);
     const scannedMission = missions.find((mission) => mission.id === input.stationId);
     if (!scannedMission) throw new RepositoryError('not-found', '미션 교실을 찾을 수 없어요.');
-    const roundNo = getCheckInRound(event, team.grade);
+    const roundNo = getCheckInRound(
+      await this.teamEvent(input.eventId, team, missions, event),
+      team.grade,
+    );
     if (roundNo === null) {
       throw new RepositoryError(
         'not-allowed',
@@ -467,6 +673,15 @@ export class FirestoreTourStore {
     // 이미 끝낸 미션의 QR을 다시 찍은 경우
     if (this.recordOf(before, team, roundNo, expectedMission).resultId !== null) {
       return outcome('already_checked_in', before);
+    }
+    if (
+      scannedMission.id === expectedMission.id &&
+      !canCheckInAtBooth(this.boothStatus(before, expectedMission, team.grade, roundNo))
+    ) {
+      throw new RepositoryError(
+        'not-allowed',
+        '선생님이 라운드를 열면 들어갈 수 있어요. 교실 앞에서 잠깐 기다려 주세요.',
+      );
     }
 
     const ref = doc(
@@ -528,6 +743,10 @@ export class FirestoreTourStore {
     if (mission.id !== input.missionId) {
       throw new RepositoryError('invalid-input', '이 라운드에 이 교실로 오는 팀이 아니에요.');
     }
+    const before = await this.directData(input.eventId, event, team, input.roundNo, mission);
+    if (this.boothStatus(before, mission, team.grade, input.roundNo) === 'completed') {
+      throw new RepositoryError('not-allowed', '이미 종료한 라운드예요.');
+    }
     const ref = doc(
       this.ctx.sub(input.eventId, 'teamMissionStates'),
       teamMissionStateId(team.classId, team.teamNo, input.roundNo),
@@ -564,7 +783,10 @@ export class FirestoreTourStore {
       this.ctx.missions(eventId),
       this.ctx.currentEvent(eventId),
     ]);
-    const roundNo = getCheckInRound(event, team.grade);
+    const roundNo = getCheckInRound(
+      await this.teamEvent(eventId, team, missions, event),
+      team.grade,
+    );
     if (roundNo === null) {
       return { roundNo: null, state: null, expectedMission: null, nextMission: null };
     }
@@ -615,42 +837,76 @@ export class FirestoreTourStore {
     };
   }
 
-  async startStation(input: StartStationInput): Promise<MissionRoundState> {
+  /** 이 부스의 1~5라운드 상태 */
+  async stationRounds(
+    eventId: string,
+    missionId: string,
+    grade: Grade,
+  ): Promise<MissionRoundState[]> {
+    this.ctx.requireTeacher();
+    const live = await this.readyLive(eventId, grade);
+    const data = live.data();
+    return ROUND_NUMBERS.map((roundNo) => this.presentBooth(data, missionId, grade, roundNo));
+  }
+
+  /** 라운드 열기 → 게임 시작 → 라운드 종료. 같은 단계를 다시 눌러도 처음 기록을 그대로 둔다. */
+  async advanceStation(action: BoothAction, input: StartStationInput): Promise<MissionRoundState> {
     await this.ctx.ensureUser();
     const teacher = this.ctx.requireTeacher();
-    const boothRef = doc(
-      this.ctx.sub(input.eventId, 'missionRoundStates'),
-      missionRoundStateId(input.missionId, input.grade, input.roundNo),
-    );
-    const roundRef = doc(
-      this.ctx.sub(input.eventId, 'rounds'),
-      roundDocId(input.grade, input.roundNo),
-    );
+    const [missions, event] = await Promise.all([
+      this.ctx.missions(input.eventId),
+      this.ctx.currentEvent(input.eventId),
+    ]);
+    const mission = missions.find((item) => item.id === input.missionId);
+    if (!mission) throw new RepositoryError('not-found', '미션을 찾을 수 없어요.');
+    const booths = this.ctx.sub(input.eventId, 'missionRoundStates');
+    const boothRef = doc(booths, missionRoundStateId(mission.id, input.grade, input.roundNo));
+    const previousRef =
+      input.roundNo === 1
+        ? null
+        : doc(booths, missionRoundStateId(mission.id, input.grade, (input.roundNo - 1) as RoundNo));
+    const isDone = (booth: BoothDoc | undefined) =>
+      booth !== undefined &&
+      ((action === 'open' && booth.openedAt !== null) ||
+        (action === 'start' && booth.startedAt !== null) ||
+        (action === 'close' && booth.completedAt !== null));
+
     await runTransaction(this.ctx.db, async (transaction) => {
-      const [boothSnap, roundSnap] = await Promise.all([
+      const [boothSnap, previousSnap] = await Promise.all([
         transaction.get(boothRef),
-        transaction.get(roundRef),
+        previousRef ? transaction.get(previousRef) : null,
       ]);
-      const booth = boothSnap.data();
-      // 다시 눌러도 처음 시작 시각을 그대로 쓴다.
-      if (booth && (booth.startedAt != null || booth.resultFinalizedAt != null)) return;
-      if ((roundSnap.data()?.status as RoundStatus | undefined) !== 'active') {
-        throw new RepositoryError(
-          'not-allowed',
-          '총괄 선생님이 라운드를 시작한 뒤에 미션을 시작할 수 있어요.',
-        );
-      }
+      const stored = boothSnap.data({ serverTimestamps: 'estimate' });
+      const booth = stored ? mapBooth(boothRef.id, stored) : undefined;
+      if (isDone(booth)) return;
+
+      const previousData = previousSnap?.data({ serverTimestamps: 'estimate' });
+      const blocker = getBoothActionBlocker(action, {
+        status: getBoothStatus(booth, this.ctx.serverNow()),
+        touring: event.activeGrade === input.grade,
+        previousCompleted:
+          previousRef === null ||
+          (previousData !== undefined &&
+            mapBooth(previousRef.id, previousData).completedAt !== null),
+        rankingFinalized: (booth?.resultFinalizedAt ?? null) !== null,
+      });
+      if (blocker) throw new RepositoryError('not-allowed', blocker);
+
+      // 시각은 서버가 기록한다. 기기 시계가 틀려도 모든 화면의 타이머가 같다.
+      const changes =
+        action === 'open'
+          ? { openedAt: serverTimestamp() }
+          : action === 'start'
+            ? { startedAt: serverTimestamp(), durationMs: event.gameDurationMs }
+            : { completedAt: serverTimestamp() };
       transaction.set(
         boothRef,
         {
+          ...(stored ? {} : newBoothFields(event.gameDurationMs)),
           grade: input.grade,
-          missionId: input.missionId,
+          missionId: mission.id,
           roundNo: input.roundNo,
-          status: 'active',
-          startedAt: serverTimestamp(),
-          completedAt: null,
-          resultFinalizedAt: null,
-          resultTeamIds: [],
+          ...changes,
           updatedBy: teacher.uid,
           updatedAt: serverTimestamp(),
         },
@@ -658,33 +914,16 @@ export class FirestoreTourStore {
       );
     });
     const live = await this.readyLive(input.eventId, input.grade);
-    await live.waitFor(() =>
-      live.booths.docs.some(
-        (booth) =>
-          booth.id === boothRef.id &&
-          (booth.startedAt !== null || booth.resultFinalizedAt !== null),
-      ),
-    );
-    return this.presentBooth(live.data(), input.missionId, input.grade, input.roundNo);
+    await live.waitFor(() => isDone(live.booths.docs.find((booth) => booth.id === boothRef.id)));
+    return this.presentBooth(live.data(), mission.id, input.grade, input.roundNo);
   }
 
   // ---- 대시보드 ----
 
-  /** 대시보드에 보여 줄 라운드: 활동 중이면 지금 라운드, 이동 중이면 다음 라운드(입장 확인용) */
-  private displayRound(data: TourData, grade: Grade, requested?: RoundNo): RoundNo {
-    if (requested) return requested;
-    const target = getCheckInRound(data.event, grade);
-    if (target !== null) return target;
-    if (data.event.activeGrade === grade && data.event.activeRound !== 0) {
-      return data.event.activeRound;
-    }
-    // 이 학년이 지금 진행 중이 아니면 마지막으로 진행한 라운드를 보여 준다.
-    const played = ROUND_NUMBERS.filter(
-      (roundNo) => data.roundStatus(grade, roundNo) !== 'waiting',
-    );
-    return played.length > 0 ? played[played.length - 1] : 1;
-  }
-
+  /**
+   * roundNo를 주면 그 라운드의 모습을, 주지 않으면 지금 모습을 보여 준다.
+   * 부스마다 따로 진행하므로 지금 모습에서는 부스와 팀이 저마다 자기 라운드에 있다.
+   */
   async dashboard(eventId: string, grade: Grade, requestedRound?: RoundNo): Promise<OpsDashboard> {
     this.ctx.requireTeacher();
     const [live, missions, classes, teams] = await Promise.all([
@@ -693,9 +932,12 @@ export class FirestoreTourStore {
       this.ctx.classes(eventId, grade),
       this.ctx.teams(eventId, grade),
     ]);
-    const roundNo = this.displayRound(live.data(), grade, requestedRound);
-    await live.watchDashboard(roundNo);
+    await live.watchDashboard();
     const data = live.data();
+    const now = this.ctx.serverNow();
+    const boothOf = (missionId: string, roundNo: RoundNo) =>
+      data.booth(missionRoundStateId(missionId, grade, roundNo));
+    const lookup = this.boothLookup(missions, grade, data.booth);
 
     const cellOf = (team: Team, round: RoundNo): OpsTeamCell => {
       const mission = this.missionForRound(missions, team, round);
@@ -706,9 +948,10 @@ export class FirestoreTourStore {
 
     const classRows = classes.map((classInfo) => ({
       classInfo,
-      cells: teamsOf(classInfo.id).map((team) => cellOf(team, roundNo)),
+      cells: teamsOf(classInfo.id).map((team) =>
+        cellOf(team, requestedRound ?? getTeamCurrentRound(team.teamNo, lookup) ?? 5),
+      ),
     }));
-    const cells = classRows.flatMap((row) => row.cells);
     const submittedKeys = new Set(
       live.submissionMarks
         .filter((mark) => mark.submitted)
@@ -716,7 +959,12 @@ export class FirestoreTourStore {
     );
 
     const stations: OpsStation[] = missions.map((mission) => {
-      const stationTeams = cells.filter((cell) => cell.mission.id === mission.id);
+      const roundNo =
+        requestedRound ?? getBoothCurrentRound((round) => boothOf(mission.id, round)) ?? 5;
+      const teamNo = getTeamNoForMission(mission.no, roundNo);
+      const stationTeams = teams
+        .filter((team) => team.teamNo === teamNo)
+        .map((team) => cellOf(team, roundNo));
       return {
         mission,
         round: this.presentBooth(data, mission.id, grade, roundNo),
@@ -726,12 +974,16 @@ export class FirestoreTourStore {
       };
     });
 
-    // 이동 시간에는 다음 라운드를 보여 주므로, 직전 라운드의 결과 미입력도 함께 알린다.
-    const previousCells =
-      roundNo > 1 && !requestedRound
-        ? teams.map((team) => cellOf(team, (roundNo - 1) as RoundNo))
-        : [];
-    const alerts: OpsAlert[] = [...cells, ...previousCells].flatMap((cell) =>
+    const seen = new Set<string>();
+    const watched = [
+      ...classRows.flatMap((row) => row.cells),
+      ...stations.flatMap((station) => station.teams),
+    ].filter((cell) => {
+      if (seen.has(cell.state.id)) return false;
+      seen.add(cell.state.id);
+      return true;
+    });
+    const alerts: OpsAlert[] = watched.flatMap((cell) =>
       cell.state.alertCodes.map((code) => ({
         id: `${cell.state.id}__${code}`,
         code,
@@ -742,12 +994,21 @@ export class FirestoreTourStore {
       })),
     );
 
-    const summary = summarizeTeamStates(cells.map((cell) => cell.state));
+    const statuses = missions.flatMap((mission) =>
+      ROUND_NUMBERS.map((roundNo) => getBoothStatus(boothOf(mission.id, roundNo), now)),
+    );
+    const started = statuses.some((status) => status !== 'ready');
+    // 부스마다 라운드가 다를 수 있어 가장 늦은 부스의 라운드를 대표로 쓴다.
+    const slowestRound = stations.reduce<RoundNo>(
+      (slowest, station) => (station.round.roundNo < slowest ? station.round.roundNo : slowest),
+      5,
+    );
+    const summary = summarizeTeamStates(classRows.flatMap((row) => row.cells).map((c) => c.state));
     return {
       summary: {
         grade,
-        roundNo: data.event.activeGrade === grade && data.event.activeRound === 0 ? 0 : roundNo,
-        phase: getRoundPhase(data.event, grade),
+        roundNo: requestedRound ?? (started ? slowestRound : 0),
+        phase: getTourPhase(statuses),
         ...summary,
         alertCount: alerts.length,
       },
@@ -810,13 +1071,33 @@ export class FirestoreTourStore {
       const mission = missionOf(booth.missionId);
       if (!mission) continue;
       const base = { classId: null, teamId: null, missionId: mission.id, roundNo: booth.roundNo };
+      const label = `${mission.title}(${mission.room}) ${booth.roundNo}라운드`;
+      // 예전 문서는 연 시각이 시작 시각과 같다. 같은 시각의 기록을 두 번 남기지 않는다.
+      if (booth.openedAt !== null && booth.openedAt !== booth.startedAt) {
+        push({
+          ...base,
+          id: `open__${booth.id}`,
+          type: 'mission_started',
+          message: `${label} · ${ACTION_LABELS.open}`,
+          at: booth.openedAt,
+        });
+      }
       if (booth.startedAt !== null) {
         push({
           ...base,
           id: `start__${booth.id}`,
           type: 'mission_started',
-          message: `${booth.roundNo}라운드 ${mission.title} 미션 시작`,
+          message: `${label} · ${ACTION_LABELS.start}`,
           at: booth.startedAt,
+        });
+      }
+      if (booth.completedAt !== null) {
+        push({
+          ...base,
+          id: `close__${booth.id}`,
+          type: 'round_changed',
+          message: `${label} · ${ACTION_LABELS.close}`,
+          at: booth.completedAt,
         });
       }
       if (booth.resultFinalizedAt !== null) {
@@ -828,33 +1109,6 @@ export class FirestoreTourStore {
           at: booth.resultFinalizedAt,
         });
       }
-    }
-
-    for (const round of live.rounds.docs) {
-      if (round.startedAt === null) continue;
-      push({
-        id: `round_start__g${grade}_r${round.roundNo}`,
-        type: 'round_changed',
-        message: `${grade}학년 ${round.roundNo}라운드 시작`,
-        classId: null,
-        teamId: null,
-        missionId: null,
-        roundNo: round.roundNo,
-        at: round.startedAt,
-      });
-    }
-    if (data.event.activeGrade === grade && data.event.roundEndedAt !== null) {
-      const ended = data.event.activeRound;
-      push({
-        id: `round_end__g${grade}_r${ended}`,
-        type: 'round_changed',
-        message: `${grade}학년 ${ended}라운드 종료`,
-        classId: null,
-        teamId: null,
-        missionId: null,
-        roundNo: ended === 0 ? null : ended,
-        at: data.event.roundEndedAt,
-      });
     }
 
     // 카드 조각 획득과 카드 완성(같은 종류의 네 번째 조각)
@@ -904,11 +1158,12 @@ export class FirestoreTourStore {
     for (const alert of alerts) {
       if (alert.code === 'wrong_station') continue;
       let at = now;
-      if (alert.code === 'not_arrived') {
-        const startedAt = live.roundStartedAt(alert.roundNo);
-        if (startedAt !== null) at = Math.min(now, startedAt + CHECK_IN_GRACE_MS);
-      } else if (alert.code === 'result_missing' && data.event.roundEndedAt !== null) {
-        at = Math.min(now, data.event.roundEndedAt + data.event.moveDurationMs);
+      const booth = data.booth(missionRoundStateId(alert.mission.id, grade, alert.roundNo));
+      const endsAt = getBoothEndsAt(booth);
+      if (alert.code === 'not_arrived' && booth && booth.startedAt !== null) {
+        at = Math.min(now, booth.startedAt + CHECK_IN_GRACE_MS);
+      } else if (alert.code === 'result_missing' && endsAt !== null) {
+        at = Math.min(now, endsAt + RESULT_GRACE_MS);
       }
       push({
         id: `alert__${alert.id}`,
@@ -1010,20 +1265,21 @@ export class FirestoreTourStore {
       )
     ).docs.map((snapshot) => mapResult(snapshot));
 
-    const roundNo = getCheckInRound(event, grade);
     const live = this.peek(eventId, grade);
     if (live) await live.ready().catch(() => undefined);
+    const data =
+      live && live.event.value ? live.data() : await this.classData(eventId, event, grade, classId);
+    const lookup = this.boothLookup(missions, grade, data.booth);
+    const now = this.ctx.serverNow();
 
     return Promise.all(
       teams.map(async (team) => {
+        // 부스마다 따로 진행하므로 팀마다 지금 라운드가 다르다.
+        const roundNo = getCheckInRound(scopeEventToTeam(event, team, lookup, now), grade);
         let state: TeamMissionState | null = null;
         let currentMission: Mission | null = null;
         if (roundNo !== null) {
           currentMission = this.missionForRound(missions, team, roundNo);
-          const data =
-            live && live.event.value
-              ? live.data()
-              : await this.directData(eventId, event, team, roundNo, currentMission);
           state = this.present(data, team, roundNo, currentMission);
         }
         const teamResults = results

@@ -325,7 +325,10 @@ export interface TeamMissionView {
   team: Team;
   mission: Mission;
   roundNo: RoundNo;
+  /** 이 미션을 하는 부스 라운드의 상태를 라운드 상태 모양으로 바꾼 값 */
   roundStatus: RoundStatus;
+  /** 이 미션을 하는 부스 라운드. 게임 종료 시각을 알 수 있다. */
+  booth: MissionRoundState;
   submission: Submission | null;
   finalized: boolean;
   answerRevealed: boolean;
@@ -350,13 +353,6 @@ export interface MissionParticipant {
   award: CardAward | null;
   /** 이 라운드의 체크인·진행 상태 */
   movement: TeamMissionState;
-}
-
-export interface MissionProgress {
-  missionId: string;
-  submitted: number;
-  total: number;
-  finalized: boolean;
 }
 
 /** 그림 미션 제출 때 함께 보내는 그림 파일 */
@@ -427,8 +423,6 @@ export interface ReviseRankingOutcome {
   keptClaimed: number;
 }
 
-export type RoundControlAction = 'start' | 'pause' | 'end';
-
 export interface EventSetupSummary {
   /** 이번 호출로 새로 만들었으면 true, 이미 있으면 false */
   created: boolean;
@@ -474,14 +468,26 @@ export interface EventRepository {
 
   // 행사 상태
   getEvent(eventId: string): Promise<FestivalEvent>;
+  /** 전체 행사 상태(진행 학년, 게임 시간). 라운드는 부스마다 달라 여기에는 없다. */
   subscribeEvent(
     eventId: string,
     onChange: (event: FestivalEvent) => void,
     onError: (error: unknown) => void,
   ): Unsubscribe;
-  controlRound(eventId: string, action: RoundControlAction): Promise<FestivalEvent>;
+  /**
+   * 한 팀이 보는 행사 상태. 그 팀이 지금 가야 하는 부스의 단계와 게임 종료 시각이 들어 있다.
+   * 부스가 라운드를 열거나 게임을 시작·종료할 때, 그리고 게임 시간이 끝날 때 다시 알린다.
+   */
+  subscribeTeamEvent(
+    eventId: string,
+    teamId: string,
+    onChange: (event: FestivalEvent) => void,
+    onError: (error: unknown) => void,
+  ): Unsubscribe;
+  /** 진행할 학년을 고른다. 지금 학년에 열어 둔 부스 라운드가 있으면 바꿀 수 없다. */
   setActiveGrade(eventId: string, grade: Grade): Promise<FestivalEvent>;
-  getRoundStatus(eventId: string, grade: Grade, roundNo: RoundNo): Promise<RoundStatus>;
+  /** 게임 시간(분)을 바꾼다. 이미 시작한 게임에는 적용되지 않는다. */
+  setGameDuration(eventId: string, minutes: number): Promise<FestivalEvent>;
 
   // 미션·학급·팀
   listMissions(eventId: string): Promise<Mission[]>;
@@ -509,9 +515,8 @@ export interface EventRepository {
     onError: (error: unknown) => void,
   ): Unsubscribe;
   listTeamSubmissions(eventId: string, teamId: string): Promise<Submission[]>;
-  /** 지금 진행 중인 라운드의 미션이거나 교사가 재제출을 허용했을 때만 받는다. */
+  /** 그 부스가 게임 중이거나 교사가 재제출을 허용했을 때만 받는다. */
   saveSubmission(input: SaveSubmissionInput): Promise<Submission>;
-  getRoundProgress(eventId: string, grade: Grade, roundNo: RoundNo): Promise<MissionProgress[]>;
 
   // 교사 운영
   /**
@@ -580,7 +585,7 @@ export interface EventRepository {
   getTeamTourStatus(eventId: string, teamId: string): Promise<TeamTourStatus>;
 
   // 실시간 운영 대시보드
-  /** roundNo를 주지 않으면 활동 중에는 지금 라운드, 이동 중에는 다음 라운드(입장 확인용)를 보여 준다. */
+  /** roundNo를 주지 않으면 지금 모습을 보여 준다(부스와 팀이 저마다 자기 라운드에 있다). */
   getOpsDashboard(eventId: string, grade: Grade, roundNo?: RoundNo): Promise<OpsDashboard>;
   getClassOpsDetail(eventId: string, classId: string): Promise<ClassOpsDetail>;
   /** 현재 학년의 팀 이동·부스·카드 상태가 바뀔 때마다 알린다. */
@@ -602,8 +607,14 @@ export interface EventRepository {
     grade: Grade,
     roundNo: RoundNo,
   ): Promise<StationArrivals>;
-  /** 부스의 “미션 시작”. 입장한 팀이 진행 중이 된다. 다시 눌러도 시작 시각은 그대로다. */
+  /** 이 부스의 1~5라운드 상태. 부스 화면이 지금 진행할 라운드를 알 때 쓴다. */
+  getStationRounds(eventId: string, missionId: string, grade: Grade): Promise<MissionRoundState[]>;
+  /** 부스의 “라운드 열기”. 이때부터 팀이 교실 QR을 찍어 들어올 수 있다. */
+  openStationRound(input: StartStationInput): Promise<MissionRoundState>;
+  /** 부스의 “게임 시작”. 게임 시간이 흐르기 시작하고 팀이 제출할 수 있다. */
   startStationRound(input: StartStationInput): Promise<MissionRoundState>;
+  /** 부스의 “라운드 종료”. 순위를 확정한 뒤에 할 수 있고, 팀은 다음 교실로 이동한다. */
+  closeStationRound(input: StartStationInput): Promise<MissionRoundState>;
   /** QR을 찍지 못한 팀을 교사가 직접 입장 처리한다(수동 복구). */
   markTeamArrived(input: MarkArrivedInput): Promise<TeamMissionState>;
 

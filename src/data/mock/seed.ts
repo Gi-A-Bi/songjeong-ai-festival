@@ -1,4 +1,5 @@
-import { DEFAULT_EVENT_ID } from '../../config';
+import { DEFAULT_EVENT_ID, DEFAULT_GAME_DURATION_MS } from '../../config';
+import type { BoothTimes } from '../../domain/boothRound';
 import { CARD_TYPES, drawOfferedTypes } from '../../domain/cards';
 import { createDefaultDrawingConfig } from '../../domain/drawingPrompts';
 import { getSelectionModeForRank, OFFER_COUNT_BY_MODE } from '../../domain/rewards';
@@ -33,9 +34,7 @@ import type {
   Grade,
   Mission,
   MissionResult,
-  MissionRoundState,
   RoundNo,
-  RoundStatus,
   Submission,
   SubmissionAnswer,
   Team,
@@ -45,7 +44,7 @@ import type {
 } from '../../domain/types';
 import { createSeededRandom } from '../../lib/random';
 import { createSampleFinalQuestionSet } from './finalQuestions';
-import { resultId, resultKey, roundKey, submissionId, toClassId, toTeamId } from './keys';
+import { resultId, resultKey, submissionId, toClassId, toTeamId } from './keys';
 
 export const GRADES: readonly Grade[] = [3, 4, 5, 6];
 export const GRADE_CLASS_COUNTS: Record<Grade, number> = { 3: 4, 4: 5, 5: 6, 6: 5 };
@@ -64,12 +63,21 @@ const DEMO_GRADE: Grade = 4;
 export const FINAL_DEMO_GRADE: Grade = 3;
 const MINUTE = 60_000;
 
+/** 부스 라운드 기록. 단계는 저장하지 않고 시각으로 계산한다. */
+export interface MockBooth extends BoothTimes {
+  id: string;
+  grade: Grade;
+  missionId: string;
+  roundNo: RoundNo;
+  updatedBy: string | null;
+}
+
 export interface MockState {
+  /** 전체 행사 상태. 팀이 보는 라운드 값은 부스 기록으로 그때그때 만든다. */
   event: FestivalEvent;
   missions: Mission[];
   classes: ClassInfo[];
   teams: Team[];
-  roundStatuses: Record<string, RoundStatus>;
   submissions: Record<string, Submission>;
   /** 미션·학년·라운드별 작은 상태(정답 공개, 마지막 변경 시각) */
   missionStates: Record<string, { answerRevealed: boolean; updatedAt: number }>;
@@ -82,8 +90,8 @@ export interface MockState {
   cardProgressCache: Record<string, ClassCardProgress>;
   /** 팀 이동 기록(`${classId}_${teamNo}_${roundNo}`). 없으면 입장 전으로 본다. */
   teamMissionRecords: Record<string, TeamMissionRecord>;
-  /** 부스의 학년·라운드별 상태 */
-  missionRoundStates: Record<string, MissionRoundState>;
+  /** 부스의 학년·라운드별 기록 */
+  missionRoundStates: Record<string, MockBooth>;
   /** 활동 기록. ID가 같으면 한 번만 남는다. */
   activityEvents: Record<string, ActivityEvent>;
   /** 이 기기가 마지막으로 입장한 팀(미션 교실 QR 체크인에 쓴다) */
@@ -481,10 +489,9 @@ export function buildSampleEvent(eventId: string, now: number): SampleEventStruc
       activeGrade: null,
       activeRound: 0,
       roundEndsAt: null,
-      pausedRemainingMs: null,
       roundEndedAt: null,
-      roundDurationMs: 8 * MINUTE,
-      moveDurationMs: 2 * MINUTE,
+      boothStatus: null,
+      gameDurationMs: DEFAULT_GAME_DURATION_MS,
       updatedAt: now,
     },
     classes,
@@ -525,19 +532,11 @@ export function createSeedState(now: number): MockState {
     }
   }
 
-  const roundStatuses: Record<string, RoundStatus> = {};
-  for (const grade of GRADES) {
-    for (const roundNo of ROUND_NUMBERS) roundStatuses[roundKey(grade, roundNo)] = 'waiting';
-  }
-  roundStatuses[roundKey(DEMO_GRADE, 1)] = 'closed';
-  roundStatuses[roundKey(DEMO_GRADE, 2)] = 'active';
-  for (const roundNo of ROUND_NUMBERS)
-    roundStatuses[roundKey(FINAL_DEMO_GRADE, roundNo)] = 'closed';
-
-  // 2라운드를 시작한 지 2분 30초: 체크인하지 않은 팀은 미도착 경고가 보인다.
+  // 2라운드 게임을 시작한 지 2분 30초: 체크인하지 않은 팀은 미도착 경고가 보인다.
   const round2StartedAt = now - 2.5 * MINUTE;
-  const round1StartedAt = round2StartedAt - 10 * MINUTE;
-  const round1FinalizedAt = round1StartedAt + 9 * MINUTE;
+  const round1StartedAt = round2StartedAt - 13 * MINUTE;
+  const round1FinalizedAt = round1StartedAt + 10.5 * MINUTE;
+  const round1ClosedAt = round1FinalizedAt + 0.5 * MINUTE;
 
   const event: FestivalEvent = {
     id: DEFAULT_EVENT_ID,
@@ -545,12 +544,11 @@ export function createSeedState(now: number): MockState {
     schoolName: '서울송정초등학교',
     status: 'active',
     activeGrade: DEMO_GRADE,
-    activeRound: 2,
-    roundEndsAt: round2StartedAt + 8 * MINUTE,
-    pausedRemainingMs: null,
+    activeRound: 0,
+    roundEndsAt: null,
     roundEndedAt: null,
-    roundDurationMs: 8 * MINUTE,
-    moveDurationMs: 2 * MINUTE,
+    boothStatus: null,
+    gameDurationMs: DEFAULT_GAME_DURATION_MS,
     updatedAt: now,
   };
 
@@ -558,6 +556,8 @@ export function createSeedState(now: number): MockState {
   const results: MissionResult[] = [];
   const cardAwards: CardAward[] = [];
   const classCount = GRADE_CLASS_COUNTS[DEMO_GRADE];
+  /** 2라운드에 라운드만 열고 아직 게임을 시작하지 않은 부스. 게임 전이라 제출도 없다. */
+  const waitingMissionIds = ['library-check'];
 
   for (const mission of missions) {
     for (let classNo = 1; classNo <= classCount; classNo += 1) {
@@ -617,10 +617,11 @@ export function createSeedState(now: number): MockState {
         );
       }
 
-      // 2라운드: 진행 중, 절반 정도의 팀이 제출한 상태
+      // 2라운드: 게임 중인 부스는 절반 정도의 팀이 제출한 상태
       const round2: RoundNo = 2;
       const team2Id = toTeamId(DEMO_GRADE, classNo, getTeamNoForMission(mission.no, round2));
-      if ((classNo + mission.no) % 2 === 0 && team2Id !== DEMO_TEAM_ID) {
+      const playing = !waitingMissionIds.includes(mission.id);
+      if (playing && (classNo + mission.no) % 2 === 0 && team2Id !== DEMO_TEAM_ID) {
         const answer = sampleAnswer(mission, classNo + 1);
         const id2 = submissionId(mission.id, team2Id);
         const submittedAt2 = round2StartedAt + (classNo % 3) * 20_000 + 30_000;
@@ -702,33 +703,62 @@ export function createSeedState(now: number): MockState {
     }
   }
 
-  // ---- 4학년 2라운드 팀 이동 샘플 ----
-  // 골든벨·틀린그림 부스는 미션을 시작했고, 나머지는 입장만 받은 상태다.
+  // ---- 부스 라운드 샘플 ----
+  // 라운드는 부스마다 선생님이 따로 진행한다.
+  // 3학년: 다섯 부스가 5라운드를 모두 끝냈다.
+  // 4학년: 1라운드는 모두 끝냈고, 2라운드는 네 부스가 게임 중이며 도서관(오류찾기)은 라운드만 열어 팀이 들어오는 중이다.
   // 미도착: 4학년 2반 3팀(샘플 팀, 직접 체크인해 볼 수 있다), 4학년 4반 5팀
   // 잘못된 교실: 4학년 5반 4팀이 도서관 대신 과학실 QR을 찍었다.
   const teamMissionRecords: Record<string, TeamMissionRecord> = {};
-  const missionRoundStates: Record<string, MissionRoundState> = {};
+  const missionRoundStates: Record<string, MockBooth> = {};
+  const seedBooth = (
+    missionId: string,
+    grade: Grade,
+    roundNo: RoundNo,
+    times: Partial<BoothTimes>,
+  ) => {
+    const id = missionRoundStateId(missionId, grade, roundNo);
+    missionRoundStates[id] = {
+      id,
+      grade,
+      missionId,
+      roundNo,
+      openedAt: null,
+      startedAt: null,
+      durationMs: DEFAULT_GAME_DURATION_MS,
+      resultFinalizedAt: null,
+      completedAt: null,
+      updatedBy: DEV_TEACHER.uid,
+      ...times,
+    };
+  };
+  for (const mission of missions) {
+    for (const roundNo of ROUND_NUMBERS) {
+      const startedAt = tourStartedAt + (roundNo - 1) * 10 * MINUTE;
+      seedBooth(mission.id, FINAL_DEMO_GRADE, roundNo, {
+        openedAt: startedAt - 0.5 * MINUTE,
+        startedAt,
+        resultFinalizedAt: startedAt + 9 * MINUTE,
+        completedAt: startedAt + 9.5 * MINUTE,
+      });
+    }
+    seedBooth(mission.id, DEMO_GRADE, 1, {
+      openedAt: round1StartedAt - MINUTE,
+      startedAt: round1StartedAt,
+      resultFinalizedAt: round1FinalizedAt,
+      completedAt: round1ClosedAt,
+    });
+  }
   const activityEvents: Record<string, ActivityEvent> = {};
-  const startedMissionIds = ['golden-bell', 'error-hunt'];
   const notArrived = new Set([DEMO_TEAM_ID, toTeamId(DEMO_GRADE, 4, 5)]);
   const wrongStationTeamId = toTeamId(DEMO_GRADE, 5, 4);
   const demoRound: RoundNo = 2;
   for (const mission of missions) {
-    const boothStartedAt = startedMissionIds.includes(mission.id) ? round2StartedAt + 30_000 : null;
-    if (boothStartedAt !== null) {
-      const id = missionRoundStateId(mission.id, DEMO_GRADE, demoRound);
-      missionRoundStates[id] = {
-        id,
-        grade: DEMO_GRADE,
-        missionId: mission.id,
-        roundNo: demoRound,
-        status: 'active',
-        startedAt: boothStartedAt,
-        completedAt: null,
-        resultFinalizedAt: null,
-        updatedBy: DEV_TEACHER.uid,
-      };
-    }
+    const boothStartedAt = waitingMissionIds.includes(mission.id) ? null : round2StartedAt;
+    seedBooth(mission.id, DEMO_GRADE, demoRound, {
+      openedAt: round2StartedAt - MINUTE,
+      startedAt: boothStartedAt,
+    });
     for (let classNo = 1; classNo <= classCount; classNo += 1) {
       const teamNo = getTeamNoForMission(mission.no, demoRound);
       const teamId = toTeamId(DEMO_GRADE, classNo, teamNo);
@@ -763,13 +793,13 @@ export function createSeedState(now: number): MockState {
     activityEvents[event.id] = event;
   };
   seedActivity({
-    id: `round__g${DEMO_GRADE}__r2__start__${round2StartedAt}`,
+    id: `start__${missionRoundStateId('golden-bell', DEMO_GRADE, 2)}`,
     grade: DEMO_GRADE,
-    type: 'round_changed',
-    message: `${DEMO_GRADE}학년 2라운드 시작`,
+    type: 'mission_started',
+    message: 'AI 골든벨(시청각실) 2라운드 · 게임 시작',
     classId: null,
     teamId: null,
-    missionId: null,
+    missionId: 'golden-bell',
     roundNo: 2,
     at: round2StartedAt,
   });
@@ -884,7 +914,6 @@ export function createSeedState(now: number): MockState {
     missions,
     classes,
     teams,
-    roundStatuses,
     submissions,
     missionStates: {},
     drawings: {},

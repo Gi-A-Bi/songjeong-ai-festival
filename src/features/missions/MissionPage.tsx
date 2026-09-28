@@ -30,9 +30,10 @@ export function MissionPage() {
     loaded ? { missionId: loaded.mission.id, grade: team.grade, roundNo: loaded.roundNo } : null,
   );
 
-  // 라운드 시작·종료나 교사의 정답 공개·순위 확정·재제출 허용이 생기면 조용히 다시 읽는다.
+  // 부스 단계가 바뀌거나(라운드 열기·게임 시작·시간 종료·라운드 종료) 교사의 정답 공개·순위 확정·
+  // 재제출 허용이 생기면 조용히 다시 읽는다.
   // 다시 읽는 동안에도 화면을 유지하므로 그리던 그림이나 입력한 답은 사라지지 않는다.
-  const refreshKey = `${event.status}|${event.activeGrade}|${event.activeRound}|${liveRevision}`;
+  const refreshKey = `${event.status}|${event.activeGrade}|${event.activeRound}|${event.boothStatus}|${liveRevision}`;
   const [seenRefreshKey, setSeenRefreshKey] = useState(refreshKey);
   if (seenRefreshKey !== refreshKey) {
     setSeenRefreshKey(refreshKey);

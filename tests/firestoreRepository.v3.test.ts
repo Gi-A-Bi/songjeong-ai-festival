@@ -6,7 +6,7 @@ import { getFirebase } from '../src/data/firebase/firebaseApp';
 import { isRepositoryError } from '../src/data/errors';
 import type { ClassFinalView } from '../src/data/EventRepository';
 import { parseFinalQuestionUpload } from '../src/domain/finalQuestionUpload';
-import type { TeacherRole } from '../src/domain/types';
+import type { RoundNo, TeacherRole } from '../src/domain/types';
 import { buildUploadFile, FIXTURE_IMAGE } from '../src/test/finalUploadFixture';
 
 /*
@@ -90,6 +90,23 @@ async function signInAs(
 
 const signInAsAdmin = () => signInAs('admin', 'admin');
 
+/** 행사 구조를 만들고 4학년을 진행 학년으로 고른다. */
+async function prepareTour() {
+  await signInAsAdmin();
+  await repository.setupEvent(EVENT);
+  await repository.setActiveGrade(EVENT, 4);
+}
+
+function booth(missionId: string, roundNo: RoundNo = 1) {
+  return { eventId: EVENT, missionId, grade: 4 as const, roundNo };
+}
+
+/** 부스에서 라운드를 열고 게임을 시작한다(4학년). */
+async function startGame(missionId: string, roundNo: RoundNo = 1) {
+  await repository.openStationRound(booth(missionId, roundNo));
+  return repository.startStationRound(booth(missionId, roundNo));
+}
+
 async function signInAsStudent(teamId: string) {
   await repository.signOutTeacher();
   await repository.joinTeam(EVENT, teamId);
@@ -128,12 +145,8 @@ beforeEach(async () => {
 });
 
 describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
-  it('학생 체크인 → 부스 시작 → 결과 확정이 대시보드에 입장·진행·완료로 나타난다', async () => {
-    await signInAsAdmin();
-    await repository.setupEvent(EVENT);
-    await repository.setActiveGrade(EVENT, 4);
-    await repository.controlRound(EVENT, 'start');
-    expect(Math.abs(repository.serverNow() - Date.now())).toBeLessThan(5000);
+  it('라운드 열기 → 학생 체크인 → 게임 시작 → 결과 확정 → 라운드 종료가 대시보드에 나타난다', async () => {
+    await prepareTour();
 
     // 4학년 1반 1팀은 1라운드에 1번 미션(골든벨, 시청각실)으로 간다.
     const teamId = 'g4-c1-t1';
@@ -142,6 +155,20 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     expect(before.roundNo).toBe(1);
     expect(before.expectedMission?.id).toBe('golden-bell');
     expect(before.state?.status).toBe('scheduled');
+
+    // 선생님이 라운드를 열기 전에는 들어갈 수 없다.
+    await expect(
+      repository.checkInStation({ eventId: EVENT, teamId, stationId: 'golden-bell' }),
+    ).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed') && /라운드를 열면/.test(error.message),
+    );
+
+    await signInAs('station-bell', 'teacher');
+    const opened = await repository.openStationRound(booth('golden-bell'));
+    expect(opened).toMatchObject({ status: 'open', startedAt: null, endsAt: null });
+    expect(opened.openedAt).not.toBeNull();
+    expect(Math.abs(repository.serverNow() - Date.now())).toBeLessThan(5000);
+    await signInAsStudent(teamId);
 
     const wrong = await repository.checkInStation({ eventId: EVENT, teamId, stationId: 'drawing' });
     expect(wrong.kind).toBe('wrong_station');
@@ -186,7 +213,7 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     await vi.waitFor(() => expect(revisions.length).toBeGreaterThan(0));
 
     const arrivals = await repository.getStationArrivals(EVENT, 'golden-bell', 4, 1);
-    expect(arrivals.booth.status).toBe('ready');
+    expect(arrivals.booth.status).toBe('open');
     expect(arrivals.movements).toHaveLength(5);
     expect(arrivals.movements.filter((item) => item.checkedInAt !== null)).toHaveLength(1);
 
@@ -200,20 +227,15 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     // 체크인이 구독으로 전해져 입장 현황을 다시 읽게 한다.
     await vi.waitFor(() => expect(revisions[revisions.length - 1]).toBeGreaterThan(0));
 
-    const started = await repository.startStationRound({
-      eventId: EVENT,
-      missionId: 'golden-bell',
-      grade: 4,
-      roundNo: 1,
-    });
+    // 열지 않은 부스는 게임을 시작할 수 없다.
+    await expect(repository.startStationRound(booth('drawing'))).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    const started = await repository.startStationRound(booth('golden-bell'));
     expect(started.status).toBe('active');
     expect(started.startedAt).not.toBeNull();
-    const startedAgain = await repository.startStationRound({
-      eventId: EVENT,
-      missionId: 'golden-bell',
-      grade: 4,
-      roundNo: 1,
-    });
+    expect(started.endsAt).toBe((started.startedAt ?? 0) + 10 * 60_000);
+    const startedAgain = await repository.startStationRound(booth('golden-bell'));
     expect(startedAgain.startedAt).toBe(started.startedAt);
 
     await vi.waitFor(async () => {
@@ -224,12 +246,18 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
       expect(statuses.filter((status) => status === 'scheduled')).toHaveLength(3);
     });
 
-    // 담당을 나누지 않으므로 같은 교사가 다른 부스도 시작할 수 있다.
-    await expect(
-      repository.startStationRound({ eventId: EVENT, missionId: 'drawing', grade: 4, roundNo: 1 }),
-    ).resolves.toMatchObject({ status: 'active' });
+    // 담당을 나누지 않으므로 같은 교사가 다른 부스도 진행할 수 있다.
+    await expect(startGame('drawing')).resolves.toMatchObject({ status: 'active' });
+    // 앞 라운드를 종료하기 전에는 다음 라운드를 열 수 없다.
+    await expect(repository.openStationRound(booth('golden-bell', 2))).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    // 순위를 확정하기 전에는 라운드를 종료할 수 없다.
+    await expect(repository.closeStationRound(booth('golden-bell'))).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed') && /순위를 확정/.test(error.message),
+    );
 
-    // 결과 확정 → 팀은 완료, 부스는 결과 확정. 다시 확정해도 카드 보상은 늘지 않는다.
+    // 결과 확정 → 팀은 완료, 부스는 순위 매기는 중. 다시 확정해도 카드 보상은 늘지 않는다.
     const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 1);
     const entries = participants.map((participant, index) => ({
       teamId: participant.team.id,
@@ -255,9 +283,13 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     });
     expect(retried.alreadyFinalized).toBe(true);
     expect(retried.awards).toHaveLength(5);
-    stop();
+    await vi.waitFor(async () => {
+      const ranked = await repository.getMissionRoundState(EVENT, 'golden-bell', 4, 1);
+      expect(ranked).toMatchObject({ status: 'scoring', completedAt: null });
+      expect(ranked.resultFinalizedAt).not.toBeNull();
+    });
 
-    // 총괄 대시보드
+    // 총괄 대시보드: 골든벨은 순위를 확정했고 아직 라운드를 종료하지 않았다.
     await signInAsAdmin();
     await vi.waitFor(async () => {
       const dashboard = await repository.getOpsDashboard(EVENT, 4);
@@ -270,8 +302,38 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
         completedTeams: 5,
       });
       const bell = dashboard.stations.find((station) => station.mission.id === 'golden-bell');
-      expect(bell?.round.status).toBe('completed');
+      expect(bell?.round.status).toBe('scoring');
       expect(bell?.teams.every((cell) => cell.state.status === 'completed')).toBe(true);
+    });
+
+    // 라운드를 종료하면 부스는 2라운드로 넘어가고 팀은 다음 교실로 이동한다.
+    await signInAs('station-bell', 'teacher');
+    const closed = await repository.closeStationRound(booth('golden-bell'));
+    expect(closed.status).toBe('completed');
+    expect(closed.completedAt).not.toBeNull();
+    const closedAgain = await repository.closeStationRound(booth('golden-bell'));
+    expect(closedAgain.completedAt).toBe(closed.completedAt);
+    await expect(repository.openStationRound(booth('golden-bell', 2))).resolves.toMatchObject({
+      status: 'open',
+      roundNo: 2,
+    });
+    stop();
+
+    await signInAsAdmin();
+    await vi.waitFor(async () => {
+      const dashboard = await repository.getOpsDashboard(EVENT, 4);
+      // 부스마다 라운드가 다르다: 골든벨은 2라운드, 그리기는 1라운드.
+      const rounds = Object.fromEntries(
+        dashboard.stations.map((station) => [station.mission.id, station.round.roundNo]),
+      );
+      expect(rounds).toMatchObject({ 'golden-bell': 2, drawing: 1, ozobot: 1 });
+      expect(dashboard.summary).toMatchObject({ roundNo: 1, phase: 'active' });
+      const bell = dashboard.stations.find((station) => station.mission.id === 'golden-bell');
+      expect(bell?.round.status).toBe('open');
+      // 2라운드 골든벨에는 5팀이 온다. 1라운드를 끝낸 1팀은 틀린그림 찾기로 이동한다.
+      expect(bell?.teams.map((cell) => cell.team.teamNo)).toEqual([5, 5, 5, 5, 5]);
+      const moved = dashboard.classRows[0].cells.find((cell) => cell.team.id === teamId);
+      expect(moved).toMatchObject({ mission: { id: 'error-hunt' }, state: { roundNo: 2 } });
       const types = dashboard.activity.map((item) => item.type);
       expect(types).toContain('check_in');
       expect(types).toContain('mission_started');
@@ -290,19 +352,43 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     expect(detail.hintPreview).toBe(0);
     expect(detail.finalStatus).toBe('locked');
 
-    // 학생 기기에서도 완료로 보인다.
+    // 학생 기기는 다음 라운드(틀린그림 찾기)를 안내한다.
     await signInAsStudent(teamId);
     const after = await repository.getTeamTourStatus(EVENT, teamId);
-    expect(after.state?.status).toBe('completed');
-    expect(after.state?.resultId).toBe('golden-bell__g4__r1__g4-c1-t1');
+    expect(after).toMatchObject({ roundNo: 2, expectedMission: { id: 'error-hunt' } });
+    expect(after.state?.status).toBe('scheduled');
+    const view = await repository.getTeamMissionView(EVENT, teamId, 'golden-bell');
+    expect(view).toMatchObject({ roundStatus: 'closed', finalized: true });
   });
 
-  it('이동 시간에 찍은 QR은 다음 라운드 입장으로 기록된다', async () => {
-    await signInAsAdmin();
-    await repository.setupEvent(EVENT);
-    await repository.setActiveGrade(EVENT, 4);
-    await repository.controlRound(EVENT, 'start');
-    await repository.controlRound(EVENT, 'end');
+  it('라운드를 종료한 뒤 찍은 QR은 다음 라운드 입장으로 기록된다', async () => {
+    await prepareTour();
+    await startGame('golden-bell');
+    const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 1);
+    await repository.finalizeRanking({
+      ...booth('golden-bell'),
+      requestId: 'finalize-1',
+      entries: participants.map((participant, index) => ({
+        teamId: participant.team.id,
+        score: 100,
+        rank: index + 1,
+      })),
+    });
+    await repository.closeStationRound(booth('golden-bell'));
+    // 틀린그림 찾기 부스는 1라운드를 끝내야 2라운드를 열 수 있다.
+    await startGame('error-hunt');
+    const others = await repository.listMissionParticipants(EVENT, 'error-hunt', 4, 1);
+    await repository.finalizeRanking({
+      ...booth('error-hunt'),
+      requestId: 'finalize-2',
+      entries: others.map((participant, index) => ({
+        teamId: participant.team.id,
+        score: 100,
+        rank: index + 1,
+      })),
+    });
+    await repository.closeStationRound(booth('error-hunt'));
+    await repository.openStationRound(booth('error-hunt', 2));
 
     // 1팀의 2라운드 미션은 2번(틀린그림 찾기)이다.
     const teamId = 'g4-c1-t1';
@@ -317,10 +403,8 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
   });
 
   it('같은 QR을 거의 동시에 두 번 찍어도 둘 다 성공으로 끝나고 기록은 하나다', async () => {
-    await signInAsAdmin();
-    await repository.setupEvent(EVENT);
-    await repository.setActiveGrade(EVENT, 4);
-    await repository.controlRound(EVENT, 'start');
+    await prepareTour();
+    await repository.openStationRound(booth('golden-bell'));
 
     const teamId = 'g4-c1-t1';
     await signInAsStudent(teamId);
@@ -759,10 +843,8 @@ describe('부스 화면의 제출 구독 (에뮬레이터)', () => {
   }
 
   it('구독하는 동안 새 제출을 알리고, 참가 팀 목록에 새로고침 없이 나타난다', async () => {
-    await signInAsAdmin();
-    await repository.setupEvent(EVENT);
-    await repository.setActiveGrade(EVENT, 4);
-    await repository.controlRound(EVENT, 'start');
+    await prepareTour();
+    await startGame('golden-bell');
 
     // 1라운드 골든벨에는 각 반 1팀이 온다. 1반 1팀은 교사가 화면을 열기 전에 제출했다.
     await signInAsStudent('g4-c1-t1');
@@ -910,23 +992,19 @@ describe('최종 미션 문제 올리기 (에뮬레이터)', () => {
 
 describe('예전 역할로 등록된 교사 (에뮬레이터)', () => {
   it('부스·담임으로 등록했던 계정도 교사로 읽히고 어느 부스와 학급이든 맡을 수 있다', async () => {
-    await signInAsAdmin();
-    await repository.setupEvent(EVENT);
-    await repository.setActiveGrade(EVENT, 4);
-    await repository.controlRound(EVENT, 'start');
+    await prepareTour();
 
     await signInAs('legacy-booth', 'teacher', { role: 'station_teacher', missionId: 'drawing' });
-    await expect(
-      repository.startStationRound({ eventId: EVENT, missionId: 'ozobot', grade: 4, roundNo: 1 }),
-    ).resolves.toMatchObject({ status: 'active' });
+    await expect(startGame('ozobot')).resolves.toMatchObject({ status: 'active' });
 
     await signInAs('legacy-homeroom', 'teacher', { role: 'homeroom_teacher', classId: 'g4-c2' });
-    await expect(
-      repository.startStationRound({ eventId: EVENT, missionId: 'drawing', grade: 4, roundNo: 1 }),
-    ).resolves.toMatchObject({ status: 'active' });
+    await expect(startGame('drawing')).resolves.toMatchObject({ status: 'active' });
     expect((await repository.getClassFinalView(EVENT, 'g4-c1')).canRunFinal).toBe(true);
-    // 라운드 제어는 총괄만 한다.
-    await expect(repository.controlRound(EVENT, 'end')).rejects.toSatisfy((error) =>
+    // 진행 학년과 게임 시간은 총괄만 바꾼다.
+    await expect(repository.setActiveGrade(EVENT, 5)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    await expect(repository.setGameDuration(EVENT, 8)).rejects.toSatisfy((error) =>
       isRepositoryError(error, 'not-allowed'),
     );
   });

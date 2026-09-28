@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CHECK_IN_GRACE_MS } from '../config';
+import { CHECK_IN_GRACE_MS, DEFAULT_GAME_DURATION_MS } from '../config';
+import { EMPTY_BOOTH, type RoundClock } from './boothRound';
 import { getMissionNoForRound, ROUND_NUMBERS, TEAM_NUMBERS } from './rotation';
 import {
   applyCheckIn,
@@ -7,14 +8,12 @@ import {
   applyStationStart,
   emptyTeamMissionRecord,
   getCheckInRound,
-  getRoundClock,
-  getRoundPhase,
   getTeamAlerts,
-  presentMissionRoundStatus,
+  getTourPhase,
+  presentMissionRound,
   presentTeamMissionState,
   summarizeTeamStates,
   teamMissionStateId,
-  type RoundClock,
 } from './tour';
 import type { FestivalEvent } from './types';
 
@@ -34,6 +33,7 @@ function record() {
 function clock(patch: Partial<RoundClock> = {}): RoundClock {
   return {
     phase: 'active',
+    closed: false,
     activeElapsedMs: 0,
     endedElapsedMs: 0,
     resultGraceMs: 2 * MINUTE,
@@ -41,6 +41,7 @@ function clock(patch: Partial<RoundClock> = {}): RoundClock {
   };
 }
 
+/** 한 팀이 보는 행사 상태. 기본은 2라운드 부스에서 게임 중이다. */
 function event(patch: Partial<FestivalEvent> = {}): FestivalEvent {
   return {
     id: 'e1',
@@ -49,11 +50,10 @@ function event(patch: Partial<FestivalEvent> = {}): FestivalEvent {
     status: 'active',
     activeGrade: 4,
     activeRound: 2,
-    roundEndsAt: 8 * MINUTE,
-    pausedRemainingMs: null,
+    roundEndsAt: 10 * MINUTE,
     roundEndedAt: null,
-    roundDurationMs: 8 * MINUTE,
-    moveDurationMs: 2 * MINUTE,
+    boothStatus: 'active',
+    gameDurationMs: DEFAULT_GAME_DURATION_MS,
     updatedAt: 0,
     ...patch,
   };
@@ -106,7 +106,7 @@ describe('QR 체크인', () => {
     expect(wrong.record).toBe(checkedIn);
   });
 
-  it('이동 시간에는 다음 라운드 교실에 미리 입장한다', () => {
+  it('부스에 들어가기 전에는 다음 라운드 교실로 간다', () => {
     expect(getCheckInRound(event(), 4)).toBe(2);
     expect(getCheckInRound(event({ status: 'ready', roundEndedAt: 1 }), 4)).toBe(3);
     expect(getCheckInRound(event({ status: 'ready', activeRound: 0 }), 4)).toBe(1);
@@ -127,9 +127,13 @@ describe('팀 상태 흐름', () => {
     expect(active.startedAt).toBe(2000);
     expect(presentTeamMissionState(active, clock()).status).toBe('active');
 
+    // 순위를 확정하면 완료, 선생님이 라운드를 종료해야 이동한다.
     const completed = applyResultFinalized(active, 'r1', 3000);
     expect(presentTeamMissionState(completed, clock()).status).toBe('completed');
-    expect(presentTeamMissionState(completed, clock({ phase: 'ended' })).status).toBe('moving');
+    expect(presentTeamMissionState(completed, clock({ phase: 'ended' })).status).toBe('completed');
+    expect(presentTeamMissionState(completed, clock({ phase: 'ended', closed: true })).status).toBe(
+      'moving',
+    );
   });
 
   it('부스가 미션을 시작해도 입장하지 않은 팀은 진행 중이 되지 않는다', () => {
@@ -147,7 +151,7 @@ describe('팀 상태 흐름', () => {
 });
 
 describe('경고 계산', () => {
-  it('라운드 시작 후 2분이 지나도 체크인하지 않으면 미도착이다', () => {
+  it('게임 시작 후 2분이 지나도 체크인하지 않으면 미도착이다', () => {
     expect(getTeamAlerts(record(), clock({ activeElapsedMs: CHECK_IN_GRACE_MS - 1 }))).toEqual([]);
     expect(getTeamAlerts(record(), clock({ activeElapsedMs: CHECK_IN_GRACE_MS }))).toEqual([
       'not_arrived',
@@ -156,7 +160,7 @@ describe('경고 계산', () => {
     expect(getTeamAlerts(checkedIn, clock({ activeElapsedMs: 5 * MINUTE }))).toEqual([]);
   });
 
-  it('라운드가 끝나고 이동 시간이 지나도 결과가 없으면 결과 미입력이다', () => {
+  it('게임이 끝나고 기다리는 시간이 지나도 결과가 없으면 결과 미입력이다', () => {
     const checkedIn = applyCheckIn(record(), 'ozobot', 1000).record;
     const waiting = clock({ phase: 'ended', endedElapsedMs: MINUTE });
     expect(getTeamAlerts(checkedIn, waiting)).toEqual([]);
@@ -167,16 +171,8 @@ describe('경고 계산', () => {
     expect(getTeamAlerts(applyResultFinalized(checkedIn, 'r1', 1), late)).toEqual([]);
   });
 
-  it('일시정지한 시간은 미도착 계산에 넣지 않는다', () => {
-    const paused = event({ status: 'paused', roundEndsAt: null, pausedRemainingMs: 7 * MINUTE });
-    expect(getRoundClock(paused, 4, 2, 'active', 99 * MINUTE).activeElapsedMs).toBe(MINUTE);
-    expect(getRoundClock(event(), 4, 2, 'active', 3 * MINUTE).activeElapsedMs).toBe(3 * MINUTE);
-  });
-
-  it('다음 라운드가 이미 시작됐으면 지난 라운드의 결과 미입력을 바로 알린다', () => {
-    const ended = getRoundClock(event({ activeRound: 3 }), 4, 2, 'closed', 0);
-    expect(ended.phase).toBe('ended');
-    expect(getTeamAlerts(record(), ended)).toEqual(['result_missing']);
+  it('게임을 시작하기 전에는 입장하지 않아도 미도착이 아니다', () => {
+    expect(getTeamAlerts(record(), clock({ phase: 'before' }))).toEqual([]);
   });
 });
 
@@ -195,24 +191,32 @@ describe('대시보드 요약', () => {
     });
   });
 
-  it('라운드 상태는 준비, 활동 중, 이동 중, 종료로 표시한다', () => {
-    expect(getRoundPhase(event({ activeRound: 0, status: 'ready' }), 4)).toBe('ready');
-    expect(getRoundPhase(event(), 4)).toBe('active');
-    expect(getRoundPhase(event({ status: 'ready' }), 4)).toBe('moving');
-    expect(getRoundPhase(event({ status: 'ready', activeRound: 5 }), 4)).toBe('ended');
-    expect(getRoundPhase(event(), 5)).toBe('ready');
+  it('학년 진행 상태는 모든 부스의 단계를 모아 준비, 진행 중, 이동 중, 종료로 표시한다', () => {
+    expect(getTourPhase([])).toBe('ready');
+    expect(getTourPhase(['ready', 'ready'])).toBe('ready');
+    expect(getTourPhase(['completed', 'open', 'ready'])).toBe('active');
+    expect(getTourPhase(['completed', 'scoring'])).toBe('active');
+    expect(getTourPhase(['completed', 'ready'])).toBe('moving');
+    expect(getTourPhase(['completed', 'completed'])).toBe('ended');
   });
 
-  it('부스 상태는 시작 → 결과 입력 중 → 결과 확정으로 바뀐다', () => {
-    expect(presentMissionRoundStatus(undefined, 'active')).toBe('ready');
-    expect(presentMissionRoundStatus({ status: 'active', resultFinalizedAt: null }, 'active')).toBe(
-      'active',
-    );
-    expect(
-      presentMissionRoundStatus({ status: 'active', resultFinalizedAt: null }, 'scoring'),
-    ).toBe('scoring');
-    expect(presentMissionRoundStatus({ status: 'active', resultFinalizedAt: 5 }, 'scoring')).toBe(
-      'completed',
+  it('부스 기록에 지금 단계와 게임 종료 시각을 붙여 화면에 보낸다', () => {
+    const key = { id: 'ozobot_g4_r2', grade: 4 as const, missionId: 'ozobot', roundNo: 2 as const };
+    expect(presentMissionRound(key, undefined, null, 0)).toMatchObject({
+      ...key,
+      status: 'ready',
+      openedAt: null,
+      endsAt: null,
+    });
+    const playing = { ...EMPTY_BOOTH, openedAt: 1000, startedAt: 2000 };
+    expect(presentMissionRound(key, playing, 'teacher-1', 3000)).toMatchObject({
+      status: 'active',
+      startedAt: 2000,
+      endsAt: 2000 + DEFAULT_GAME_DURATION_MS,
+      updatedBy: 'teacher-1',
+    });
+    expect(presentMissionRound(key, playing, null, 2000 + DEFAULT_GAME_DURATION_MS).status).toBe(
+      'scoring',
     );
   });
 });

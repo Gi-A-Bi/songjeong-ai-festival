@@ -150,8 +150,8 @@ describe('MockEventRepository', () => {
     );
   });
 
-  it('지금 라운드가 아닌 미션은 제출을 받지 않는다', async () => {
-    // 샘플 팀(3팀)의 골든벨은 4라운드 미션이고 지금은 2라운드
+  it('게임 중인 부스의 미션만 제출을 받는다', async () => {
+    // 샘플 팀(3팀)의 골든벨은 4라운드 미션이라 그 부스 라운드는 아직 열리지 않았다.
     await expect(
       repository.saveSubmission({
         eventId: EVENT,
@@ -159,6 +159,22 @@ describe('MockEventRepository', () => {
         teamId: DEMO_TEAM_ID,
         answer: { type: 'golden_bell', selections: { q1: 1 } },
         requestId: 'early',
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+    // 라운드만 열고 게임을 시작하지 않은 부스(도서관)도 받지 않는다.
+    await expect(
+      repository.saveSubmission({
+        eventId: EVENT,
+        missionId: 'library-check',
+        teamId: toTeamId(4, 1, 4),
+        answer: {
+          type: 'library_check',
+          wrongPart: '틀린 부분',
+          correction: '고친 내용',
+          bookTitle: '책',
+          page: 1,
+        },
+        requestId: 'not-started',
       }),
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
     // 진행 중이 아닌 학년의 팀도 받지 않는다.
@@ -224,7 +240,9 @@ describe('MockEventRepository', () => {
     expect(notified).toHaveLength(3);
   });
 
-  it('교사 화면에는 자동 점수가 채워지고, 재제출을 허용하면 라운드가 끝나도 다시 낼 수 있다', async () => {
+  it('교사 화면에는 자동 점수가 채워지고, 재제출을 허용하면 게임 시간이 끝나도 다시 낼 수 있다', async () => {
+    let clock = 1_000_000;
+    repository = new MockEventRepository({ now: () => clock, random: () => 0 });
     // 2라운드 골든벨은 5팀. 4학년 2반 5팀은 아직 제출하지 않았다.
     const teamId = toTeamId(4, 2, 5);
     await repository.saveSubmission({
@@ -248,7 +266,20 @@ describe('MockEventRepository', () => {
       () => undefined,
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
-    await repository.controlRound(EVENT, 'end');
+    // 게임 시간 10분이 지나면 제출이 닫힌다.
+    clock += 10 * 60_000;
+    expect((await repository.getMissionRoundState(EVENT, 'golden-bell', 4, 2)).status).toBe(
+      'scoring',
+    );
+    await expect(
+      repository.saveSubmission({
+        eventId: EVENT,
+        missionId: 'golden-bell',
+        teamId: toTeamId(4, 1, 5),
+        answer: { type: 'golden_bell', selections: { q1: 1 } },
+        requestId: 'late',
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
     await repository.reopenSubmission({ eventId: EVENT, missionId: 'golden-bell', teamId });
     expect(notified.length).toBe(2);
     stop();

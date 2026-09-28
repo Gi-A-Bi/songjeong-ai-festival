@@ -78,7 +78,8 @@
 
 - 순위: results
 - 카드 획득: claimed cardAwards
-- 팀 이동: teamMissionStates(체크인), missionRoundStates(미션 시작·결과 확정 팀)
+- 팀 이동: teamMissionStates(체크인), missionRoundStates(부스 라운드: 열기·게임 시작·결과 확정 팀·종료)
+- 라운드: 행사 전체의 라운드는 없다. 부스마다 교사가 라운드 열기 → 게임 시작 → 순위 매기기 → 라운드 종료로 진행하고, 단계는 저장하지 않고 missionRoundStates의 시각으로 계산한다(`src/domain/boothRound.ts`). 학생 화면은 `subscribeTeamEvent`로 그 팀이 보는 행사 상태를 받는다.
 - 최종 미션: finalSessions, finalResponses, finalClassStates, finalQuestionSets, finalAnswerKeys(총괄만 읽음)
 
 카드 진행도 캐시는 편의를 위한 값일 뿐이며 cardAwards 원장과 충돌하면 원장을 우선한다.
@@ -119,7 +120,7 @@
 
 ## 무료 사용량 보호
 
-- 대시보드 쿼리는 현재 학년과 라운드로 제한한다.
+- 대시보드 쿼리는 진행 학년으로 제한한다. 학생 기기는 자기 팀이 도는 부스 문서만 구독한다.
 - 큰 컬렉션을 무제한 실시간 구독하지 않는다.
 - 이미지 문서를 목록 조회에 섞지 않는다.
 - 폴링보다 작은 상태 문서의 실시간 구독을 사용한다.
