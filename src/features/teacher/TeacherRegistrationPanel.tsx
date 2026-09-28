@@ -214,7 +214,7 @@ export function TeacherRegistrationPanel({ eventId, currentUid }: TeacherRegistr
             className="text-input"
             rows={4}
             value={text}
-            placeholder="teacher1@gmail.com / teacher2@gmail.com"
+            placeholder="teacher1@example.com / teacher2@example.com"
             onChange={(event) => {
               setText(event.target.value);
               setNotice(null);
