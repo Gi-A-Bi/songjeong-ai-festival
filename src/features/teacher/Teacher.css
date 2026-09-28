@@ -795,3 +795,19 @@
   border-radius: var(--radius-md);
   background: var(--color-surface-muted);
 }
+
+/* 교사 계정 등록 */
+.teacher-roles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.teacher-roles .segmented__button[aria-checked='true'] {
+  background: var(--color-surface);
+  color: var(--color-primary-active);
+  box-shadow: var(--shadow-sm);
+}

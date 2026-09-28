@@ -1,4 +1,10 @@
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import {
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithCredential,
+  signInWithEmailAndPassword,
+  signOut,
+} from 'firebase/auth';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../src/config';
 import { FirestoreEventRepository } from '../src/data/firebase/FirestoreEventRepository';
@@ -483,6 +489,156 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
       repository.updateMissionConfig(DEFAULT_EVENT_ID, 'golden-bell', {
         type: 'golden_bell',
         questions: [],
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
+  });
+});
+
+/** 에뮬레이터의 가짜 Google 로그인. 실제 Google 로그인처럼 확인된 이메일이 토큰에 들어간다. */
+async function signInWithGoogle(sub: string, email: string, name: string) {
+  const { auth } = getFirebase();
+  await repository.signOutTeacher();
+  const idToken = JSON.stringify({ sub, email, email_verified: true, name });
+  const { user } = await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+  return user;
+}
+
+describe('이메일로 교사 등록 (에뮬레이터)', () => {
+  it('총괄이 등록한 이메일의 Google 계정은 처음 로그인할 때 그 역할의 교사가 된다', async () => {
+    await signInAsTeacher();
+    const registry = await repository.saveTeacherInvites({
+      emails: ['new.teacher@example.com', 'head@example.com'],
+      role: 'station_teacher',
+      missionId: 'drawing',
+      // 부스 교사에게 맞지 않는 담당 학급은 저장하지 않는다.
+      classId: 'g4-c1',
+    });
+    expect(registry.invites).toEqual([
+      expect.objectContaining({ email: 'head@example.com', role: 'station_teacher' }),
+      expect.objectContaining({
+        email: 'new.teacher@example.com',
+        role: 'station_teacher',
+        missionId: 'drawing',
+        classId: null,
+      }),
+    ]);
+
+    // Google 계정의 이메일에 대문자가 섞여 있어도 등록한 이메일로 알아본다.
+    const user = await signInWithGoogle('google-1', 'New.Teacher@example.com', '새 선생님');
+    const profile = await repository.restoreTeacher();
+    expect(profile).toEqual({
+      uid: user.uid,
+      displayName: '새 선생님',
+      role: 'station_teacher',
+      missionId: 'drawing',
+      classId: null,
+    });
+
+    // 다시 로그인해도 같은 교사다.
+    await signInWithGoogle('google-1', 'New.Teacher@example.com', '새 선생님');
+    expect((await repository.restoreTeacher())?.uid).toBe(user.uid);
+  });
+
+  it('등록되지 않은 Google 계정은 교사가 될 수 없고 등록 기능도 쓸 수 없다', async () => {
+    await signInAsTeacher();
+    await repository.saveTeacherInvites({
+      emails: ['new.teacher@example.com'],
+      role: 'admin',
+      missionId: null,
+      classId: null,
+    });
+
+    await signInWithGoogle('google-2', 'stranger@example.com', '모르는 사람');
+    expect(await repository.restoreTeacher()).toBeNull();
+    await expect(repository.getTeacherRegistry()).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    await expect(
+      repository.saveTeacherInvites({
+        emails: ['stranger@example.com'],
+        role: 'admin',
+        missionId: null,
+        classId: null,
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+  });
+
+  it('총괄로 등록된 계정은 다른 교사를 등록할 수 있다', async () => {
+    await signInAsTeacher();
+    await repository.saveTeacherInvites({
+      emails: ['head@example.com'],
+      role: 'admin',
+      missionId: null,
+      classId: null,
+    });
+
+    await signInWithGoogle('google-3', 'head@example.com', '새 총괄');
+    expect((await repository.restoreTeacher())?.role).toBe('admin');
+    const registry = await repository.saveTeacherInvites({
+      emails: ['homeroom@example.com'],
+      role: 'homeroom_teacher',
+      missionId: null,
+      classId: 'g4-c2',
+    });
+    expect(registry.invites.map((item) => item.email)).toContain('homeroom@example.com');
+    expect(registry.accounts.map((item) => item.email)).toContain('head@example.com');
+  });
+
+  it('등록을 취소한 이메일은 로그인해도 교사가 되지 않는다', async () => {
+    await signInAsTeacher();
+    await repository.saveTeacherInvites({
+      emails: ['new.teacher@example.com'],
+      role: 'station_teacher',
+      missionId: null,
+      classId: null,
+    });
+    const registry = await repository.deleteTeacherInvite('new.teacher@example.com');
+    expect(registry.invites).toEqual([]);
+
+    await signInWithGoogle('google-1', 'new.teacher@example.com', '새 선생님');
+    expect(await repository.restoreTeacher()).toBeNull();
+  });
+
+  it('사용 중지한 계정은 교사 화면을 쓸 수 없고, 다시 사용하게 하면 돌아온다', async () => {
+    await signInAsTeacher();
+    await repository.saveTeacherInvites({
+      emails: ['new.teacher@example.com'],
+      role: 'station_teacher',
+      missionId: null,
+      classId: null,
+    });
+    const user = await signInWithGoogle('google-1', 'new.teacher@example.com', '새 선생님');
+    expect(await repository.restoreTeacher()).not.toBeNull();
+
+    await signInAsTeacher();
+    const stopped = await repository.setTeacherActive(user.uid, false);
+    expect(stopped.accounts.find((item) => item.uid === user.uid)?.active).toBe(false);
+    const admin = repository.getCurrentTeacher();
+    await expect(repository.setTeacherActive(admin?.uid ?? '', false)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+
+    // 초대장이 남아 있어도 사용 중지된 계정은 다시 등록되지 않는다.
+    await signInWithGoogle('google-1', 'new.teacher@example.com', '새 선생님');
+    expect(await repository.restoreTeacher()).toBeNull();
+
+    await signInAsTeacher();
+    await repository.setTeacherActive(user.uid, true);
+    await signInWithGoogle('google-1', 'new.teacher@example.com', '새 선생님');
+    expect((await repository.restoreTeacher())?.role).toBe('station_teacher');
+  });
+
+  it('이메일이 없거나 담임에게 학급이 없으면 등록하지 않는다', async () => {
+    await signInAsTeacher();
+    await expect(
+      repository.saveTeacherInvites({ emails: [], role: 'admin', missionId: null, classId: null }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
+    await expect(
+      repository.saveTeacherInvites({
+        emails: ['homeroom@example.com'],
+        role: 'homeroom_teacher',
+        missionId: null,
+        classId: null,
       }),
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
   });
