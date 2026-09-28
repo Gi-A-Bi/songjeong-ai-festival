@@ -23,6 +23,8 @@ export interface BoothTimes {
   resultFinalizedAt: number | null;
   /** 라운드를 종료한 시각 */
   completedAt: number | null;
+  /** 게임과 순위 없이 건너뛰어 종료한 라운드인지 */
+  skipped: boolean;
 }
 
 export const EMPTY_BOOTH: BoothTimes = {
@@ -31,12 +33,25 @@ export const EMPTY_BOOTH: BoothTimes = {
   durationMs: DEFAULT_GAME_DURATION_MS,
   resultFinalizedAt: null,
   completedAt: null,
+  skipped: false,
 };
 
 /** 게임이 끝나는 시각. 아직 시작하지 않았으면 null */
 export function getBoothEndsAt(booth: BoothTimes | undefined): number | null {
   if (!booth || booth.startedAt === null) return null;
   return booth.startedAt + booth.durationMs;
+}
+
+/**
+ * 제출을 더 받지 않게 된(될) 시각: 게임 시간이 끝나는 때, 그 전에 순위를 확정했으면 확정한 때.
+ * 타이머가 순위를 확정한 뒤에도 계속 흐르지 않게 한다.
+ */
+export function getGameClosedAt(
+  booth: Pick<BoothTimes, 'startedAt' | 'durationMs' | 'resultFinalizedAt'> | undefined,
+): number | null {
+  if (!booth || booth.startedAt === null) return null;
+  const endsAt = booth.startedAt + booth.durationMs;
+  return booth.resultFinalizedAt === null ? endsAt : Math.min(endsAt, booth.resultFinalizedAt);
 }
 
 export function getBoothStatus(booth: BoothTimes | undefined, now: number): MissionRoundStatus {
@@ -78,7 +93,8 @@ export function canCheckInAtBooth(status: MissionRoundStatus): boolean {
   return status === 'open' || status === 'active' || status === 'scoring';
 }
 
-export type BoothAction = 'open' | 'start' | 'close';
+/** skip은 게임과 순위 없이 라운드를 종료한다(연습, 시간이 모자랄 때). */
+export type BoothAction = 'open' | 'start' | 'close' | 'skip';
 
 export interface BoothActionContext {
   status: MissionRoundStatus;
@@ -104,6 +120,11 @@ export function getBoothActionBlocker(
     if (status === 'ready') return '라운드를 먼저 열어 주세요.';
     return null;
   }
+  if (action === 'skip') {
+    if (!previousCompleted) return '앞 라운드를 종료하거나 건너뛴 뒤에 건너뛸 수 있어요.';
+    if (rankingFinalized) return '순위를 확정한 라운드는 건너뛰지 말고 종료해 주세요.';
+    return null;
+  }
   if (status === 'ready' || status === 'open') return '게임을 시작한 뒤에 종료할 수 있어요.';
   if (!rankingFinalized) return '순위를 확정한 뒤에 라운드를 종료할 수 있어요.';
   return null;
@@ -118,16 +139,35 @@ export function getBoothCurrentRound(
 
 type BoothLookup = (missionNo: MissionNo, roundNo: RoundNo) => BoothTimes | undefined;
 
+/** 그 라운드에 이 팀의 순위가 나왔는지 */
+type RankedLookup = (roundNo: RoundNo) => boolean;
+
+const NEVER_RANKED: RankedLookup = () => false;
+
+/** 라운드를 열었거나 이미 끝낸 부스인지(팀이 들어갈 수 있거나 지나간 교실) */
+function isOpenedOrDone(booth: BoothTimes | undefined): boolean {
+  return booth !== undefined && (booth.openedAt !== null || booth.completedAt !== null);
+}
+
 /**
- * 한 팀의 지금 라운드: 팀이 도는 순서대로 부스를 보며 아직 종료하지 않은 첫 라운드.
+ * 한 팀의 지금 라운드: 팀이 도는 순서대로 부스를 보며 아직 끝나지 않은 첫 라운드.
+ * 부스가 종료(또는 건너뛰기)한 라운드는 끝난 것이다. 순위가 나온 라운드는 선생님이 종료를
+ * 누르지 않았어도 다음 교실이 라운드를 열었으면 끝난 것으로 보아, 팀이 다음 교실에 들어갈 수 있다.
  * 5라운드를 모두 끝냈으면 null
  */
-export function getTeamCurrentRound(teamNo: TeamNo, boothOf: BoothLookup): RoundNo | null {
+export function getTeamCurrentRound(
+  teamNo: TeamNo,
+  boothOf: BoothLookup,
+  isRanked: RankedLookup = NEVER_RANKED,
+): RoundNo | null {
+  const pathBooth = (roundNo: RoundNo) => boothOf(getMissionNoForRound(teamNo, roundNo), roundNo);
   return (
-    ROUND_NUMBERS.find(
-      (roundNo) =>
-        (boothOf(getMissionNoForRound(teamNo, roundNo), roundNo)?.completedAt ?? null) === null,
-    ) ?? null
+    ROUND_NUMBERS.find((roundNo) => {
+      if ((pathBooth(roundNo)?.completedAt ?? null) !== null) return false;
+      const movedOn =
+        roundNo < 5 && isRanked(roundNo) && isOpenedOrDone(pathBooth((roundNo + 1) as RoundNo));
+      return !movedOn;
+    }) ?? null
   );
 }
 
@@ -140,7 +180,12 @@ const NO_ROUND = {
 
 /** 전체 행사 상태. 팀이 보는 라운드 값은 비운다. */
 export function toGlobalEvent(event: FestivalEvent): FestivalEvent {
-  return { ...event, ...NO_ROUND, status: event.activeGrade === null ? 'ready' : 'active' };
+  return {
+    ...event,
+    ...NO_ROUND,
+    skippedRounds: [],
+    status: event.activeGrade === null ? 'ready' : 'active',
+  };
 }
 
 /**
@@ -153,11 +198,15 @@ export function scopeEventToTeam(
   team: { grade: Grade; teamNo: TeamNo },
   boothOf: BoothLookup,
   now: number,
+  isRanked: RankedLookup = NEVER_RANKED,
 ): FestivalEvent {
-  const base: FestivalEvent = { ...event, ...NO_ROUND, status: 'ready' };
-  if (event.activeGrade !== team.grade) return base;
+  const skippedRounds = ROUND_NUMBERS.filter(
+    (roundNo) => boothOf(getMissionNoForRound(team.teamNo, roundNo), roundNo)?.skipped === true,
+  );
+  const base: FestivalEvent = { ...event, ...NO_ROUND, skippedRounds, status: 'ready' };
+  if (event.activeGrade !== team.grade) return { ...base, skippedRounds: [] };
 
-  const roundNo = getTeamCurrentRound(team.teamNo, boothOf);
+  const roundNo = getTeamCurrentRound(team.teamNo, boothOf, isRanked);
   if (roundNo === null) {
     const last = boothOf(getMissionNoForRound(team.teamNo, 5), 5);
     return { ...base, activeRound: 5, roundEndedAt: last?.completedAt ?? null };
@@ -169,7 +218,7 @@ export function scopeEventToTeam(
       ...base,
       status: 'active',
       activeRound: roundNo,
-      roundEndsAt: getBoothEndsAt(booth),
+      roundEndsAt: getGameClosedAt(booth),
       boothStatus,
     };
   }
@@ -216,7 +265,8 @@ export function getBoothClock(booth: BoothTimes | undefined, now: number): Round
   const status = getBoothStatus(booth, now);
   const base = { resultGraceMs: RESULT_GRACE_MS, closed: status === 'completed' };
   const endsAt = getBoothEndsAt(booth);
-  if (!booth || status === 'ready' || status === 'open') {
+  // 건너뛴 라운드는 게임을 하지 않았으므로 미도착·결과 미입력을 따지지 않는다.
+  if (!booth || booth.skipped || status === 'ready' || status === 'open') {
     return { ...base, phase: 'before', activeElapsedMs: 0, endedElapsedMs: 0 };
   }
   if (status === 'active') {

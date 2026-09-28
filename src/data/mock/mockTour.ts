@@ -8,7 +8,12 @@ import {
   scopeEventToTeam,
   type BoothAction,
 } from '../../domain/boothRound';
-import { getMissionNoForRound, getTeamNoForMission, ROUND_NUMBERS } from '../../domain/rotation';
+import {
+  getMissionNoForRound,
+  getRoundForMission,
+  getTeamNoForMission,
+  ROUND_NUMBERS,
+} from '../../domain/rotation';
 import {
   ALERT_LABELS,
   applyCheckIn,
@@ -60,6 +65,7 @@ const ACTION_LABELS: Record<BoothAction, string> = {
   open: '라운드 열기',
   start: '게임 시작',
   close: '라운드 종료',
+  skip: '라운드 건너뛰기',
 };
 
 /** 팀 이동(QR 체크인), 부스 라운드, 운영 대시보드의 mock 구현 */
@@ -92,8 +98,13 @@ export class MockTourStore {
     const prefix = `${resultKey(missionId, grade, roundNo)}__`;
     const finalized = this.ctx.state().results.find((item) => item.id.startsWith(prefix));
     if (!finalized) return stored;
-    const base: MockBooth = stored ?? {
-      id,
+    const base = stored ?? this.emptyBooth(missionId, grade, roundNo);
+    return { ...base, resultFinalizedAt: finalized.finalizedAt };
+  }
+
+  private emptyBooth(missionId: string, grade: Grade, roundNo: RoundNo): MockBooth {
+    return {
+      id: missionRoundStateId(missionId, grade, roundNo),
       grade,
       missionId,
       roundNo,
@@ -102,9 +113,15 @@ export class MockTourStore {
       durationMs: this.ctx.state().event.gameDurationMs,
       resultFinalizedAt: null,
       completedAt: null,
+      skipped: false,
       updatedBy: null,
     };
-    return { ...base, resultFinalizedAt: finalized.finalizedAt };
+  }
+
+  /** 그 라운드에 이 팀의 순위가 나왔는지 */
+  private rankedOf(team: Team) {
+    return (roundNo: RoundNo) =>
+      this.resultOf(team, this.missionForRound(team, roundNo), roundNo) !== undefined;
   }
 
   private boothByNo(grade: Grade) {
@@ -141,6 +158,7 @@ export class MockTourStore {
       team,
       this.boothByNo(team.grade),
       this.ctx.now(),
+      this.rankedOf(team),
     );
   }
 
@@ -199,16 +217,22 @@ export class MockTourStore {
       );
     }
     const expectedMission = this.missionForRound(team, roundNo);
+    const nextMission = roundNo < 5 ? this.missionForRound(team, (roundNo + 1) as RoundNo) : null;
     const before = this.recordOf(team, roundNo);
+    const unrecorded = (kind: CheckInOutcome['kind']): CheckInOutcome => ({
+      kind,
+      roundNo,
+      scannedMission,
+      expectedMission,
+      nextMission,
+      state: this.present(team, roundNo),
+    });
+    // 이미 지나간 라운드의 교실 QR을 다시 찍은 것은 잘못된 교실로 기록하지 않는다.
+    if (getRoundForMission(team.teamNo, scannedMission.no) < roundNo) return unrecorded('finished');
     if (before.resultId !== null) {
-      // 이미 끝낸 미션의 QR을 다시 찍은 경우
-      return {
-        kind: 'already_checked_in',
-        roundNo,
-        scannedMission,
-        expectedMission,
-        state: this.present(team, roundNo),
-      };
+      // 이번 라운드 순위가 이미 나왔다. 같은 교실의 QR이면 이미 입장한 것이고,
+      // 다른 교실의 QR이면 다음 교실이 라운드를 열 때까지 들어갈 수 없다.
+      return unrecorded(scannedMission.id === expectedMission.id ? 'already_checked_in' : 'early');
     }
     const status = this.boothStatus(expectedMission, team.grade, roundNo);
     if (scannedMission.id === expectedMission.id && !canCheckInAtBooth(status)) {
@@ -249,7 +273,14 @@ export class MockTourStore {
       });
     }
     if (kind !== 'already_checked_in') this.ctx.notifyOps(team.grade);
-    return { kind, roundNo, scannedMission, expectedMission, state: this.present(team, roundNo) };
+    return {
+      kind,
+      roundNo,
+      scannedMission,
+      expectedMission,
+      nextMission,
+      state: this.present(team, roundNo),
+    };
   }
 
   /** QR을 찍지 못한 팀을 교사가 직접 입장 처리한다. */
@@ -329,29 +360,22 @@ export class MockTourStore {
     };
   }
 
-  /** 라운드 열기 → 게임 시작 → 라운드 종료. 같은 단계를 다시 눌러도 처음 기록을 그대로 둔다. */
+  /**
+   * 라운드 열기 → 게임 시작 → 라운드 종료(또는 건너뛰기).
+   * 같은 단계를 다시 눌러도 처음 기록을 그대로 둔다.
+   */
   advanceStation(action: BoothAction, input: StartStationInput): MissionRoundState {
     const teacher = this.ctx.requireTeacher();
     const mission = this.ctx.findMission(input.missionId);
     const state = this.ctx.state();
     const id = missionRoundStateId(mission.id, input.grade, input.roundNo);
-    const stored = this.boothOf(mission.id, input.grade, input.roundNo);
-    const current: MockBooth = stored ?? {
-      id,
-      grade: input.grade,
-      missionId: mission.id,
-      roundNo: input.roundNo,
-      openedAt: null,
-      startedAt: null,
-      durationMs: state.event.gameDurationMs,
-      resultFinalizedAt: null,
-      completedAt: null,
-      updatedBy: null,
-    };
+    const current =
+      this.boothOf(mission.id, input.grade, input.roundNo) ??
+      this.emptyBooth(mission.id, input.grade, input.roundNo);
     const done =
       (action === 'open' && current.openedAt !== null) ||
       (action === 'start' && current.startedAt !== null) ||
-      (action === 'close' && current.completedAt !== null);
+      ((action === 'close' || action === 'skip') && current.completedAt !== null);
     if (done) return this.missionRound(mission.id, input.grade, input.roundNo);
 
     const previous =
@@ -380,12 +404,16 @@ export class MockTourStore {
       }
     }
     if (action === 'close') next.completedAt = now;
+    if (action === 'skip') {
+      next.completedAt = now;
+      next.skipped = true;
+    }
     state.missionRoundStates[id] = next;
 
     this.ctx.addActivity({
       id: `${action}__${id}`,
       grade: input.grade,
-      type: action === 'close' ? 'round_changed' : 'mission_started',
+      type: action === 'close' || action === 'skip' ? 'round_changed' : 'mission_started',
       message: `${mission.title}(${mission.room}) ${input.roundNo}라운드 · ${ACTION_LABELS[action]}`,
       classId: null,
       teamId: null,
@@ -410,18 +438,11 @@ export class MockTourStore {
       this.save(applyResultFinalized(this.recordOf(team, roundNo), result.id, now));
     }
     const id = missionRoundStateId(mission.id, grade, roundNo);
-    const current = this.boothOf(mission.id, grade, roundNo);
+    const current =
+      this.boothOf(mission.id, grade, roundNo) ?? this.emptyBooth(mission.id, grade, roundNo);
     this.ctx.state().missionRoundStates[id] = {
-      id,
-      grade,
-      missionId: mission.id,
-      roundNo,
-      openedAt: null,
-      startedAt: null,
-      durationMs: this.ctx.state().event.gameDurationMs,
-      completedAt: null,
       ...current,
-      resultFinalizedAt: current?.resultFinalizedAt ?? now,
+      resultFinalizedAt: current.resultFinalizedAt ?? now,
       updatedBy: teacherUid,
     };
     this.ctx.addActivity({
@@ -484,7 +505,7 @@ export class MockTourStore {
   }
 
   private teamRound(team: Team): RoundNo {
-    return getTeamCurrentRound(team.teamNo, this.boothByNo(team.grade)) ?? 5;
+    return getTeamCurrentRound(team.teamNo, this.boothByNo(team.grade), this.rankedOf(team)) ?? 5;
   }
 
   /**

@@ -224,7 +224,8 @@ function BoothStage({ station, now }: { station: OpsStation; now: number }) {
   return (
     <>
       <StatusBadge tone={badge.tone} icon={badge.icon}>
-        {station.round.roundNo}라운드 · {MISSION_ROUND_STATUS_LABELS[status]}
+        {station.round.roundNo}라운드 ·{' '}
+        {station.round.skipped ? '건너뜀' : MISSION_ROUND_STATUS_LABELS[status]}
       </StatusBadge>
       {remaining !== null ? (
         <span className="number" role="timer" aria-label={`남은 시간 ${remaining}`}>

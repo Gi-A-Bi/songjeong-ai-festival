@@ -189,11 +189,13 @@ export function TeacherMissionPage() {
                       type="button"
                       className="round-picker__button number"
                       aria-pressed={round === value}
-                      aria-label={`${value}라운드${item ? ` ${MISSION_ROUND_STATUS_LABELS[item.status]}` : ''}`}
+                      aria-label={`${value}라운드${item ? ` ${item.skipped ? '건너뜀' : MISSION_ROUND_STATUS_LABELS[item.status]}` : ''}`}
                       onClick={() => pickRound(value)}
                     >
                       {value}
-                      {item?.status === 'completed' ? <Icon name="check_circle" size="sm" /> : null}
+                      {item?.status === 'completed' ? (
+                        <Icon name={item.skipped ? 'arrow_forward' : 'check_circle'} size="sm" />
+                      ) : null}
                     </button>
                   );
                 })}
@@ -435,6 +437,23 @@ function BoothRound({
               roundData.reload();
             }}
           />
+          {/* 순위표는 화면 아래쪽이라, 확정한 뒤 할 일을 바로 옆에서 알려 준다. */}
+          {rankingFinalized && booth.status !== 'completed' ? (
+            <InlineAlert
+              tone="warning"
+              action={
+                <Button
+                  icon="arrow_upward"
+                  onClick={() => document.getElementById('booth-round-title')?.scrollIntoView()}
+                >
+                  {round}라운드 종료하러 가기
+                </Button>
+              }
+            >
+              순위를 확정했어요. <strong>“{round}라운드 종료”</strong>를 눌러야 팀이 다음 교실에
+              들어갈 수 있어요.
+            </InlineAlert>
+          ) : null}
         </>
       ) : null}
     </>

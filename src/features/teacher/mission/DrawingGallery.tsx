@@ -60,7 +60,8 @@ export function DrawingGallery({
   const [files, setFiles] = useState<DrawingFile[] | null>(null);
   /** 팀 이름표를 붙인 사진(팀 ID별). 만들지 못한 팀은 원래 사진을 쓴다. */
   const [labeled, setLabeled] = useState<Record<string, LabeledPhoto>>({});
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  /** 마지막으로 복사를 시도한 요청문. 요청문이 바뀌면 “복사했어요”를 더 보여 주지 않는다. */
+  const [copyResult, setCopyResult] = useState<{ text: string; ok: boolean } | null>(null);
 
   const load = useAction(
     useCallback(
@@ -143,8 +144,9 @@ export function DrawingGallery({
 
   const handleCopy = async () => {
     const ok = await copyText(prompt, promptRef.current);
-    setCopyState(ok ? 'copied' : 'failed');
+    setCopyResult({ text: prompt, ok });
   };
+  const copyState = copyResult?.text === prompt ? (copyResult.ok ? 'copied' : 'failed') : 'idle';
 
   return (
     <section className="panel stack" aria-labelledby="drawing-gallery-title">
@@ -307,11 +309,23 @@ export function DrawingGallery({
           rows={14}
           value={prompt}
         />
+        {/* 제출한 그림이 없어도 복사할 수 있다. 버튼을 끌 때는 이유를 함께 알려 준다. */}
+        {drawingPrompt === null ? (
+          <p className="muted">
+            <Icon name="info" size="sm" /> 이 학년의 그림 프롬프트가 없어 요청문을 만들 수 없어요.
+            “프롬프트 고르기”에서 먼저 골라 주세요.
+          </p>
+        ) : judged.length === 0 ? (
+          <p className="muted">
+            <Icon name="info" size="sm" /> 아직 제출한 그림 사진이 없어 팀 이름 없이 심사 기준만
+            담은 요청문이에요. 팀이 그림을 제출하면 팀 이름과 점수표가 함께 들어가요.
+          </p>
+        ) : null}
         <div className="cluster">
           <Button
             icon="content_copy"
             onClick={() => void handleCopy()}
-            disabled={judged.length === 0 || drawingPrompt === null}
+            disabled={drawingPrompt === null}
           >
             요청문 복사
           </Button>

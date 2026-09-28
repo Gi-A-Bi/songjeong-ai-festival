@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import jsQR from 'jsqr';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../config';
 import { toClassId, toTeamId } from '../data/mock/keys';
@@ -16,6 +17,24 @@ async function adminRepository() {
 }
 
 const qrValue = (element: HTMLElement) => element.getAttribute('data-qr-value');
+
+/** 화면에 그린 QR(SVG)을 카메라로 찍은 것처럼 흑백 그림으로 바꿔 해독기로 읽는다. */
+function decodeQr(element: HTMLElement): string | null {
+  const size = Number(element.getAttribute('viewBox')?.split(' ')[2]);
+  const path = element.querySelector('path')?.getAttribute('d') ?? '';
+  const scale = 6;
+  const width = size * scale;
+  const data = new Uint8ClampedArray(width * width * 4).fill(255);
+  for (const match of path.matchAll(/M(\d+),(\d+)h(\d+)v1h-\d+z/g)) {
+    const [left, top, length] = [Number(match[1]), Number(match[2]), Number(match[3])];
+    for (let y = top * scale; y < (top + 1) * scale; y += 1) {
+      for (let x = left * scale; x < (left + length) * scale; x += 1) {
+        data.set([0, 0, 0, 255], (y * width + x) * 4);
+      }
+    }
+  }
+  return jsQR(data, width, width)?.data ?? null;
+}
 
 describe('QR 인쇄 화면', () => {
   it('미션 교실 도착 QR 다섯 장을 교실 이름과 함께 만든다', async () => {
@@ -36,6 +55,33 @@ describe('QR 인쇄 화면', () => {
     );
     expect(screen.queryByText(/이 컴퓨터에서만 열려요/)).toBeNull();
     expect(screen.getByRole('button', { name: '인쇄하기' })).toBeEnabled();
+  });
+
+  it('교실 QR 다섯 장을 해독하면 저마다 그 교실의 도착 주소가 나온다', async () => {
+    const user = userEvent.setup();
+    const repository = await adminRepository();
+    renderApp(`/teacher/${EVENT}/qr`, repository);
+    const address = await screen.findByLabelText('QR에 넣을 사이트 주소');
+    await user.clear(address);
+    await user.type(address, SITE);
+
+    const missions = await repository.listMissions(EVENT);
+    expect(missions.map((mission) => mission.room)).toEqual([
+      '시청각실',
+      '컴퓨터실',
+      '미술실',
+      '과학실',
+      '도서관',
+    ]);
+    const decoded = missions.map((mission) => {
+      const qr = screen.getByRole('img', { name: `${mission.room} 도착 QR` });
+      // 장마다 적힌 교실 이름과 QR이 같은 장에 있다.
+      const sheet = qr.closest('section');
+      expect(within(sheet as HTMLElement).getByRole('heading')).toHaveTextContent(mission.room);
+      return decodeQr(qr);
+    });
+    expect(decoded).toEqual(missions.map((mission) => `${SITE}/check-in/${EVENT}/${mission.id}`));
+    expect(new Set(decoded).size).toBe(5);
   });
 
   it('주소가 올바르지 않으면 인쇄할 수 없다', async () => {

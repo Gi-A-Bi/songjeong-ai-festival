@@ -8,6 +8,7 @@ import {
   getBoothCurrentRound,
   getBoothStatus,
   getBoothStepIndex,
+  getGameClosedAt,
   getLiveRoundStatus,
   getNextBoothChangeAt,
   getTeamCurrentRound,
@@ -31,6 +32,7 @@ const opened = booth({ openedAt: START });
 const playing = booth({ openedAt: START, startedAt: START + MINUTE });
 const ranked = booth({ ...playing, resultFinalizedAt: START + 5 * MINUTE });
 const closed = booth({ ...ranked, completedAt: START + 6 * MINUTE });
+const skipped = booth({ completedAt: START + 2 * MINUTE, skipped: true });
 
 function event(patch: Partial<FestivalEvent> = {}): FestivalEvent {
   return {
@@ -43,6 +45,7 @@ function event(patch: Partial<FestivalEvent> = {}): FestivalEvent {
     roundEndsAt: null,
     roundEndedAt: null,
     boothStatus: null,
+    skippedRounds: [],
     gameDurationMs: DEFAULT_GAME_DURATION_MS,
     updatedAt: 0,
     ...patch,
@@ -160,6 +163,24 @@ describe('부스에서 할 수 있는 일', () => {
     ).toBeNull();
   });
 
+  it('앞 라운드를 끝낸 뒤, 순위를 확정하기 전에는 라운드를 건너뛸 수 있다', () => {
+    for (const status of ['ready', 'open', 'active', 'scoring'] as const) {
+      expect(getBoothActionBlocker('skip', { ...ok, status })).toBeNull();
+    }
+    expect(
+      getBoothActionBlocker('skip', { ...ok, status: 'ready', previousCompleted: false }),
+    ).toMatch(/앞 라운드를 종료하거나 건너뛴 뒤/);
+    expect(
+      getBoothActionBlocker('skip', { ...ok, status: 'scoring', rankingFinalized: true }),
+    ).toMatch(/건너뛰지 말고 종료/);
+    expect(getBoothActionBlocker('skip', { ...ok, status: 'ready', touring: false })).toMatch(
+      /진행 학년/,
+    );
+    expect(
+      getBoothActionBlocker('skip', { ...ok, status: 'completed', rankingFinalized: false }),
+    ).toMatch(/이미 종료/);
+  });
+
   it('종료한 라운드는 다시 진행할 수 없다', () => {
     expect(
       getBoothActionBlocker('start', { ...ok, status: 'completed', rankingFinalized: true }),
@@ -173,6 +194,34 @@ describe('지금 라운드', () => {
     expect(getBoothCurrentRound((roundNo) => (roundNo === 1 ? closed : undefined))).toBe(2);
     expect(getBoothCurrentRound((roundNo) => (roundNo <= 2 ? closed : playing))).toBe(3);
     expect(getBoothCurrentRound(() => closed)).toBeNull();
+  });
+
+  it('건너뛴 라운드는 끝난 라운드로 본다', () => {
+    expect(getBoothStatus(skipped, START + 3 * MINUTE)).toBe('completed');
+    expect(getBoothCurrentRound((roundNo) => (roundNo <= 2 ? skipped : undefined))).toBe(3);
+    expect(getTeamCurrentRound(3, pathOf({ 1: skipped, 2: skipped }))).toBe(3);
+  });
+
+  it('순위가 나온 팀은 앞 교실이 종료를 누르지 않았어도 다음 교실이 열리면 넘어간다', () => {
+    const rankedAt =
+      (...rounds: number[]) =>
+      (roundNo: number) =>
+        rounds.includes(roundNo);
+    // 다음 교실이 아직 라운드를 열지 않았으면 그 라운드에 머문다.
+    expect(getTeamCurrentRound(3, pathOf({ 1: ranked }), rankedAt(1))).toBe(1);
+    expect(getTeamCurrentRound(3, pathOf({ 1: ranked, 2: booth() }), rankedAt(1))).toBe(1);
+    // 다음 교실이 라운드를 열었거나 게임을 시작했으면 넘어간다.
+    expect(getTeamCurrentRound(3, pathOf({ 1: ranked, 2: opened }), rankedAt(1))).toBe(2);
+    expect(getTeamCurrentRound(3, pathOf({ 1: ranked, 2: playing }), rankedAt(1))).toBe(2);
+    // 다음 교실이 건너뛴 라운드면 그다음 라운드까지 본다.
+    expect(getTeamCurrentRound(3, pathOf({ 1: ranked, 2: skipped }), rankedAt(1))).toBe(3);
+    // 순위가 나오지 않은 팀은 다음 교실이 열려도 넘어가지 않는다.
+    expect(getTeamCurrentRound(3, pathOf({ 1: playing, 2: opened }))).toBe(1);
+    expect(getTeamCurrentRound(3, pathOf({ 1: playing, 2: opened }), rankedAt(2))).toBe(1);
+    // 마지막 라운드는 선생님이 종료해야 끝난다.
+    const four = { 1: closed, 2: closed, 3: closed, 4: closed };
+    expect(getTeamCurrentRound(3, pathOf({ ...four, 5: ranked }), rankedAt(5))).toBe(5);
+    expect(getTeamCurrentRound(3, pathOf({ ...four, 5: closed }), rankedAt(5))).toBeNull();
   });
 
   it('팀은 자기가 도는 부스가 종료하지 않은 첫 라운드에 있다', () => {
@@ -222,6 +271,24 @@ describe('한 팀이 보는 행사 상태', () => {
     });
   });
 
+  it('순위를 일찍 확정하면 그때 게임이 끝난 것으로 보고 타이머를 멈춘다', () => {
+    expect(getGameClosedAt(undefined)).toBeNull();
+    expect(getGameClosedAt(opened)).toBeNull();
+    expect(getGameClosedAt(playing)).toBe(START + MINUTE + 10 * MINUTE);
+    expect(getGameClosedAt(ranked)).toBe(START + 5 * MINUTE);
+    // 시간이 끝난 뒤에 확정했으면 게임 시간이 끝난 때다.
+    const late = booth({ ...playing, resultFinalizedAt: START + 30 * MINUTE });
+    expect(getGameClosedAt(late)).toBe(START + MINUTE + 10 * MINUTE);
+
+    const scoped = scopeEventToTeam(event(), team, pathOf({ 1: ranked }), START + 6 * MINUTE);
+    expect(scoped).toMatchObject({
+      status: 'active',
+      activeRound: 1,
+      boothStatus: 'scoring',
+      roundEndsAt: START + 5 * MINUTE,
+    });
+  });
+
   it('게임 시간이 끝나도 라운드를 종료하기 전까지는 그 라운드에 머문다', () => {
     const scoring = scopeEventToTeam(event(), team, pathOf({ 1: playing }), START + 20 * MINUTE);
     expect(scoring).toMatchObject({ status: 'active', activeRound: 1, boothStatus: 'scoring' });
@@ -235,6 +302,53 @@ describe('한 팀이 보는 행사 상태', () => {
       roundEndedAt: closed.completedAt,
       boothStatus: 'ready',
     });
+  });
+
+  it('앞 교실이 종료를 누르지 않았어도 다음 교실이 열리면 그 교실로 안내한다', () => {
+    const isRanked = (roundNo: number) => roundNo === 1;
+    const waiting = scopeEventToTeam(
+      event(),
+      team,
+      pathOf({ 1: ranked }),
+      START + 6 * MINUTE,
+      isRanked,
+    );
+    expect(waiting).toMatchObject({ status: 'active', activeRound: 1, boothStatus: 'scoring' });
+
+    const moved = scopeEventToTeam(
+      event(),
+      team,
+      pathOf({ 1: ranked, 2: opened }),
+      START + 6 * MINUTE,
+      isRanked,
+    );
+    expect(moved).toMatchObject({ status: 'ready', activeRound: 1, boothStatus: 'open' });
+
+    const playingNext = scopeEventToTeam(
+      event(),
+      team,
+      pathOf({ 1: ranked, 2: playing }),
+      START + 6 * MINUTE,
+      isRanked,
+    );
+    expect(playingNext).toMatchObject({ status: 'active', activeRound: 2, boothStatus: 'active' });
+  });
+
+  it('팀이 도는 라운드 가운데 건너뛴 라운드를 알려 준다', () => {
+    const scoped = scopeEventToTeam(
+      event(),
+      team,
+      pathOf({ 1: skipped, 2: closed, 3: skipped, 4: opened }),
+      START + 10 * MINUTE,
+    );
+    expect(scoped.skippedRounds).toEqual([1, 3]);
+    expect(scoped).toMatchObject({ activeRound: 3, boothStatus: 'open' });
+    expect(toGlobalEvent(scoped).skippedRounds).toEqual([]);
+    // 다른 학년이 진행 중이면 알려 주지 않는다.
+    expect(
+      scopeEventToTeam(event({ activeGrade: 5 }), team, pathOf({ 1: skipped }), START)
+        .skippedRounds,
+    ).toEqual([]);
   });
 
   it('다른 팀이 도는 부스는 이 팀의 상태를 바꾸지 않는다', () => {
@@ -283,6 +397,18 @@ describe('경고 계산에 쓰는 시계', () => {
       activeElapsedMs: 3 * MINUTE,
       closed: false,
     });
+  });
+
+  it('건너뛴 라운드는 게임을 하지 않았으므로 시간을 세지 않는다', () => {
+    expect(getBoothClock(skipped, START + 60 * MINUTE)).toMatchObject({
+      phase: 'before',
+      closed: true,
+      activeElapsedMs: 0,
+      endedElapsedMs: 0,
+    });
+    // 게임을 시작한 뒤에 건너뛰어도 결과 미입력으로 세지 않는다.
+    const abandoned = booth({ ...playing, completedAt: START + 3 * MINUTE, skipped: true });
+    expect(getBoothClock(abandoned, START + 60 * MINUTE).phase).toBe('before');
   });
 
   it('게임이 끝나면 끝난 뒤 흐른 시간을 세고, 라운드를 종료하면 이동으로 본다', () => {

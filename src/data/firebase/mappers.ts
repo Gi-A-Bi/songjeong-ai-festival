@@ -58,6 +58,7 @@ export function mapEvent(snapshot: DocumentSnapshot<DocumentData>): FestivalEven
     roundEndsAt: null,
     roundEndedAt: null,
     boothStatus: null,
+    skippedRounds: [],
     gameDurationMs:
       typeof data.gameDurationMs === 'number' && data.gameDurationMs > 0
         ? data.gameDurationMs
@@ -290,6 +291,7 @@ export function newBoothFields(durationMs: number) {
     durationMs,
     completedAt: null,
     resultFinalizedAt: null,
+    skipped: false,
     resultTeamIds: [],
   };
 }
@@ -336,6 +338,7 @@ export function mapBooth(id: string, data: DocumentData): BoothDoc {
     durationMs: numberOr(data.durationMs, DEFAULT_GAME_DURATION_MS),
     completedAt: toMillis(data.completedAt),
     resultFinalizedAt: toMillis(data.resultFinalizedAt),
+    skipped: data.skipped === true,
     resultTeamIds: Array.isArray(data.resultTeamIds) ? data.resultTeamIds.map(String) : [],
     updatedBy: stringOrNull(data.updatedBy),
   };

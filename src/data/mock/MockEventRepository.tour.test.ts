@@ -36,11 +36,11 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
   }
 
   it('예정 교실 QR은 입장, 다시 찍으면 그대로, 다른 교실은 오입장 안내를 준다', async () => {
-    // 샘플 팀(4학년 2반 3팀)의 2라운드 교실은 과학실(로봇 길찾기)이다.
+    // 샘플 팀(4학년 2반 3팀)의 2라운드 교실은 과학실(로봇 길찾기)이다. 시청각실은 4라운드에 간다.
     const wrong = await repository.checkInStation({
       eventId: EVENT,
       teamId: DEMO_TEAM_ID,
-      stationId: 'drawing',
+      stationId: 'golden-bell',
     });
     expect(wrong.kind).toBe('wrong_station');
     expect(wrong.expectedMission.id).toBe('ozobot');
@@ -101,6 +101,243 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     ).rejects.toSatisfy(
       (error) => isRepositoryError(error, 'not-allowed') && /라운드를 열면/.test(error.message),
     );
+  });
+
+  it('순위가 나온 뒤 라운드를 종료하기 전에는 다른 교실에 들어갈 수 없고 기록도 남기지 않는다', async () => {
+    await repository.signInTeacher();
+    await finalize('ozobot', 2);
+
+    // 3팀의 다음(3라운드) 교실은 도서관이다.
+    const early = await repository.checkInStation({
+      eventId: EVENT,
+      teamId: DEMO_TEAM_ID,
+      stationId: 'library-check',
+    });
+    expect(early).toMatchObject({
+      kind: 'early',
+      roundNo: 2,
+      scannedMission: { id: 'library-check' },
+      expectedMission: { id: 'ozobot' },
+      nextMission: { id: 'library-check' },
+    });
+    expect(early.state.alertCodes).not.toContain('wrong_station');
+
+    // 끝낸 교실의 QR을 다시 찍은 것은 이미 입장한 것이다.
+    const same = await repository.checkInStation({
+      eventId: EVENT,
+      teamId: DEMO_TEAM_ID,
+      stationId: 'ozobot',
+    });
+    expect(same.kind).toBe('already_checked_in');
+
+    const dashboard = await repository.getOpsDashboard(EVENT, 4);
+    expect(
+      dashboard.alerts.filter(
+        (alert) => alert.team.id === DEMO_TEAM_ID && alert.code === 'wrong_station',
+      ),
+    ).toEqual([]);
+  });
+
+  it('앞 교실이 종료를 누르지 않았어도 순위가 나온 팀은 다음 교실이 열리면 입장한다', async () => {
+    await repository.signInTeacher();
+    // 과학실(3팀의 2라운드)은 순위만 확정하고 라운드를 종료하지 않았다.
+    await finalize('ozobot', 2);
+    // 도서관(3팀의 3라운드)은 2라운드를 끝내고 3라운드를 열었다.
+    const library = { eventId: EVENT, missionId: 'library-check', grade: 4 as const };
+    await repository.startStationRound({ ...library, roundNo: 2 });
+    await finalize('library-check', 2);
+    await repository.closeStationRound({ ...library, roundNo: 2 });
+    await repository.openStationRound({ ...library, roundNo: 3 });
+    expect((await repository.getMissionRoundState(EVENT, 'ozobot', 4, 2)).completedAt).toBeNull();
+
+    expect(await repository.getTeamTourStatus(EVENT, DEMO_TEAM_ID)).toMatchObject({
+      roundNo: 3,
+      expectedMission: { id: 'library-check' },
+    });
+    const entered = await repository.checkInStation({
+      eventId: EVENT,
+      teamId: DEMO_TEAM_ID,
+      stationId: 'library-check',
+    });
+    expect(entered).toMatchObject({ kind: 'checked_in', roundNo: 3 });
+
+    // 게임을 시작하면 제출할 수 있다.
+    await repository.startStationRound({ ...library, roundNo: 3 });
+    const saved = await repository.saveSubmission({
+      eventId: EVENT,
+      missionId: 'library-check',
+      teamId: DEMO_TEAM_ID,
+      answer: {
+        type: 'library_check',
+        wrongPart: '틀린 부분',
+        correction: '고친 내용',
+        bookTitle: '책',
+        page: 1,
+      },
+      requestId: 'moved-on',
+    });
+    expect(saved).toMatchObject({ status: 'submitted', roundNo: 3 });
+
+    // 순위가 나오지 않은 팀은 다음 교실이 열려도 넘어가지 않는다(시청각실 2라운드는 게임 중).
+    await repository
+      .openStationRound({
+        eventId: EVENT,
+        missionId: 'error-hunt',
+        grade: 4,
+        roundNo: 2,
+      })
+      .catch(() => undefined);
+    expect((await repository.getTeamTourStatus(EVENT, toTeamId(4, 1, 5))).roundNo).toBe(2);
+
+    // 대시보드에서도 3팀은 3라운드(도서관)에 있다.
+    const dashboard = await repository.getOpsDashboard(EVENT, 4);
+    const demo = dashboard.classRows
+      .flatMap((row) => row.cells)
+      .find((cell) => cell.team.id === DEMO_TEAM_ID);
+    expect(demo).toMatchObject({ mission: { id: 'library-check' }, state: { roundNo: 3 } });
+  });
+
+  it('이미 지나간 라운드의 교실 QR을 다시 찍어도 잘못된 교실로 기록하지 않는다', async () => {
+    // 3팀의 1라운드 교실은 미술실이었고 지금은 2라운드다.
+    const past = await repository.checkInStation({
+      eventId: EVENT,
+      teamId: DEMO_TEAM_ID,
+      stationId: 'drawing',
+    });
+    expect(past).toMatchObject({
+      kind: 'finished',
+      roundNo: 2,
+      scannedMission: { id: 'drawing' },
+      expectedMission: { id: 'ozobot' },
+    });
+    expect(past.state.alertCodes).not.toContain('wrong_station');
+  });
+
+  it('라운드를 건너뛰면 게임과 순위 없이 끝나고 팀은 다음 교실로 넘어간다', async () => {
+    await repository.signInTeacher();
+    const library = { eventId: EVENT, missionId: 'library-check', grade: 4 as const };
+    const blocked = (pattern: RegExp) => (error: unknown) =>
+      isRepositoryError(error, 'not-allowed') && pattern.test(error.message);
+
+    // 앞 라운드(2라운드)를 끝내기 전에는 3라운드를 건너뛸 수 없다.
+    await expect(repository.skipStationRound({ ...library, roundNo: 3 })).rejects.toSatisfy(
+      blocked(/앞 라운드를 종료하거나 건너뛴 뒤/),
+    );
+    clock += MINUTE;
+    const skipped = await repository.skipStationRound({ ...library, roundNo: 2 });
+    expect(skipped).toMatchObject({
+      status: 'completed',
+      skipped: true,
+      startedAt: null,
+      resultFinalizedAt: null,
+      completedAt: START + MINUTE,
+    });
+    // 다시 눌러도 처음 기록 그대로다.
+    clock += MINUTE;
+    expect((await repository.skipStationRound({ ...library, roundNo: 2 })).completedAt).toBe(
+      START + MINUTE,
+    );
+
+    // 건너뛴 뒤에는 다음 라운드를 열거나 또 건너뛸 수 있다.
+    await repository.skipStationRound({ ...library, roundNo: 3 });
+    await expect(repository.openStationRound({ ...library, roundNo: 4 })).resolves.toMatchObject({
+      status: 'open',
+    });
+    const rounds = await repository.getStationRounds(EVENT, 'library-check', 4);
+    expect(rounds.map((round) => `${round.status}${round.skipped ? ':skipped' : ''}`)).toEqual([
+      'completed',
+      'completed:skipped',
+      'completed:skipped',
+      'open',
+      'ready',
+    ]);
+
+    // 도서관에 2라운드에 오던 4팀은 미션을 하지 않고 3라운드(시청각실)로 넘어간다.
+    const teamId = toTeamId(4, 1, 4);
+    expect(await repository.getTeamTourStatus(EVENT, teamId)).toMatchObject({
+      roundNo: 3,
+      expectedMission: { id: 'golden-bell' },
+    });
+    const view = await repository.getTeamMissionView(EVENT, teamId, 'library-check');
+    expect(view).toMatchObject({ roundStatus: 'closed', booth: { skipped: true } });
+    await expect(
+      repository.saveSubmission({
+        eventId: EVENT,
+        missionId: 'library-check',
+        teamId,
+        answer: {
+          type: 'library_check',
+          wrongPart: '틀린 부분',
+          correction: '고친 내용',
+          bookTitle: '책',
+          page: 1,
+        },
+        requestId: 'skipped-round',
+      }),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+
+    // 건너뛴 라운드의 팀은 결과 미입력으로 세지 않는다.
+    clock += 30 * MINUTE;
+    const dashboard = await repository.getOpsDashboard(EVENT, 4, 2);
+    const station = dashboard.stations.find((item) => item.mission.id === 'library-check');
+    expect(station?.round.skipped).toBe(true);
+    expect(station?.teams.flatMap((cell) => cell.state.alertCodes)).not.toContain('result_missing');
+    expect(
+      dashboard.activity.some((item) =>
+        /AI 오류찾기\(도서관\) 2라운드 · 라운드 건너뛰기/.test(item.message),
+      ),
+    ).toBe(true);
+  });
+
+  it('순위를 확정한 라운드는 건너뛸 수 없고, 게임 중인 라운드는 건너뛸 수 있다', async () => {
+    await repository.signInTeacher();
+    const bell = {
+      eventId: EVENT,
+      missionId: 'golden-bell',
+      grade: 4 as const,
+      roundNo: 2 as const,
+    };
+    await finalize('golden-bell', 2);
+    await expect(repository.skipStationRound(bell)).rejects.toSatisfy(
+      (error) =>
+        isRepositoryError(error, 'not-allowed') && /건너뛰지 말고 종료/.test(error.message),
+    );
+    // 미술실은 게임 중이다.
+    const drawing = await repository.skipStationRound({ ...bell, missionId: 'drawing' });
+    expect(drawing).toMatchObject({ status: 'completed', skipped: true });
+    expect(drawing.startedAt).not.toBeNull();
+  });
+
+  it('팀이 보는 행사 상태는 건너뛴 라운드를 알려 준다', async () => {
+    await repository.signInTeacher();
+    await repository.skipStationRound({
+      eventId: EVENT,
+      missionId: 'library-check',
+      grade: 4,
+      roundNo: 2,
+    });
+    const seen: string[] = [];
+    const stop = repository.subscribeTeamEvent(
+      EVENT,
+      toTeamId(4, 1, 4),
+      (event) =>
+        seen.push(`${event.activeRound}:${event.boothStatus}:${event.skippedRounds.join(',')}`),
+      () => undefined,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    stop();
+    expect(seen).toEqual(['2:ready:2']);
+  });
+
+  it('미션 화면용 정보는 팀이 그 교실에 입장했는지 알려 준다', async () => {
+    const waiting = await repository.getTeamMissionView(EVENT, DEMO_TEAM_ID, 'ozobot');
+    expect(waiting.checkedIn).toBe(false);
+    await repository.checkInStation({ eventId: EVENT, teamId: DEMO_TEAM_ID, stationId: 'ozobot' });
+    const entered = await repository.getTeamMissionView(EVENT, DEMO_TEAM_ID, 'ozobot');
+    expect(entered.checkedIn).toBe(true);
+    // 아직 차례가 아닌 미션은 입장 전이다.
+    const later = await repository.getTeamMissionView(EVENT, DEMO_TEAM_ID, 'golden-bell');
+    expect(later.checkedIn).toBe(false);
   });
 
   it('대시보드는 현재 학년·라운드의 팀 위치, 요약, 경고를 보여 준다', async () => {

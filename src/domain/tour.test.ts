@@ -53,6 +53,7 @@ function event(patch: Partial<FestivalEvent> = {}): FestivalEvent {
     roundEndsAt: 10 * MINUTE,
     roundEndedAt: null,
     boothStatus: 'active',
+    skippedRounds: [],
     gameDurationMs: DEFAULT_GAME_DURATION_MS,
     updatedAt: 0,
     ...patch,

@@ -39,7 +39,7 @@ export function MissionNotice({ phase, event, view, error }: MissionNoticeProps)
     case 'scoring':
       return (
         <NoticeBox tone="warning" icon="pending" mascot="mascotTimer">
-          선생님이 채점하고 있어요. 다음 교실로 이동해도 좋아요.
+          선생님이 순위를 정하고 있어요. 선생님 안내에 따라 다음 교실로 이동해요.
         </NoticeBox>
       );
     case 'closed':
@@ -50,11 +50,20 @@ export function MissionNotice({ phase, event, view, error }: MissionNoticeProps)
         </NoticeBox>
       );
     case 'active':
-      return view.submission?.reopened ? (
-        <NoticeBox tone="info" icon="restart_alt" mascot="mascotHint">
-          선생님이 다시 제출할 수 있게 해 주셨어요. 고친 뒤 다시 제출해요.
+      if (view.submission?.reopened) {
+        return (
+          <NoticeBox tone="info" icon="restart_alt" mascot="mascotHint">
+            선생님이 다시 제출할 수 있게 해 주셨어요. 고친 뒤 다시 제출해요.
+          </NoticeBox>
+        );
+      }
+      // 미션 화면을 열기만 해서는 입장되지 않는다.
+      return view.checkedIn ? null : (
+        <NoticeBox tone="warning" icon="qr_code_scanner" mascot="mascotHint">
+          아직 입장 기록이 없어요. {view.mission.room} 입구의 QR을 디벗 카메라로 찍어 주세요. 찍기
+          어려우면 선생님께 말해 주세요.
         </NoticeBox>
-      ) : null;
+      );
   }
 }
 
@@ -79,7 +88,11 @@ function WaitingNotice({ event, view }: { event: FestivalEvent; view: TeamMissio
         </NoticeBox>
       );
     case 'missed':
-      return (
+      return view.booth.skipped ? (
+        <NoticeBox tone="info" icon="arrow_forward" mascot="mascotHint">
+          이번에는 하지 않고 넘어간 미션이에요.
+        </NoticeBox>
+      ) : (
         <NoticeBox tone="warning" icon="schedule" mascot="mascotRetry">
           이 미션 시간이 끝났어요. 제출하지 못했다면 선생님께 말해 주세요.
         </NoticeBox>
@@ -87,13 +100,19 @@ function WaitingNotice({ event, view }: { event: FestivalEvent; view: TeamMissio
     case 'not-opened':
       return (
         <NoticeBox tone="info" icon="meeting_room" mascot="mascotTimer">
-          {view.mission.room} 앞에서 기다려요. 선생님이 라운드를 열면 교실 QR을 찍고 들어가요.
+          {view.mission.room} 앞에서 기다려요. 선생님이 라운드를 열면 교실 입구의 QR을 찍고
+          들어가요. 이 화면을 열기만 해서는 입장되지 않아요.
         </NoticeBox>
       );
     case 'opened':
-      return (
+      return view.checkedIn ? (
         <NoticeBox tone="info" icon="hourglass_top" mascot="mascotTimer">
-          곧 시작해요! 선생님이 게임을 시작하면 미션이 열려요.
+          입장했어요! 선생님이 게임을 시작하면 미션이 열려요.
+        </NoticeBox>
+      ) : (
+        <NoticeBox tone="warning" icon="qr_code_scanner" mascot="mascotHint">
+          {view.mission.room} 입구의 QR을 디벗 카메라로 찍어야 입장돼요. 이 화면을 열기만 해서는
+          입장되지 않아요.
         </NoticeBox>
       );
   }

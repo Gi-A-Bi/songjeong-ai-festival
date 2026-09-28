@@ -118,12 +118,21 @@ export interface CheckInInput {
 }
 
 export interface CheckInOutcome {
-  kind: 'checked_in' | 'already_checked_in' | 'wrong_station';
+  /**
+   * checked_in: 입장함
+   * already_checked_in: 이미 입장한 교실의 QR을 다시 찍음
+   * wrong_station: 이번 라운드에 가야 할 교실이 아님
+   * early: 이번 라운드 순위는 나왔지만 다음 교실이 아직 라운드를 열지 않아 들어갈 수 없음
+   * finished: 이미 지나간 라운드의 교실 QR을 찍음
+   */
+  kind: 'checked_in' | 'already_checked_in' | 'wrong_station' | 'early' | 'finished';
   roundNo: RoundNo;
   /** QR을 찍은 교실 */
   scannedMission: Mission;
   /** 이번 라운드에 가야 할 교실 */
   expectedMission: Mission;
+  /** 이번 라운드 다음에 갈 교실. 5라운드면 null */
+  nextMission: Mission | null;
   state: TeamMissionState;
 }
 
@@ -330,6 +339,8 @@ export interface TeamMissionView {
   roundStatus: RoundStatus;
   /** 이 미션을 하는 부스 라운드. 게임 종료 시각을 알 수 있다. */
   booth: MissionRoundState;
+  /** 이 미션 교실에 입장했는지(교실 QR을 찍었거나 교사가 입장 처리했거나 순위가 나옴) */
+  checkedIn: boolean;
   submission: Submission | null;
   finalized: boolean;
   answerRevealed: boolean;
@@ -621,6 +632,11 @@ export interface EventRepository {
   startStationRound(input: StartStationInput): Promise<MissionRoundState>;
   /** 부스의 “라운드 종료”. 순위를 확정한 뒤에 할 수 있고, 팀은 다음 교실로 이동한다. */
   closeStationRound(input: StartStationInput): Promise<MissionRoundState>;
+  /**
+   * 부스의 “라운드 건너뛰기”. 게임과 순위 없이 라운드를 종료한다(연습, 시간이 모자랄 때).
+   * 앞 라운드를 끝낸 뒤에, 순위를 확정하기 전에만 할 수 있다.
+   */
+  skipStationRound(input: StartStationInput): Promise<MissionRoundState>;
   /** QR을 찍지 못한 팀을 교사가 직접 입장 처리한다(수동 복구). */
   markTeamArrived(input: MarkArrivedInput): Promise<TeamMissionState>;
 

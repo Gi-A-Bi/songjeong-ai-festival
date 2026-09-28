@@ -583,9 +583,17 @@ export class FirestoreFinalStore {
       ),
     ]);
     const closed = booths.docs.filter((snapshot) => snapshot.data().completedAt != null).length;
+    // 건너뛴 라운드는 게임을 하지 않았으므로 결과가 없어도 된다.
+    const skipped = booths.docs.filter((snapshot) => {
+      const data = snapshot.data();
+      return data.skipped === true && data.resultFinalizedAt == null;
+    }).length;
     const base = {
       roundsClosed: missions.length > 0 && closed >= missions.length * ROUND_NUMBERS.length,
-      missingResults: Math.max(0, missions.length * ROUND_NUMBERS.length - finalized.data().count),
+      missingResults: Math.max(
+        0,
+        missions.length * ROUND_NUMBERS.length - skipped - finalized.data().count,
+      ),
       pendingAwards: pending.data().count,
     };
     const value = { ...base, blockers: getFinalOpenBlockers(base) };

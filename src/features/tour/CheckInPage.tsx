@@ -59,18 +59,84 @@ function CheckInResult({
   outcome: CheckInOutcome;
 }) {
   const repository = useRepository();
-  const { kind, expectedMission, scannedMission, roundNo } = outcome;
+  const { kind, expectedMission, scannedMission, nextMission, roundNo } = outcome;
+
+  if (kind === 'finished') {
+    // 이미 지나간 라운드의 교실 QR을 다시 찍었다.
+    return (
+      <section className="check-in check-in--wrong" aria-labelledby="check-in-title" role="status">
+        <AssetImage asset="mascotHint" decorative className="check-in__mascot" />
+        <p className="check-in__kicker">
+          <Icon name="qr_code_scanner" /> 찍은 QR: {scannedMission.room}({scannedMission.title})
+        </p>
+        <h1 id="check-in-title" className="check-in__title">
+          이미 지나간 미션이에요
+        </h1>
+        <p className="check-in__lead">
+          우리 팀은 지금 {roundNo}라운드예요. 갈 교실은 아래와 같아요.
+        </p>
+        <p className="check-in__room">
+          <Icon name="meeting_room" size="lg" />
+          <strong>{expectedMission.room}</strong>
+          <span>({expectedMission.title})</span>
+        </p>
+        <ButtonLink to={paths.teamHome(eventId, teamId)} size="xl" icon="home">
+          팀 홈으로
+        </ButtonLink>
+      </section>
+    );
+  }
+
+  if (kind === 'early') {
+    // 이번 라운드 순위는 나왔지만 다음 교실이 아직 라운드를 열지 않았다.
+    const rightPlace = nextMission !== null && nextMission.id === scannedMission.id;
+    return (
+      <section className="check-in check-in--wrong" aria-labelledby="check-in-title" role="status">
+        <AssetImage asset="mascotTimer" decorative className="check-in__mascot" />
+        <p className="check-in__kicker">
+          <Icon name="qr_code_scanner" /> 찍은 QR: {scannedMission.room}({scannedMission.title})
+        </p>
+        <h1 id="check-in-title" className="check-in__title">
+          {rightPlace ? '조금만 기다려요' : '다음 교실을 확인해요'}
+        </h1>
+        <p className="check-in__lead">
+          {nextMission === null
+            ? `마지막 라운드예요. ${expectedMission.room} 선생님이 라운드를 종료하면 우리 교실로 돌아가요.`
+            : rightPlace
+              ? `여기는 다음 미션 교실이 맞아요. 선생님이 ${roundNo + 1}라운드를 열면 들어갈 수 있어요.`
+              : `${roundNo}라운드 순위가 나왔어요. 다음 교실 선생님이 ${roundNo + 1}라운드를 열면 들어갈 수 있어요.`}
+        </p>
+        {nextMission ? (
+          <p className="check-in__room">
+            <Icon name="meeting_room" size="lg" />
+            <span>다음 교실</span>
+            <strong>{nextMission.room}</strong>
+            <span>({nextMission.title})</span>
+          </p>
+        ) : null}
+        {nextMission ? (
+          <p className="muted">잠깐 기다렸다가 다음 교실의 QR을 다시 찍어 주세요.</p>
+        ) : null}
+        <ButtonLink to={paths.teamHome(eventId, teamId)} size="xl" icon="home">
+          팀 홈으로
+        </ButtonLink>
+      </section>
+    );
+  }
 
   if (kind === 'wrong_station') {
     return (
       <section className="check-in check-in--wrong" aria-labelledby="check-in-title" role="alert">
         <AssetImage asset="mascotRetry" decorative className="check-in__mascot" />
         <p className="check-in__kicker">
-          <Icon name="warning" /> {roundNo}라운드 · 여기는 {scannedMission.room}이에요
+          <Icon name="warning" /> 찍은 QR: {scannedMission.room}({scannedMission.title})
         </p>
         <h1 id="check-in-title" className="check-in__title">
           다른 교실로 가야 해요
         </h1>
+        <p className="check-in__lead">
+          우리 팀은 지금 {roundNo}라운드예요. {roundNo}라운드에 갈 교실은 아래와 같아요.
+        </p>
         <p className="check-in__room">
           <Icon name="meeting_room" size="lg" />
           <strong>{expectedMission.room}</strong>

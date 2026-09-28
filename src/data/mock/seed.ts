@@ -491,6 +491,7 @@ export function buildSampleEvent(eventId: string, now: number): SampleEventStruc
       roundEndsAt: null,
       roundEndedAt: null,
       boothStatus: null,
+      skippedRounds: [],
       gameDurationMs: DEFAULT_GAME_DURATION_MS,
       updatedAt: now,
     },
@@ -548,6 +549,7 @@ export function createSeedState(now: number): MockState {
     roundEndsAt: null,
     roundEndedAt: null,
     boothStatus: null,
+    skippedRounds: [],
     gameDurationMs: DEFAULT_GAME_DURATION_MS,
     updatedAt: now,
   };
@@ -728,6 +730,7 @@ export function createSeedState(now: number): MockState {
       durationMs: DEFAULT_GAME_DURATION_MS,
       resultFinalizedAt: null,
       completedAt: null,
+      skipped: false,
       updatedBy: DEV_TEACHER.uid,
       ...times,
     };

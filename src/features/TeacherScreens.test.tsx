@@ -89,6 +89,43 @@ describe('교사 미션 운영 화면', () => {
     expect(screen.getByRole('button', { name: /요청문 복사/ })).toBeEnabled();
   });
 
+  it('제출한 그림이 없어도 AI 심사 요청문을 복사할 수 있다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
+
+    // 3라운드는 아직 열지 않아 제출한 그림이 없다.
+    await user.click(await screen.findByRole('button', { name: '3라운드 열기 전' }));
+    const gallery = await screen.findByRole('region', { name: /제출한 그림 사진/ });
+    expect(await within(gallery).findByText('제출 0/5')).toBeInTheDocument();
+    const prompt = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'AI 심사 요청문' });
+    expect(prompt.value).toContain('[제시 문장] : 반 고흐의 〈별이 빛나는 밤〉처럼');
+    expect(prompt.value).toContain('10점 만점');
+    expect(prompt.value).not.toContain('[첨부한 그림]');
+    expect(screen.getByText(/아직 제출한 그림 사진이 없어 팀 이름 없이/)).toBeInTheDocument();
+
+    const copy = screen.getByRole('button', { name: /요청문 복사/ });
+    expect(copy).toBeEnabled();
+    await user.click(copy);
+    expect(await screen.findByText('복사했어요')).toBeInTheDocument();
+    expect(await navigator.clipboard.readText()).toBe(prompt.value);
+    // 불러올 그림이 없으므로 그림 불러오기는 꺼져 있다.
+    expect(screen.getByRole('button', { name: '그림 불러오기' })).toBeDisabled();
+  });
+
+  it('요청문이 바뀌면 복사했다는 표시를 지운다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
+
+    await user.click(await screen.findByRole('button', { name: /요청문 복사/ }));
+    expect(await screen.findByText('복사했어요')).toBeInTheDocument();
+    // 그림을 불러오면 사진 파일이 있는 팀만 남아 요청문이 달라진다.
+    await user.click(screen.getByRole('button', { name: '그림 불러오기' }));
+    await screen.findByRole('button', { name: '그림 다시 불러오기' });
+    expect(screen.queryByText('복사했어요')).toBeNull();
+  });
+
   it('그림을 불러오면 팀 이름표를 붙인 사진을 내려받고, 요청문에는 사진이 있는 팀만 적는다', async () => {
     const user = userEvent.setup();
     vi.mocked(labelPhoto).mockResolvedValueOnce({

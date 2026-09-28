@@ -125,6 +125,9 @@ export function TeamHomePage() {
   // 지금 안내하는 라운드의 도착(체크인) 상태
   const arrival = tour && tour.roundNo === focus.roundNo ? tour.state : null;
   const focusMission = schedule.find((item) => item.roundNo === focus.roundNo)?.mission;
+  // 미션 화면을 열어도 입장되지 않는다. 입장 전에는 버튼 이름으로도 그 점을 알린다.
+  const needsCheckIn =
+    arrival !== null && arrival.checkedInAt === null && arrival.resultId === null;
   // 이 라운드보다 앞선 라운드는 이미 지나갔다. 투어가 끝났으면 다섯 라운드가 모두 지나간 것이다.
   const passedBefore = isMyGrade ? (getCheckInRound(event, team.grade) ?? 6) : 1;
 
@@ -185,9 +188,10 @@ export function TeamHomePage() {
                   <ButtonLink
                     to={paths.mission(eventId, team.id, focusMission.id)}
                     size="xl"
-                    icon="play_arrow"
+                    variant={needsCheckIn ? 'secondary' : 'primary'}
+                    icon={needsCheckIn ? 'visibility' : 'play_arrow'}
                   >
-                    미션 시작
+                    {needsCheckIn ? '미션 미리 보기' : '미션 시작'}
                   </ButtonLink>
                 )}
               </div>
@@ -204,7 +208,13 @@ export function TeamHomePage() {
             <ol className="team-progress__list">
               {schedule.map(({ roundNo, mission, done }) => {
                 if (!mission) return null;
-                const status = getRowStatus({ done, roundNo, focus, passedBefore });
+                const status = getRowStatus({
+                  done,
+                  roundNo,
+                  focus,
+                  passedBefore,
+                  skipped: event.skippedRounds.includes(roundNo),
+                });
                 return (
                   <li key={roundNo}>
                     <Link
@@ -298,7 +308,7 @@ function ArrivalNotice({
   if (boothStatus === 'scoring') {
     return (
       <p className="team-focus__arrival" role="status">
-        <Icon name="pending" /> 게임 시간이 끝났어요. 선생님이 순위를 정하고 있어요.
+        <Icon name="pending" /> 게임이 끝났어요. 선생님 안내에 따라 다음 교실로 이동해요.
       </p>
     );
   }
@@ -313,13 +323,18 @@ function ArrivalNotice({
   if (boothStatus === 'ready') {
     return (
       <p className="team-focus__arrival" role="status">
-        <Icon name="hourglass_top" /> 교실 앞에서 기다려요. 선생님이 라운드를 열면 교실 QR을 찍어요.
+        <Icon name="hourglass_top" /> 교실 앞에서 기다려요. 선생님이 라운드를 열면 교실 입구의 QR을
+        찍어요.
       </p>
     );
   }
   return (
-    <p className="team-focus__arrival" role="status">
-      <Icon name="qr_code_scanner" /> 교실 QR을 찍고 들어가요.
+    <p className="team-focus__arrival team-focus__arrival--warning" role="status">
+      <Icon name="qr_code_scanner" />
+      <span>
+        <strong>교실 입구의 QR을 디벗 카메라로 찍어야 입장돼요.</strong> 이 화면에서 미션을 눌러도
+        입장되지 않아요.
+      </span>
     </p>
   );
 }
@@ -330,8 +345,11 @@ function getRowStatus(input: {
   focus: { roundNo: RoundNo; kind: FocusKind };
   /** 이 번호보다 앞선 라운드는 이미 지나갔다 */
   passedBefore: number;
+  /** 부스가 건너뛴 라운드인지 */
+  skipped: boolean;
 }): { tone: StatusTone; icon: IconName; label: string } {
   if (input.done) return { tone: 'success', icon: 'check_circle', label: '완료' };
+  if (input.skipped) return { tone: 'neutral', icon: 'arrow_forward', label: '건너뜀' };
   if (input.focus.kind === 'now' && input.focus.roundNo === input.roundNo) {
     return { tone: 'primary', icon: 'play_arrow', label: '지금' };
   }
