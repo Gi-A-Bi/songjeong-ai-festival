@@ -97,7 +97,7 @@ export function FinalQuestionUploadPanel({ eventId }: { eventId: string }) {
       <p className="muted">
         학년별 원고(<code>content/작성/06-최종미션-N학년.md</code>)에서{' '}
         <code>npm run final:build</code>로 만든 <code>최종미션-업로드.json</code>을 고르면 문제와
-        그림은 담임 선생님 기기로, 정답과 해설은 총괄만 읽는 문서로 나뉘어 저장됩니다. 이미 연
+        그림은 각 반 교실 기기로, 정답과 해설은 총괄만 읽는 문서로 나뉘어 저장됩니다. 이미 연
         학년이나 시작한 반이 있는 학년은 바꿀 수 없습니다.
       </p>
 
@@ -221,7 +221,7 @@ export function FinalQuestionUploadPanel({ eventId }: { eventId: string }) {
             .filter((item) => item.source === 'upload')
             .map((item) => `${item.grade}학년 ${item.questionCount}문제`)
             .join(', ')}
-          . 담임 선생님 화면은 새로고침하면 새 문제를 씁니다.
+          . 각 반 화면은 새로고침하면 새 문제를 씁니다.
         </InlineAlert>
       ) : null}
 

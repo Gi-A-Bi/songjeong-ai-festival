@@ -56,10 +56,14 @@ async function seedDoc(path: string, data: Record<string, Plain>) {
   if (!response.ok) throw new Error(`문서 생성 실패(${path}): ${response.status}`);
 }
 
+/**
+ * 교사 문서를 넣고 로그인한다. stored에는 저장된 문서를 그대로 적는다.
+ * 예전에 부스·담임으로 등록한 문서(station_teacher, homeroom_teacher와 담당)도 교사로 읽혀야 한다.
+ */
 async function signInAs(
   name: string,
   role: TeacherRole,
-  assignment: { missionId?: string; classId?: string } = {},
+  stored: { role?: string; missionId?: string; classId?: string } = {},
 ) {
   const { auth } = getFirebase();
   await repository.signOutTeacher();
@@ -75,10 +79,10 @@ async function signInAs(
   await seedDoc(`teachers/${uid}`, {
     displayName: name,
     email,
-    role,
+    role: stored.role ?? role,
     active: true,
-    missionId: assignment.missionId ?? null,
-    classId: assignment.classId ?? null,
+    missionId: stored.missionId ?? null,
+    classId: stored.classId ?? null,
   });
   const profile = await repository.restoreTeacher();
   expect(profile?.role).toBe(role);
@@ -169,7 +173,7 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
 
     // 부스 교사: 입장 현황, 직접 입장 처리, 미션 시작
-    await signInAs('station-bell', 'station_teacher', { missionId: 'golden-bell' });
+    await signInAs('station-bell', 'teacher');
     const revisions: number[] = [];
     const stop = repository.subscribeOps(
       EVENT,
@@ -220,10 +224,10 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
       expect(statuses.filter((status) => status === 'scheduled')).toHaveLength(3);
     });
 
-    // 담당이 아닌 부스는 시작할 수 없다.
+    // 담당을 나누지 않으므로 같은 교사가 다른 부스도 시작할 수 있다.
     await expect(
       repository.startStationRound({ eventId: EVENT, missionId: 'drawing', grade: 4, roundNo: 1 }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+    ).resolves.toMatchObject({ status: 'active' });
 
     // 결과 확정 → 팀은 완료, 부스는 결과 확정. 다시 확정해도 카드 보상은 늘지 않는다.
     const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 1);
@@ -372,7 +376,7 @@ describe('기기 잠금 해제 (에뮬레이터)', () => {
     const studentUid = auth.currentUser?.uid;
     if (!studentUid) throw new Error('학생 로그인이 없어요');
 
-    await signInAs('homeroom-42', 'homeroom_teacher', { classId: 'g4-c2' });
+    await signInAs('homeroom-42', 'teacher');
     const devices = await repository.listClassDevices(EVENT, 'g4-c2');
     expect(devices).toHaveLength(1);
     expect(devices[0]).toMatchObject({ id: studentUid, teamId: wrong, code: mine.code });
@@ -442,7 +446,7 @@ describe('학급 전체 최종 미션 (에뮬레이터)', () => {
   it('열기 전에는 담임교사가 시작할 수 없다', async () => {
     await signInAsAdmin();
     await repository.setupEvent(EVENT);
-    await signInAs('homeroom-1', 'homeroom_teacher', { classId: CLASS_ID });
+    await signInAs('homeroom-1', 'teacher');
     const view = await repository.getClassFinalView(EVENT, CLASS_ID);
     expect(view.status).toBe('locked');
     await expect(
@@ -450,14 +454,12 @@ describe('학급 전체 최종 미션 (에뮬레이터)', () => {
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
   });
 
-  it('시작 → 10문제 풀이 → 제출 → 결과 공개까지 점수는 공개 전에 담임교사에게 보이지 않는다', async () => {
+  it('시작 → 10문제 풀이 → 제출 → 결과 공개까지 점수는 공개 전에 교사에게 보이지 않는다', async () => {
     await prepareOpenFinal();
 
-    await signInAs('homeroom-1', 'homeroom_teacher', { classId: CLASS_ID });
-    // 다른 반은 시작할 수 없다.
-    await expect(
-      repository.startClassFinal({ eventId: EVENT, classId: 'g3-c2', requestId: 'start-x' }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+    await signInAs('homeroom-1', 'teacher');
+    // 담당을 나누지 않으므로 어느 반이든 진행할 수 있다.
+    expect((await repository.getClassFinalView(EVENT, 'g3-c2')).canRunFinal).toBe(true);
 
     let view = await repository.startClassFinal({
       eventId: EVENT,
@@ -583,7 +585,7 @@ describe('학급 전체 최종 미션 (에뮬레이터)', () => {
     expect(published.status).toBe('results_published');
 
     // 공개 뒤에는 담임교사도 점수와 순위를 본다.
-    await signInAs('homeroom-1', 'homeroom_teacher', { classId: CLASS_ID });
+    await signInAs('homeroom-1', 'teacher');
     const shown = await repository.getClassFinalView(EVENT, CLASS_ID);
     expect(shown.canViewResults).toBe(true);
     expect(shown.state).toMatchObject({ correctCount: 9, finalRank: 1 });
@@ -658,7 +660,7 @@ describe('학급 전체 최종 미션 (에뮬레이터)', () => {
       updatedAt: new Date(),
     });
 
-    await signInAs('homeroom-1', 'homeroom_teacher', { classId: CLASS_ID });
+    await signInAs('homeroom-1', 'teacher');
     // 시간이 끝난 뒤에는 답을 고를 수 없고 마감된다.
     const view = await repository.closeExpiredClassFinal(EVENT, CLASS_ID);
     expect(view.status).toBe('timeout');
@@ -688,7 +690,7 @@ describe('학급 전체 최종 미션 (에뮬레이터)', () => {
     expect(changed.durationLimitSec).toBe(600);
     await repository.openFinal({ eventId: EVENT, grade: 3, force: true, reason: '리허설' });
 
-    await signInAs('homeroom-1', 'homeroom_teacher', { classId: CLASS_ID });
+    await signInAs('homeroom-1', 'teacher');
     await repository.startClassFinal({ eventId: EVENT, classId: CLASS_ID, requestId: 'start-1' });
 
     await signInAsAdmin();
@@ -699,7 +701,7 @@ describe('학급 전체 최종 미션 (에뮬레이터)', () => {
 
   it('최종 미션 구독은 세션과 학급 상태의 변화를 알린다', async () => {
     await prepareOpenFinal();
-    await signInAs('homeroom-1', 'homeroom_teacher', { classId: CLASS_ID });
+    await signInAs('homeroom-1', 'teacher');
     const revisions: number[] = [];
     const stop = repository.subscribeFinal(
       EVENT,
@@ -772,7 +774,7 @@ describe('부스 화면의 제출 구독 (에뮬레이터)', () => {
       requestId: 'before-subscribe',
     });
 
-    await signInAs('station-bell', 'station_teacher', { missionId: 'golden-bell' });
+    await signInAs('station-bell', 'teacher');
     const submittedTeams = async (options?: { fresh?: boolean }) =>
       (await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 1, options))
         .filter((participant) => participant.submission !== null)
@@ -847,7 +849,7 @@ describe('최종 미션 문제 올리기 (에뮬레이터)', () => {
     expect(summaries.find((item) => item.grade === 5)?.source).toBe('sample');
 
     // 담임은 올릴 수 없고 상태만 본다.
-    await signInAs('homeroom-1', 'homeroom_teacher', { classId: CLASS_ID });
+    await signInAs('homeroom-1', 'teacher');
     await expect(repository.uploadFinalQuestionSets({ eventId: EVENT, sets })).rejects.toSatisfy(
       (error) => isRepositoryError(error, 'not-allowed'),
     );
@@ -855,7 +857,7 @@ describe('최종 미션 문제 올리기 (에뮬레이터)', () => {
 
     await signInAsAdmin();
     await repository.openFinal({ eventId: EVENT, grade: 3, force: true, reason: '리허설' });
-    await signInAs('homeroom-1', 'homeroom_teacher', { classId: CLASS_ID });
+    await signInAs('homeroom-1', 'teacher');
     let view = await repository.startClassFinal({
       eventId: EVENT,
       classId: CLASS_ID,
@@ -903,5 +905,29 @@ describe('최종 미션 문제 올리기 (에뮬레이터)', () => {
     expect(
       (await repository.listFinalQuestionSets(EVENT)).find((item) => item.grade === 5)?.source,
     ).toBe('upload');
+  });
+});
+
+describe('예전 역할로 등록된 교사 (에뮬레이터)', () => {
+  it('부스·담임으로 등록했던 계정도 교사로 읽히고 어느 부스와 학급이든 맡을 수 있다', async () => {
+    await signInAsAdmin();
+    await repository.setupEvent(EVENT);
+    await repository.setActiveGrade(EVENT, 4);
+    await repository.controlRound(EVENT, 'start');
+
+    await signInAs('legacy-booth', 'teacher', { role: 'station_teacher', missionId: 'drawing' });
+    await expect(
+      repository.startStationRound({ eventId: EVENT, missionId: 'ozobot', grade: 4, roundNo: 1 }),
+    ).resolves.toMatchObject({ status: 'active' });
+
+    await signInAs('legacy-homeroom', 'teacher', { role: 'homeroom_teacher', classId: 'g4-c2' });
+    await expect(
+      repository.startStationRound({ eventId: EVENT, missionId: 'drawing', grade: 4, roundNo: 1 }),
+    ).resolves.toMatchObject({ status: 'active' });
+    expect((await repository.getClassFinalView(EVENT, 'g4-c1')).canRunFinal).toBe(true);
+    // 라운드 제어는 총괄만 한다.
+    await expect(repository.controlRound(EVENT, 'end')).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
   });
 });

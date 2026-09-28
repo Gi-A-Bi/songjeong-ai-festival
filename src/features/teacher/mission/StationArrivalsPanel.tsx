@@ -30,7 +30,7 @@ interface StationArrivalsPanelProps {
   onChanged: () => void;
 }
 
-/** 부스 교사용: 이번 라운드에 올 팀의 입장 상태, “미션 시작”, 수동 입장 처리 */
+/** 부스 운영: 이번 라운드에 올 팀의 입장 상태, “미션 시작”, 수동 입장 처리 */
 export function StationArrivalsPanel({
   eventId,
   mission,

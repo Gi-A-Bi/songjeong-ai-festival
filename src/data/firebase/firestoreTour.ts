@@ -518,7 +518,7 @@ export class FirestoreTourStore {
   /** QR을 찍지 못한 팀을 교사가 직접 입장 처리한다. */
   async markArrived(input: MarkArrivedInput): Promise<TeamMissionState> {
     await this.ctx.ensureUser();
-    this.ctx.requireStationAccess(input.missionId);
+    this.ctx.requireTeacher();
     const [team, missions, event] = await Promise.all([
       this.ctx.getTeam(input.eventId, input.teamId),
       this.ctx.missions(input.eventId),
@@ -617,7 +617,7 @@ export class FirestoreTourStore {
 
   async startStation(input: StartStationInput): Promise<MissionRoundState> {
     await this.ctx.ensureUser();
-    const teacher = this.ctx.requireStationAccess(input.missionId);
+    const teacher = this.ctx.requireTeacher();
     const boothRef = doc(
       this.ctx.sub(input.eventId, 'missionRoundStates'),
       missionRoundStateId(input.missionId, input.grade, input.roundNo),

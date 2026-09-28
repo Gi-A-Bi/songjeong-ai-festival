@@ -811,3 +811,26 @@
   color: var(--color-primary-active);
   box-shadow: var(--shadow-sm);
 }
+
+/* 대시보드: 부스 바로 가기 */
+.booth-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+}
+
+.booth-links__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-body);
+}
+
+.booth-links__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+}

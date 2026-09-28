@@ -55,8 +55,6 @@ export const DEV_TEACHER: TeacherProfile = {
   uid: 'dev-teacher',
   displayName: '개발용 총괄 선생님',
   role: 'admin',
-  missionId: null,
-  classId: null,
 };
 
 /** 명세 23장: 4학년 2반 3팀이 2라운드 참여 중이며 1라운드 1위 카드 보상을 고르기 전인 상태 */
@@ -903,12 +901,10 @@ export function createSeedState(now: number): MockState {
     finalResponses,
     devices: seedDevices(teams, now),
     teacherInvites: {
-      'booth.sample@example.com': {
-        email: 'booth.sample@example.com',
+      'waiting.sample@example.com': {
+        email: 'waiting.sample@example.com',
         displayName: '',
-        role: 'station_teacher',
-        missionId: 'drawing',
-        classId: null,
+        role: 'teacher',
         createdAt: now - 60 * MINUTE,
       },
     },
@@ -918,17 +914,13 @@ export function createSeedState(now: number): MockState {
         displayName: DEV_TEACHER.displayName,
         email: 'admin.sample@example.com',
         role: 'admin',
-        missionId: null,
-        classId: null,
         active: true,
       },
       {
-        uid: 'sample-homeroom',
-        displayName: '샘플 담임 선생님',
-        email: 'homeroom.sample@example.com',
-        role: 'homeroom_teacher',
-        missionId: null,
-        classId: 'g4-c2',
+        uid: 'sample-teacher',
+        displayName: '샘플 선생님',
+        email: 'teacher.sample@example.com',
+        role: 'teacher',
         active: true,
       },
     ],

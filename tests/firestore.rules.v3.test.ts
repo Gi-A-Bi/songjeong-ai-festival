@@ -31,12 +31,13 @@ const dbOf = (uid: string) => testEnv.authenticatedContext(uid).firestore();
 const studentDb = () => dbOf('student-a');
 const otherStudentDb = () => dbOf('student-b');
 const adminDb = () => dbOf('admin-1');
-const ozobotTeacherDb = () => dbOf('station-ozobot');
-const drawingTeacherDb = () => dbOf('station-drawing');
-const anyStationDb = () => dbOf('station-any');
-const legacyTeacherDb = () => dbOf('legacy-teacher');
-const homeroomDb = () => dbOf('homeroom-c1');
-const otherHomeroomDb = () => dbOf('homeroom-c2');
+/** 교사(지금 역할). 모든 부스와 모든 학급을 맡을 수 있다. */
+const homeroomDb = () => dbOf('teacher-1');
+const ozobotTeacherDb = () => dbOf('teacher-2');
+/** 예전에 담당과 함께 등록한 문서. 지금은 담당과 상관없이 교사로 본다. */
+const drawingTeacherDb = () => dbOf('legacy-station-drawing');
+const otherHomeroomDb = () => dbOf('legacy-homeroom-c2');
+const inactiveTeacherDb = () => dbOf('teacher-off');
 
 async function seed(write: (db: ReturnType<typeof dbOf>) => Promise<void>) {
   await testEnv.withSecurityRulesDisabled(async (context) => {
@@ -66,24 +67,17 @@ beforeEach(async () => {
       ...extra,
     });
     await setDoc(doc(db, 'teachers/admin-1'), teacher('admin'));
+    await setDoc(doc(db, 'teachers/teacher-1'), teacher('teacher'));
+    await setDoc(doc(db, 'teachers/teacher-2'), teacher('teacher'));
     await setDoc(
-      doc(db, 'teachers/station-ozobot'),
-      teacher('station_teacher', { missionId: 'ozobot' }),
-    );
-    await setDoc(
-      doc(db, 'teachers/station-drawing'),
+      doc(db, 'teachers/legacy-station-drawing'),
       teacher('station_teacher', { missionId: 'drawing' }),
     );
-    await setDoc(doc(db, 'teachers/station-any'), teacher('station_teacher', { missionId: null }));
-    await setDoc(doc(db, 'teachers/legacy-teacher'), teacher('teacher'));
     await setDoc(
-      doc(db, 'teachers/homeroom-c1'),
-      teacher('homeroom_teacher', { classId: CLASS_ID }),
-    );
-    await setDoc(
-      doc(db, 'teachers/homeroom-c2'),
+      doc(db, 'teachers/legacy-homeroom-c2'),
       teacher('homeroom_teacher', { classId: 'g4-c2' }),
     );
+    await setDoc(doc(db, 'teachers/teacher-off'), { ...teacher('teacher'), active: false });
 
     await setDoc(doc(db, EVENT), {
       title: '2026 송정 AI 미션 챌린지',
@@ -125,27 +119,33 @@ describe('역할별 권한', () => {
     rank: 1,
   });
 
-  it('부스 교사는 담당 미션의 순위만 확정할 수 있다', async () => {
+  it('교사는 담당을 나누지 않고 어느 부스든 순위를 확정할 수 있다', async () => {
     await assertSucceeds(
       setDoc(doc(ozobotTeacherDb(), `${EVENT}/results/ozobot__g4__r2__t3`), result('ozobot')),
     );
-    await assertFails(
+    await assertSucceeds(
+      setDoc(doc(ozobotTeacherDb(), `${EVENT}/results/drawing__g4__r2__t3`), result('drawing')),
+    );
+    await assertSucceeds(
+      setDoc(doc(homeroomDb(), `${EVENT}/results/golden-bell__g4__r2__t3`), result('golden-bell')),
+    );
+  });
+
+  it('예전에 부스·담임으로 등록한 계정도 교사로서 어느 부스든 운영할 수 있다', async () => {
+    await assertSucceeds(
       setDoc(doc(drawingTeacherDb(), `${EVENT}/results/ozobot__g4__r2__t3`), result('ozobot')),
     );
-  });
-
-  it('담당이 비어 있는 부스 교사와 예전 역할 teacher는 어느 부스든 운영할 수 있다', async () => {
     await assertSucceeds(
-      setDoc(doc(anyStationDb(), `${EVENT}/results/ozobot__g4__r2__t3`), result('ozobot')),
-    );
-    await assertSucceeds(
-      setDoc(doc(legacyTeacherDb(), `${EVENT}/results/drawing__g4__r2__t3`), result('drawing')),
+      setDoc(doc(otherHomeroomDb(), `${EVENT}/results/drawing__g4__r2__t3`), result('drawing')),
     );
   });
 
-  it('담임교사는 부스 결과를 쓸 수 없다', async () => {
+  it('사용 중지된 교사와 학생은 부스 결과를 쓸 수 없다', async () => {
     await assertFails(
-      setDoc(doc(homeroomDb(), `${EVENT}/results/ozobot__g4__r2__t3`), result('ozobot')),
+      setDoc(doc(inactiveTeacherDb(), `${EVENT}/results/ozobot__g4__r2__t3`), result('ozobot')),
+    );
+    await assertFails(
+      setDoc(doc(studentDb(), `${EVENT}/results/ozobot__g4__r2__t3`), result('ozobot')),
     );
   });
 
@@ -161,12 +161,20 @@ describe('역할별 권한', () => {
     );
   });
 
-  it('미션 설정은 그 미션 담당 교사만 고친다', async () => {
+  it('미션 설정은 교사가 고치고 학생은 고칠 수 없다', async () => {
     await assertSucceeds(
       updateDoc(doc(ozobotTeacherDb(), `${EVENT}/missions/ozobot`), { config: { type: 'ozobot' } }),
     );
-    await assertFails(
+    await assertSucceeds(
       updateDoc(doc(drawingTeacherDb(), `${EVENT}/missions/ozobot`), {
+        config: { type: 'ozobot' },
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(studentDb(), `${EVENT}/missions/ozobot`), { config: { type: 'ozobot' } }),
+    );
+    await assertFails(
+      updateDoc(doc(inactiveTeacherDb(), `${EVENT}/missions/ozobot`), {
         config: { type: 'ozobot' },
       }),
     );
@@ -308,10 +316,9 @@ describe('교실 QR 체크인', () => {
     await assertFails(setDoc(stateRef(studentDb()), arrival({ manualReview: true })));
   });
 
-  it('그 교실 담당 교사는 팀을 직접 입장 처리할 수 있다', async () => {
+  it('교사는 어느 교실에서든 팀을 직접 입장 처리할 수 있다', async () => {
     await assertSucceeds(setDoc(stateRef(ozobotTeacherDb()), arrival({ checkedInBy: 'teacher' })));
-    await assertFails(setDoc(stateRef(drawingTeacherDb()), arrival({ checkedInBy: 'teacher' })));
-    await assertFails(setDoc(stateRef(homeroomDb()), arrival({ checkedInBy: 'teacher' })));
+    await assertFails(setDoc(stateRef(inactiveTeacherDb()), arrival({ checkedInBy: 'teacher' })));
   });
 });
 
@@ -329,19 +336,25 @@ describe('부스 상태', () => {
     updatedAt: serverTimestamp(),
   });
 
-  it('담당 부스만 시작할 수 있고 학생은 쓸 수 없다', async () => {
+  it('교사는 어느 부스든 시작할 수 있고 학생은 쓸 수 없다', async () => {
     await assertSucceeds(
       setDoc(doc(ozobotTeacherDb(), `${EVENT}/missionRoundStates/ozobot_g4_r2`), booth('ozobot')),
     );
-    await assertFails(
-      setDoc(doc(drawingTeacherDb(), `${EVENT}/missionRoundStates/ozobot_g4_r2`), booth('ozobot')),
+    await assertSucceeds(
+      setDoc(
+        doc(drawingTeacherDb(), `${EVENT}/missionRoundStates/golden-bell_g4_r2`),
+        booth('golden-bell'),
+      ),
     );
     await assertFails(
-      setDoc(doc(studentDb(), `${EVENT}/missionRoundStates/ozobot_g4_r2`), booth('ozobot')),
+      setDoc(doc(studentDb(), `${EVENT}/missionRoundStates/error-hunt_g4_r2`), booth('error-hunt')),
     );
-    // 다른 미션 이름으로 문서 ID를 속일 수 없다.
+    // 문서 ID와 다른 미션을 적을 수 없다.
     await assertFails(
-      setDoc(doc(drawingTeacherDb(), `${EVENT}/missionRoundStates/ozobot_g4_r2`), booth('drawing')),
+      setDoc(
+        doc(drawingTeacherDb(), `${EVENT}/missionRoundStates/library-check_g4_r2`),
+        booth('drawing'),
+      ),
     );
   });
 
@@ -410,20 +423,25 @@ describe('최종 미션 시작', () => {
   const stateRef = (db: ReturnType<typeof dbOf>, classId = CLASS_ID) =>
     doc(db, `${EVENT}/finalClassStates/${classId}`);
 
-  it('총괄 운영자가 열기 전에는 담임교사가 시작할 수 없다', async () => {
+  it('총괄 운영자가 열기 전에는 교사가 시작할 수 없다', async () => {
     await assertFails(setDoc(stateRef(homeroomDb()), startState()));
     await seed((db) => setDoc(doc(db, `${EVENT}/finalSessions/4`), { grade: 4, status: 'locked' }));
     await assertFails(setDoc(stateRef(homeroomDb()), startState()));
   });
 
-  it('열린 뒤에는 담당 학급만 서버 시각으로 시작할 수 있다', async () => {
+  it('열린 뒤에는 교사가 서버 시각으로 시작할 수 있고 학생은 시작할 수 없다', async () => {
     await openSession();
-    await assertFails(setDoc(stateRef(otherHomeroomDb()), startState()));
-    await assertFails(setDoc(stateRef(ozobotTeacherDb()), startState()));
+    await assertFails(setDoc(stateRef(studentDb()), startState()));
+    await assertFails(setDoc(stateRef(inactiveTeacherDb()), startState()));
     await assertFails(
       setDoc(stateRef(homeroomDb()), startState({ startedAt: Timestamp.fromMillis(1) })),
     );
     await assertSucceeds(setDoc(stateRef(homeroomDb()), startState()));
+  });
+
+  it('예전에 다른 반 담임으로 등록한 계정도 교사로서 시작할 수 있다', async () => {
+    await openSession();
+    await assertSucceeds(setDoc(stateRef(otherHomeroomDb()), startState()));
   });
 
   it('시작할 때 점수·순위를 넣거나 힌트 수를 부풀릴 수 없다', async () => {
@@ -499,7 +517,7 @@ describe('최종 미션 진행과 제출', () => {
     );
   });
 
-  it('담임교사는 점수·순위·스냅샷·시작 시각을 고칠 수 없다', async () => {
+  it('교사는 점수·순위·스냅샷·시작 시각을 고칠 수 없다', async () => {
     await seedActiveState();
     await assertFails(updateDoc(stateRef(homeroomDb()), { correctCount: 10 }));
     await assertFails(updateDoc(stateRef(homeroomDb()), { finalRank: 1 }));
@@ -616,7 +634,7 @@ describe('최종 미션 진행과 제출', () => {
     await assertSucceeds(batch.commit());
   });
 
-  it('다른 반 담임과 부스 교사는 응답을 읽거나 쓸 수 없다', async () => {
+  it('응답은 교사만 읽고 쓴다. 학생과 사용 중지된 교사는 할 수 없다', async () => {
     await seedActiveState();
     const data = {
       classId: CLASS_ID,
@@ -624,10 +642,11 @@ describe('최종 미션 진행과 제출', () => {
       answers: { '0': answer('a') },
       updatedAt: serverTimestamp(),
     };
-    await assertFails(setDoc(responsesRef(otherHomeroomDb()), data));
-    await assertFails(setDoc(responsesRef(ozobotTeacherDb()), data));
-    await assertFails(getDoc(responsesRef(otherHomeroomDb())));
+    await assertFails(setDoc(responsesRef(studentDb()), data));
+    await assertFails(setDoc(responsesRef(inactiveTeacherDb()), data));
+    await assertFails(getDoc(responsesRef(studentDb())));
     await assertSucceeds(getDoc(responsesRef(homeroomDb())));
+    await assertSucceeds(setDoc(responsesRef(ozobotTeacherDb()), data));
   });
 
   it('제한 시간이 끝난 뒤에는 답을 쓸 수 없다', async () => {

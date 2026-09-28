@@ -276,17 +276,17 @@ export interface ClassCardProgress {
   allComplete: boolean;
 }
 
-/** 총괄 운영자, 부스 교사, 담임교사(CARD_FINALE_UPDATE_SPEC 3장) */
-export type TeacherRole = 'admin' | 'station_teacher' | 'homeroom_teacher';
+/**
+ * 총괄 운영자와 교사. 교사는 모든 부스를 운영하고 모든 학급의 최종 미션을 진행할 수 있다.
+ * 행사 전체에 영향을 주는 일(라운드 제어, 최종 미션 열기·결과 공개, 행사 설정, 교사 등록)은 총괄만 한다.
+ * 예전에는 부스 교사와 담임교사를 담당별로 나눴다(2026-09-28에 합침).
+ */
+export type TeacherRole = 'admin' | 'teacher';
 
 export interface TeacherProfile {
   uid: string;
   displayName: string;
   role: TeacherRole;
-  /** 부스 교사의 담당 미션. null이면 담당이 정해지지 않아 모든 부스를 운영할 수 있다. */
-  missionId: string | null;
-  /** 담임교사의 담당 학급 */
-  classId: string | null;
 }
 
 /**
@@ -298,8 +298,6 @@ export interface TeacherInvite {
   /** 비어 있으면 첫 로그인 때 Google 계정 이름을 쓴다. */
   displayName: string;
   role: TeacherRole;
-  missionId: string | null;
-  classId: string | null;
   createdAt: number | null;
 }
 
@@ -309,8 +307,6 @@ export interface TeacherAccount {
   displayName: string;
   email: string;
   role: TeacherRole;
-  missionId: string | null;
-  classId: string | null;
   active: boolean;
 }
 

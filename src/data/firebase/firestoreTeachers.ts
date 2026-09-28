@@ -15,39 +15,23 @@ import {
 import {
   getTeacherInviteError,
   normalizeEmail,
-  normalizeInviteAssignment,
   TEACHER_NAME_MAX_LENGTH,
+  toTeacherRole,
   type TeacherInviteDraft,
 } from '../../domain/teacherInvites';
-import type {
-  TeacherAccount,
-  TeacherInvite,
-  TeacherProfile,
-  TeacherRole,
-} from '../../domain/types';
+import type { TeacherAccount, TeacherInvite, TeacherProfile } from '../../domain/types';
 import { RepositoryError } from '../errors';
 import { toMillis } from './mappers';
 
 const TEACHERS = 'teachers';
 const INVITES = 'teacherInvites';
 
-/** 예전 역할값 teacher는 담당이 정해지지 않은 부스 교사로 읽는다. */
-function toRole(value: unknown): TeacherRole {
-  return value === 'admin' || value === 'homeroom_teacher' ? value : 'station_teacher';
-}
-
-function toText(value: unknown): string | null {
-  return typeof value === 'string' && value !== '' ? value : null;
-}
-
 function mapAccount(uid: string, data: DocumentData): TeacherAccount {
   return {
     uid,
     displayName: String(data.displayName ?? '선생님'),
     email: String(data.email ?? ''),
-    role: toRole(data.role),
-    missionId: toText(data.missionId),
-    classId: toText(data.classId),
+    role: toTeacherRole(data.role),
     active: data.active === true,
   };
 }
@@ -56,9 +40,7 @@ function mapInvite(id: string, data: DocumentData): TeacherInvite {
   return {
     email: id,
     displayName: String(data.displayName ?? ''),
-    role: toRole(data.role),
-    missionId: toText(data.missionId),
-    classId: toText(data.classId),
+    role: toTeacherRole(data.role),
     createdAt: toMillis(data.createdAt),
   };
 }
@@ -73,13 +55,13 @@ export async function loadTeacher(db: Firestore, uid: string): Promise<LoadedTea
   const data = (await getDoc(doc(db, TEACHERS, uid))).data();
   if (!data) return { registered: false, profile: null };
   if (data.active !== true) return { registered: true, profile: null };
-  const { displayName, role, missionId, classId } = mapAccount(uid, data);
-  return { registered: true, profile: { uid, displayName, role, missionId, classId } };
+  const { displayName, role } = mapAccount(uid, data);
+  return { registered: true, profile: { uid, displayName, role } };
 }
 
 /**
  * 이메일로 미리 등록된 계정이 처음 로그인했을 때 자기 교사 문서를 만든다.
- * 역할과 담당은 초대장의 값 그대로여야 보안 규칙을 통과한다. 등록되지 않았으면 false.
+ * 역할은 초대장의 값 그대로여야 보안 규칙을 통과한다. 등록되지 않았으면 false.
  */
 export async function claimTeacherInvite(
   db: Firestore,
@@ -94,9 +76,8 @@ export async function claimTeacherInvite(
     await setDoc(doc(db, TEACHERS, user.uid), {
       email,
       displayName: name.slice(0, TEACHER_NAME_MAX_LENGTH),
+      // 예전 역할값으로 등록된 초대장도 그대로 옮긴다(읽을 때 교사로 본다).
       role: invite.role,
-      missionId: invite.missionId ?? null,
-      classId: invite.classId ?? null,
       active: true,
       createdAt: serverTimestamp(),
     });
@@ -119,17 +100,14 @@ export async function saveTeacherInvites(
   adminUid: string,
   draft: TeacherInviteDraft,
 ): Promise<void> {
-  const input = normalizeInviteAssignment(draft);
-  const error = getTeacherInviteError(input);
+  const error = getTeacherInviteError(draft);
   if (error) throw new RepositoryError('invalid-input', error);
   const batch = writeBatch(db);
-  for (const email of input.emails) {
+  for (const email of draft.emails) {
     batch.set(doc(db, INVITES, email), {
       email,
       displayName: '',
-      role: input.role,
-      missionId: input.missionId,
-      classId: input.classId,
+      role: draft.role,
       active: true,
       createdBy: adminUid,
       createdAt: serverTimestamp(),

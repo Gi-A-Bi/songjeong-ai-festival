@@ -8,7 +8,7 @@ import {
 } from '../../domain/cards';
 import { toDeviceCode } from '../../domain/device';
 import { getDrawingConfigError } from '../../domain/drawingPrompts';
-import { getTeacherInviteError, normalizeInviteAssignment } from '../../domain/teacherInvites';
+import { getTeacherInviteError } from '../../domain/teacherInvites';
 import { getGoldenBellConfigError } from '../../domain/goldenBell';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
 import { getRankingEntryError } from '../../domain/rewards';
@@ -159,22 +159,12 @@ export class MockEventRepository implements EventRepository, DevTools {
     for (const grade of this.finalListeners.keys()) this.notifyFinal(grade);
   }
 
-  signInAs(
-    role: TeacherRole,
-    assignment: { missionId?: string; classId?: string } = {},
-  ): TeacherProfile {
+  signInAs(role: TeacherRole): TeacherProfile {
     const names: Record<TeacherRole, string> = {
       admin: '개발용 총괄 선생님',
-      station_teacher: '개발용 부스 선생님',
-      homeroom_teacher: '개발용 담임 선생님',
+      teacher: '개발용 선생님',
     };
-    this.teacher = {
-      uid: `dev-${role}`,
-      displayName: names[role],
-      role,
-      missionId: role === 'station_teacher' ? (assignment.missionId ?? null) : null,
-      classId: role === 'homeroom_teacher' ? (assignment.classId ?? null) : null,
-    };
+    this.teacher = { uid: `dev-${role}`, displayName: names[role], role };
     return { ...this.teacher };
   }
 
@@ -349,7 +339,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   ): Promise<Mission> {
     await this.request();
     this.assertEvent(eventId);
-    this.requireStationAccess(missionId);
+    this.requireTeacher();
     const mission = this.findMission(missionId);
     if (config.type !== mission.type) {
       throw new RepositoryError('invalid-input', '미션 종류와 설정 형식이 달라요.');
@@ -668,7 +658,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   ): Promise<void> {
     await this.request();
     this.assertEvent(eventId);
-    this.requireStationAccess(missionId);
+    this.requireTeacher();
     const mission = this.findMission(missionId);
     this.touchMissionState(mission.id, grade, roundNo, { answerRevealed: revealed });
   }
@@ -687,7 +677,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   async finalizeRanking(input: FinalizeRankingInput): Promise<FinalizeRankingOutcome> {
     await this.request();
     this.assertEvent(input.eventId);
-    const teacher = this.requireStationAccess(input.missionId);
+    const teacher = this.requireTeacher();
     const mission = this.findMission(input.missionId);
     const key = resultKey(mission.id, input.grade, input.roundNo);
 
@@ -736,7 +726,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   async reviseRanking(input: FinalizeRankingInput): Promise<ReviseRankingOutcome> {
     await this.request();
     this.assertEvent(input.eventId);
-    const teacher = this.requireStationAccess(input.missionId);
+    const teacher = this.requireTeacher();
     const mission = this.findMission(input.missionId);
     const key = resultKey(mission.id, input.grade, input.roundNo);
     if (!this.isFinalized(mission.id, input.grade, input.roundNo)) {
@@ -798,7 +788,7 @@ export class MockEventRepository implements EventRepository, DevTools {
   async reopenSubmission(input: ReopenSubmissionInput): Promise<void> {
     await this.request();
     this.assertEvent(input.eventId);
-    this.requireStationAccess(input.missionId);
+    this.requireTeacher();
     const mission = this.findMission(input.missionId);
     const team = this.findTeam(input.teamId);
     const id = submissionId(mission.id, team.id);
@@ -982,7 +972,7 @@ export class MockEventRepository implements EventRepository, DevTools {
       session,
       finalState: redactFinalClassState(finalState, canView),
       finalStatus: presentFinalClassStatus(session, finalState, this.now()),
-      canRunFinal: this.canRunClassFinal(classInfo.id),
+      canRunFinal: this.teacher !== null,
       startBlocker: getFinalStartBlocker(session, finalState),
     });
   }
@@ -1177,10 +1167,9 @@ export class MockEventRepository implements EventRepository, DevTools {
     return this.teacherRegistry();
   }
 
-  async saveTeacherInvites(draft: SaveTeacherInvitesInput): Promise<TeacherRegistry> {
+  async saveTeacherInvites(input: SaveTeacherInvitesInput): Promise<TeacherRegistry> {
     await this.request();
     this.requireAdmin();
-    const input = normalizeInviteAssignment(draft);
     const error = getTeacherInviteError(input);
     if (error) throw new RepositoryError('invalid-input', error);
     for (const email of input.emails) {
@@ -1188,8 +1177,6 @@ export class MockEventRepository implements EventRepository, DevTools {
         email,
         displayName: '',
         role: input.role,
-        missionId: input.missionId,
-        classId: input.classId,
         createdAt: this.now(),
       };
     }
@@ -1329,35 +1316,6 @@ export class MockEventRepository implements EventRepository, DevTools {
     return teacher;
   }
 
-  private requireStationAccess(missionId: string): TeacherProfile {
-    const teacher = this.requireTeacher();
-    const allowed =
-      teacher.role === 'admin' ||
-      (teacher.role === 'station_teacher' &&
-        (teacher.missionId === null || teacher.missionId === missionId));
-    if (!allowed) {
-      throw new RepositoryError('not-allowed', '담당 미션만 운영할 수 있어요.');
-    }
-    return teacher;
-  }
-
-  private canRunClassFinal(classId: string): boolean {
-    const teacher = this.teacher;
-    if (!teacher) return false;
-    return (
-      teacher.role === 'admin' ||
-      (teacher.role === 'homeroom_teacher' && teacher.classId === classId)
-    );
-  }
-
-  private requireClassAccess(classId: string): TeacherProfile {
-    const teacher = this.requireTeacher();
-    if (!this.canRunClassFinal(classId)) {
-      throw new RepositoryError('not-allowed', '담당 학급의 최종 미션만 진행할 수 있어요.');
-    }
-    return teacher;
-  }
-
   private createContext(): MockStoreContext {
     return {
       state: () => this.state,
@@ -1365,9 +1323,6 @@ export class MockEventRepository implements EventRepository, DevTools {
       teacher: () => this.teacher,
       requireTeacher: () => this.requireTeacher(),
       requireAdmin: () => this.requireAdmin(),
-      requireStationAccess: (missionId) => this.requireStationAccess(missionId),
-      requireClassAccess: (classId) => this.requireClassAccess(classId),
-      canRunClassFinal: (classId) => this.canRunClassFinal(classId),
       findTeam: (teamId) => this.findTeam(teamId),
       findClass: (classId) => this.findClass(classId),
       findMission: (missionId) => this.findMission(missionId),

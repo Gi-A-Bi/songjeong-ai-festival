@@ -164,7 +164,7 @@ export class MockTourStore {
 
   /** QR을 찍지 못한 팀을 교사가 직접 입장 처리한다. */
   markArrived(input: MarkArrivedInput): TeamMissionState {
-    this.ctx.requireStationAccess(input.missionId);
+    this.ctx.requireTeacher();
     const team = this.ctx.findTeam(input.teamId);
     const mission = this.ctx.findMission(input.missionId);
     if (this.missionForRound(team, input.roundNo).id !== mission.id) {
@@ -254,7 +254,7 @@ export class MockTourStore {
   }
 
   startStation(input: StartStationInput): MissionRoundState {
-    const teacher = this.ctx.requireStationAccess(input.missionId);
+    const teacher = this.ctx.requireTeacher();
     const mission = this.ctx.findMission(input.missionId);
     const current = this.missionRound(mission.id, input.grade, input.roundNo);
     // 다시 눌러도 처음 시작 시각을 그대로 쓴다.

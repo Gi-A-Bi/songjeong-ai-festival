@@ -16,13 +16,10 @@ import { renderApp } from '../test/renderApp';
  */
 const EVENT = DEFAULT_EVENT_ID;
 
-async function repositoryAs(
-  role: TeacherRole = 'admin',
-  assignment: { missionId?: string; classId?: string } = {},
-) {
+async function repositoryAs(role: TeacherRole = 'admin') {
   const repository = new MockEventRepository();
   if (role === 'admin') await repository.signInTeacher();
-  else repository.signInAs(role, assignment);
+  else repository.signInAs(role);
   return repository;
 }
 
@@ -49,12 +46,14 @@ describe('실시간 운영 대시보드', () => {
     expect(screen.getByRole('button', { name: '라운드 종료' })).toBeEnabled();
   });
 
-  it('부스 선생님에게 전체 현황은 읽기 전용이다', async () => {
-    renderApp(
-      `/teacher/${EVENT}/dashboard`,
-      await repositoryAs('station_teacher', { missionId: 'ozobot' }),
-    );
-    expect(await screen.findByText(/전체 현황은 읽기 전용이에요/)).toBeInTheDocument();
+  it('교사에게는 같은 화면이 보이고 라운드 제어만 꺼져 있다', async () => {
+    renderApp(`/teacher/${EVENT}/dashboard`, await repositoryAs('teacher'));
+    expect(await screen.findByText(/라운드는 총괄 선생님이 진행해요/)).toBeInTheDocument();
+    // 메뉴는 총괄과 같고 행사 설정만 없다.
+    expect(screen.getByRole('link', { name: 'QR 인쇄' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '행사 설정' })).toBeNull();
+    const booths = await screen.findByRole('navigation', { name: '부스 바로 가기' });
+    expect(within(booths).getAllByRole('link')).toHaveLength(5);
     expect(screen.getByRole('button', { name: '라운드 종료' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '일시정지' })).toBeDisabled();
     expect(await screen.findByRole('region', { name: '미션 교실별 현황' })).toBeInTheDocument();
@@ -64,7 +63,7 @@ describe('실시간 운영 대시보드', () => {
 describe('부스 교사 화면', () => {
   it('미도착 팀을 직접 입장 처리하고 미션 시작을 누르면 입장한 팀이 진행 중이 된다', async () => {
     const user = userEvent.setup();
-    const repository = await repositoryAs('station_teacher', { missionId: 'ozobot' });
+    const repository = await repositoryAs('teacher');
     renderApp(`/teacher/${EVENT}/station/ozobot`, repository);
 
     expect(await screen.findByRole('heading', { name: /2라운드 입장 현황/ })).toBeInTheDocument();
@@ -82,42 +81,40 @@ describe('부스 교사 화면', () => {
     expect(screen.getByText(new RegExp(`/check-in/${EVENT}/ozobot`))).toBeInTheDocument();
   });
 
-  it('다른 미션을 맡은 부스 선생님은 미션을 시작할 수 없다', async () => {
+  it('교사는 담당을 나누지 않고 어느 부스든 운영한다', async () => {
     const user = userEvent.setup();
-    const repository = await repositoryAs('station_teacher', { missionId: 'drawing' });
-    renderApp(`/teacher/${EVENT}/station/ozobot`, repository);
+    const repository = await repositoryAs('teacher');
+    renderApp(`/teacher/${EVENT}/station/drawing`, repository);
 
     await user.click(await screen.findByRole('button', { name: '미션 시작' }));
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
-    const booth = await repository.getMissionRoundState(EVENT, 'ozobot', 4, 2);
-    expect(booth.startedAt).toBeNull();
+    expect(await screen.findByRole('button', { name: /시작함/ })).toBeDisabled();
+    expect(
+      (await repository.getMissionRoundState(EVENT, 'drawing', 4, 2)).startedAt,
+    ).not.toBeNull();
+    // 같은 계정으로 다른 부스도 운영할 수 있다.
+    await expect(
+      repository.startStationRound({ eventId: EVENT, missionId: 'ozobot', grade: 4, roundNo: 2 }),
+    ).resolves.toMatchObject({ status: 'active' });
   });
 });
 
 describe('학급 화면의 최종 미션 시작', () => {
-  it('총괄 선생님이 열기 전에는 담임 선생님의 시작 버튼이 꺼져 있다', async () => {
+  it('총괄 선생님이 열기 전에는 교사의 시작 버튼이 꺼져 있다', async () => {
     const classId = toClassId(4, 1);
-    renderApp(
-      `/teacher/${EVENT}/class/${classId}`,
-      await repositoryAs('homeroom_teacher', { classId }),
-    );
+    renderApp(`/teacher/${EVENT}/class/${classId}`, await repositoryAs('teacher'));
     expect(await screen.findByRole('button', { name: '최종 미션 시작' })).toBeDisabled();
     expect(screen.getByText(/총괄 선생님이 최종 미션을 열면 시작할 수 있어요/)).toBeInTheDocument();
   });
 
-  it('다른 반 담임 선생님은 시작할 수 없다', async () => {
-    renderApp(
-      `/teacher/${EVENT}/class/${toClassId(3, 4)}`,
-      await repositoryAs('homeroom_teacher', { classId: toClassId(3, 3) }),
-    );
-    expect(await screen.findByRole('button', { name: '최종 미션 시작' })).toBeDisabled();
-    expect(screen.getByText(/담당 학급의 최종 미션만 시작할 수 있어요/)).toBeInTheDocument();
+  it('교사는 어느 반이든 최종 미션을 시작할 수 있다', async () => {
+    renderApp(`/teacher/${EVENT}/class/${toClassId(3, 4)}`, await repositoryAs('teacher'));
+    expect(await screen.findByRole('button', { name: '최종 미션 시작' })).toBeEnabled();
   });
 
   it('확인과 3, 2, 1 카운트다운 뒤 한 번만 시작되고 새로고침해도 시작 시각이 그대로다', async () => {
     const user = userEvent.setup();
     const classId = toClassId(3, 4);
-    const repository = await repositoryAs('homeroom_teacher', { classId });
+    const repository = await repositoryAs('teacher');
     const first = renderApp(`/teacher/${EVENT}/class/${classId}`, repository);
 
     await user.click(await screen.findByRole('button', { name: '최종 미션 시작' }));
@@ -149,7 +146,7 @@ describe('전자칠판 최종 미션', () => {
   it('보기를 고르고 바꾸고 힌트를 쓴 뒤 확정하면 다음 문제로 가며 정답 여부는 보이지 않는다', async () => {
     const user = userEvent.setup();
     const classId = toClassId(3, 1);
-    const repository = await repositoryAs('homeroom_teacher', { classId });
+    const repository = await repositoryAs('teacher');
     renderApp(`/teacher/${EVENT}/class/${classId}/final`, repository);
 
     expect(await screen.findByText('문제 4 / 10')).toBeInTheDocument();
@@ -193,7 +190,7 @@ describe('전자칠판 최종 미션', () => {
   it('새로고침해도 현재 문제와 고른 답, 남은 힌트가 복구된다', async () => {
     const user = userEvent.setup();
     const classId = toClassId(3, 1);
-    const repository = await repositoryAs('homeroom_teacher', { classId });
+    const repository = await repositoryAs('teacher');
     const first = renderApp(`/teacher/${EVENT}/class/${classId}/final`, repository);
 
     await user.click(await screen.findByRole('button', { name: /구역을 나누어 차례로 비교한다/ }));
@@ -212,21 +209,17 @@ describe('전자칠판 최종 미션', () => {
     expect(screen.getByText('4 / 5')).toBeInTheDocument();
   });
 
-  it('다른 반 담임 선생님에게는 보기 전용이다', async () => {
-    renderApp(
-      `/teacher/${EVENT}/class/${toClassId(3, 1)}/final`,
-      await repositoryAs('homeroom_teacher', { classId: toClassId(3, 2) }),
-    );
-    expect(await screen.findByText(/지금은 보기 전용이에요/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /구역을 나누어 차례로 비교한다/ })).toBeDisabled();
+  it('교사는 어느 반의 최종 미션이든 진행할 수 있다', async () => {
+    renderApp(`/teacher/${EVENT}/class/${toClassId(3, 1)}/final`, await repositoryAs('teacher'));
+    expect(
+      await screen.findByRole('button', { name: /구역을 나누어 차례로 비교한다/ }),
+    ).toBeEnabled();
+    expect(screen.queryByText(/지금은 보기 전용이에요/)).toBeNull();
   });
 
   it('제출한 반의 화면은 결과 공개 전까지 점수와 순위를 숨긴다', async () => {
     const classId = toClassId(3, 2);
-    renderApp(
-      `/teacher/${EVENT}/class/${classId}/final`,
-      await repositoryAs('homeroom_teacher', { classId }),
-    );
+    renderApp(`/teacher/${EVENT}/class/${classId}/final`, await repositoryAs('teacher'));
     expect(await screen.findByText('10문제 제출 완료')).toBeInTheDocument();
     expect(screen.getByText(/점수와 순위는 같은 학년의 모든 반이 끝난 뒤/)).toBeInTheDocument();
     expect(screen.getByText('06:10')).toBeInTheDocument();
@@ -235,12 +228,9 @@ describe('전자칠판 최종 미션', () => {
 });
 
 describe('최종 미션 현황과 결과', () => {
-  it('진행 중에는 담임 선생님에게 상태·문제 번호·시간·남은 힌트만 보이고 점수와 순위는 숨긴다', async () => {
+  it('진행 중에는 교사에게 상태·문제 번호·시간·남은 힌트만 보이고 점수와 순위는 숨긴다', async () => {
     const user = userEvent.setup();
-    renderApp(
-      `/teacher/${EVENT}/final-results`,
-      await repositoryAs('homeroom_teacher', { classId: toClassId(3, 4) }),
-    );
+    renderApp(`/teacher/${EVENT}/final-results`, await repositoryAs('teacher'));
     await user.selectOptions(await screen.findByLabelText('학년'), '3');
 
     const active = within(await waitFor(() => rowOf('3학년 1반')));
@@ -348,10 +338,7 @@ describe('예전 주소', () => {
 
   it('예전 학급 결승 주소는 학급 최종 미션 화면으로 이동한다', async () => {
     const classId = toClassId(3, 2);
-    renderApp(
-      `/class/${EVENT}/${classId}/final`,
-      await repositoryAs('homeroom_teacher', { classId }),
-    );
+    renderApp(`/class/${EVENT}/${classId}/final`, await repositoryAs('teacher'));
     expect(await screen.findByText('10문제 제출 완료')).toBeInTheDocument();
   });
 

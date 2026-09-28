@@ -11,28 +11,26 @@ import { useRepository } from '../../data/RepositoryContext';
 import {
   getTeacherInviteError,
   MAX_INVITES_PER_SAVE,
-  normalizeInviteAssignment,
   parseInviteEmails,
 } from '../../domain/teacherInvites';
-import type { Grade, TeacherRole } from '../../domain/types';
+import type { TeacherRole } from '../../domain/types';
 import { useAction } from '../../hooks/useAction';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { TEACHER_ROLE_LABELS } from './teacherContext';
 
 interface TeacherRegistrationPanelProps {
-  eventId: string;
   /** 지금 로그인한 총괄 운영자. 자기 계정은 사용 중지할 수 없다. */
   currentUid: string;
 }
 
-const GRADES: readonly Grade[] = [3, 4, 5, 6];
-const ROLES: readonly TeacherRole[] = ['admin', 'station_teacher', 'homeroom_teacher'];
+/** 교사를 먼저 둔다. 대부분의 선생님은 교사로 등록한다. */
+const ROLES: readonly TeacherRole[] = ['teacher', 'admin'];
 
 const ROLE_HINTS: Record<TeacherRole, string> = {
-  admin: '라운드 제어, 최종 미션 열기·결과 공개, 행사 설정과 교사 등록까지 모두 할 수 있어요.',
-  station_teacher:
-    '미션 교실(부스)을 운영하고 채점해요. 담당을 정하지 않으면 모든 부스를 맡을 수 있어요.',
-  homeroom_teacher: '담당 학급의 카드 현황을 보고 학급 최종 미션을 진행해요.',
+  teacher:
+    '모든 부스를 운영·채점하고 모든 학급의 최종 미션을 진행할 수 있어요. 라운드 제어와 행사 설정은 할 수 없어요.',
+  admin:
+    '교사가 하는 일에 더해 라운드 제어, 최종 미션 열기·결과 공개, 행사 설정과 교사 등록까지 할 수 있어요.',
 };
 
 type RowStatus = 'waiting' | 'active' | 'stopped';
@@ -42,8 +40,6 @@ interface RegistryRow {
   email: string;
   displayName: string;
   role: TeacherRole;
-  missionId: string | null;
-  classId: string | null;
   status: RowStatus;
   uid: string | null;
 }
@@ -57,8 +53,6 @@ function toRows(registry: TeacherRegistry): RegistryRow[] {
       email: account.email,
       displayName: account.displayName,
       role: account.role,
-      missionId: account.missionId,
-      classId: account.classId,
       status: account.active ? 'active' : 'stopped',
       uid: account.uid,
     })),
@@ -69,8 +63,6 @@ function toRows(registry: TeacherRegistry): RegistryRow[] {
         email: invite.email,
         displayName: invite.displayName,
         role: invite.role,
-        missionId: invite.missionId,
-        classId: invite.classId,
         status: 'waiting',
         uid: null,
       })),
@@ -86,12 +78,10 @@ type PendingAction =
  * 총괄 운영자가 Google 계정 이메일로 교사를 등록한다.
  * 등록된 계정은 교사용 로그인에서 처음 로그인할 때 바로 교사가 된다.
  */
-export function TeacherRegistrationPanel({ eventId, currentUid }: TeacherRegistrationPanelProps) {
+export function TeacherRegistrationPanel({ currentUid }: TeacherRegistrationPanelProps) {
   const repository = useRepository();
   const [text, setText] = useState('');
-  const [role, setRole] = useState<TeacherRole>('station_teacher');
-  const [missionId, setMissionId] = useState('');
-  const [classId, setClassId] = useState('');
+  const [role, setRole] = useState<TeacherRole>('teacher');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -100,24 +90,11 @@ export function TeacherRegistrationPanel({ eventId, currentUid }: TeacherRegistr
 
   const loadRegistry = useCallback(() => repository.getTeacherRegistry(), [repository]);
   const registryData = useAsyncData(loadRegistry);
-  const loadOptions = useCallback(async () => {
-    const [missions, classes] = await Promise.all([
-      repository.listMissions(eventId),
-      Promise.all(GRADES.map((grade) => repository.listClasses(eventId, grade))),
-    ]);
-    return { missions, classes: classes.flat() };
-  }, [repository, eventId]);
-  const options = useAsyncData(loadOptions);
 
   const save = useAction(
     useCallback(
-      (emails: string[], draft: { role: TeacherRole; missionId: string; classId: string }) =>
-        repository.saveTeacherInvites({
-          emails,
-          role: draft.role,
-          missionId: draft.missionId || null,
-          classId: draft.classId || null,
-        }),
+      (emails: string[], picked: TeacherRole) =>
+        repository.saveTeacherInvites({ emails, role: picked }),
       [repository],
     ),
   );
@@ -133,38 +110,18 @@ export function TeacherRegistrationPanel({ eventId, currentUid }: TeacherRegistr
 
   const registry = latest ?? (registryData.status === 'success' ? registryData.data : null);
   const rows = registry ? toRows(registry) : [];
-  const missions = options.status === 'success' ? options.data.missions : [];
-  const classes = options.status === 'success' ? options.data.classes : [];
 
   const parsed = parseInviteEmails(text);
   const registeredEmails = new Set(registry?.accounts.map((account) => account.email) ?? []);
   /** 이미 로그인해 교사가 된 계정은 다시 등록해도 바뀌지 않아 뺀다. */
   const already = parsed.emails.filter((email) => registeredEmails.has(email));
   const emails = parsed.emails.filter((email) => !registeredEmails.has(email));
-  const draft = normalizeInviteAssignment({
-    emails,
-    role,
-    missionId: missionId || null,
-    classId: classId || null,
-  });
-  const draftError = text.trim() === '' ? null : getTeacherInviteError(draft);
+  const draftError = text.trim() === '' ? null : getTeacherInviteError({ emails, role });
   const canSave =
     registry !== null && emails.length > 0 && parsed.invalid.length === 0 && draftError === null;
 
-  const assignmentLabel = (row: Pick<RegistryRow, 'role' | 'missionId' | 'classId'>) => {
-    if (row.role === 'station_teacher') {
-      if (row.missionId === null) return '모든 부스';
-      return missions.find((mission) => mission.id === row.missionId)?.title ?? row.missionId;
-    }
-    if (row.role === 'homeroom_teacher') {
-      if (row.classId === null) return '학급 미정';
-      return classes.find((item) => item.id === row.classId)?.displayName ?? row.classId;
-    }
-    return '-';
-  };
-
   const handleSave = async () => {
-    const result = await save.run(emails, { role, missionId, classId });
+    const result = await save.run(emails, role);
     setConfirmOpen(false);
     if (!result?.ok) return;
     setLatest(result.value);
@@ -243,51 +200,6 @@ export function TeacherRegistrationPanel({ eventId, currentUid }: TeacherRegistr
         <p className="muted">{ROLE_HINTS[role]}</p>
       </fieldset>
 
-      {role === 'station_teacher' ? (
-        <FormField id="teacher-mission" label="담당 미션">
-          {(control) => (
-            <select
-              {...control}
-              className="text-input"
-              value={missionId}
-              onChange={(event) => setMissionId(event.target.value)}
-            >
-              <option value="">모든 부스(담당을 정하지 않음)</option>
-              {missions.map((mission) => (
-                <option key={mission.id} value={mission.id}>
-                  미션 {mission.no} · {mission.title}
-                </option>
-              ))}
-            </select>
-          )}
-        </FormField>
-      ) : null}
-      {role === 'homeroom_teacher' ? (
-        <FormField
-          id="teacher-class"
-          label="담당 학급"
-          hint={
-            classes.length === 0 ? '학급이 없어요. 행사 기본 구조를 먼저 만들어 주세요.' : undefined
-          }
-        >
-          {(control) => (
-            <select
-              {...control}
-              className="text-input"
-              value={classId}
-              onChange={(event) => setClassId(event.target.value)}
-            >
-              <option value="">학급을 골라 주세요</option>
-              {classes.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.displayName}
-                </option>
-              ))}
-            </select>
-          )}
-        </FormField>
-      ) : null}
-
       {already.length > 0 ? (
         <InlineAlert tone="info">
           이미 교사로 등록된 계정은 빼고 등록해요: {already.join(', ')}
@@ -338,7 +250,6 @@ export function TeacherRegistrationPanel({ eventId, currentUid }: TeacherRegistr
               <tr>
                 <th scope="col">Google 계정</th>
                 <th scope="col">역할</th>
-                <th scope="col">담당</th>
                 <th scope="col">상태</th>
                 <th scope="col">관리</th>
               </tr>
@@ -351,7 +262,6 @@ export function TeacherRegistrationPanel({ eventId, currentUid }: TeacherRegistr
                     {row.displayName ? <div className="muted">{row.displayName}</div> : null}
                   </th>
                   <td>{TEACHER_ROLE_LABELS[row.role]}</td>
-                  <td>{assignmentLabel(row)}</td>
                   <td>
                     {row.status === 'waiting' ? (
                       <StatusBadge tone="warning" icon="hourglass_top">
@@ -416,17 +326,8 @@ export function TeacherRegistrationPanel({ eventId, currentUid }: TeacherRegistr
         onCancel={() => setConfirmOpen(false)}
         onConfirm={() => void handleSave()}
       >
-        {role === 'admin' ? (
-          <p>
-            총괄 운영자는 라운드 제어, 결과 공개, 행사 설정, 교사 등록까지 모두 할 수 있어요. 이메일
-            주소가 맞는지 한 번 더 확인해 주세요.
-          </p>
-        ) : (
-          <p>
-            {TEACHER_ROLE_LABELS[role]} · {assignmentLabel(draft)}. 이메일 주소가 맞는지 확인해
-            주세요.
-          </p>
-        )}
+        <p>{ROLE_HINTS[role]}</p>
+        <p>이메일 주소가 맞는지 한 번 더 확인해 주세요.</p>
         <ul className="confirm-list">
           {emails.map((email) => (
             <li key={email} className="confirm-list__item">

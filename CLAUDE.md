@@ -96,7 +96,8 @@
 
 - 교사는 Google 로그인 사용
 - teachers/{uid}에 등록되고 active가 true인 사용자만 허용
-- role 값은 admin, station_teacher, homeroom_teacher 중 하나
+- role 값은 admin(총괄)과 teacher(교사) 둘이다. 교사는 모든 부스와 모든 학급을 맡을 수 있고, 담당으로 권한을 나누지 않는다. 예전 값 station_teacher, homeroom_teacher는 교사로 읽는다.
+- 총괄과 교사는 같은 화면과 메뉴를 쓴다. 역할에 따라 화면을 따로 만들지 않는다.
 - 교사 등록은 총괄 운영자가 행사 설정 화면에서 이메일로 한다(teacherInvites/{소문자 이메일}). 등록된 Google 계정은 첫 로그인 때 초대장과 같은 역할로 teachers/{uid}를 만든다.
 - 교사 이메일을 코드, 테스트, 문서, 커밋에 넣지 않는다(저장소가 공개다). 예시는 example.com 주소를 쓴다.
 - 교사 등록을 위한 비밀 PIN을 프런트엔드에 넣지 않는다.

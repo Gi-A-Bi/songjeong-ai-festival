@@ -104,7 +104,7 @@ export function applyCheckIn(
   };
 }
 
-/** 부스 교사가 미션을 시작하면 입장한 팀이 진행 중이 된다. */
+/** 부스에서 미션을 시작하면 입장한 팀이 진행 중이 된다. */
 export function applyStationStart(record: TeamMissionRecord, now: number): TeamMissionRecord {
   if (record.checkedInAt === null || record.startedAt !== null || record.resultId !== null) {
     return record;

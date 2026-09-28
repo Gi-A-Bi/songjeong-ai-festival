@@ -378,14 +378,10 @@ export interface SaveSubmissionInput {
   drawing?: DrawingUpload;
 }
 
-/** 총괄 운영자가 이메일로 교사를 등록할 때의 입력. 적은 이메일 모두 같은 역할과 담당을 받는다. */
+/** 총괄 운영자가 이메일로 교사를 등록할 때의 입력. 적은 이메일 모두 같은 역할을 받는다. */
 export interface SaveTeacherInvitesInput {
   emails: string[];
   role: TeacherRole;
-  /** 부스 교사의 담당 미션. null이면 모든 부스를 운영할 수 있다. */
-  missionId: string | null;
-  /** 담임교사의 담당 학급 */
-  classId: string | null;
 }
 
 /** 교사 등록 현황: 이메일로 등록한 목록과 이미 로그인해 만들어진 교사 계정 */
@@ -606,7 +602,7 @@ export interface EventRepository {
     grade: Grade,
     roundNo: RoundNo,
   ): Promise<StationArrivals>;
-  /** 부스 교사의 “미션 시작”. 입장한 팀이 진행 중이 된다. 다시 눌러도 시작 시각은 그대로다. */
+  /** 부스의 “미션 시작”. 입장한 팀이 진행 중이 된다. 다시 눌러도 시작 시각은 그대로다. */
   startStationRound(input: StartStationInput): Promise<MissionRoundState>;
   /** QR을 찍지 못한 팀을 교사가 직접 입장 처리한다(수동 복구). */
   markTeamArrived(input: MarkArrivedInput): Promise<TeamMissionState>;
@@ -624,7 +620,7 @@ export interface EventRepository {
     onError: (error: unknown) => void,
     classId?: string,
   ): Unsubscribe;
-  /** 총괄 운영자가 학년의 최종 미션을 연다. 그 전에는 담임교사의 시작 버튼이 꺼져 있다. */
+  /** 총괄 운영자가 학년의 최종 미션을 연다. 그 전에는 각 반의 시작 버튼이 꺼져 있다. */
   openFinal(input: OpenFinalInput): Promise<FinalSession>;
   /** 어느 반도 시작하기 전에만 제한 시간을 바꾼다. */
   setFinalDuration(eventId: string, grade: Grade, durationLimitSec: number): Promise<FinalSession>;
@@ -664,7 +660,7 @@ export interface EventRepository {
   getTeacherRegistry(): Promise<TeacherRegistry>;
   /**
    * 이메일로 교사를 등록한다. 그 Google 계정은 처음 로그인할 때 등록된 역할의 교사가 된다.
-   * 이미 등록한 이메일을 다시 넣으면 역할과 담당을 새 값으로 바꾼다(이미 로그인한 계정에는 적용되지 않는다).
+   * 이미 등록한 이메일을 다시 넣으면 역할을 새 값으로 바꾼다(이미 로그인한 계정에는 적용되지 않는다).
    */
   saveTeacherInvites(input: SaveTeacherInvitesInput): Promise<TeacherRegistry>;
   /** 아직 로그인하지 않은 이메일의 등록을 취소한다. */
@@ -677,9 +673,6 @@ export interface EventRepository {
 export interface DevTools {
   failNextRequest(): void;
   resetData(): void;
-  /** 리허설용: 역할과 담당을 골라 교사로 들어간다. */
-  signInAs(
-    role: TeacherRole,
-    assignment?: { missionId?: string; classId?: string },
-  ): TeacherProfile;
+  /** 리허설용: 역할을 골라 교사로 들어간다. */
+  signInAs(role: TeacherRole): TeacherProfile;
 }

@@ -254,8 +254,8 @@ describe('MockEventRepository 역할별 권한', () => {
     repository = new MockEventRepository({ now: () => START, random: () => 0 });
   });
 
-  it('부스 교사는 담당 미션만 운영하고 라운드 제어는 할 수 없다', async () => {
-    repository.signInAs('station_teacher', { missionId: 'ozobot' });
+  it('교사는 모든 부스를 운영하고 라운드 제어는 할 수 없다', async () => {
+    repository.signInAs('teacher');
     // 전체 현황은 읽을 수 있다.
     await expect(repository.getOpsDashboard(EVENT, 4)).resolves.toBeTruthy();
     await expect(
@@ -263,7 +263,7 @@ describe('MockEventRepository 역할별 권한', () => {
     ).resolves.toMatchObject({ status: 'active' });
     await expect(
       repository.startStationRound({ eventId: EVENT, missionId: 'drawing', grade: 4, roundNo: 2 }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+    ).resolves.toMatchObject({ status: 'active' });
     await expect(repository.controlRound(EVENT, 'end')).rejects.toSatisfy((error) =>
       isRepositoryError(error, 'not-allowed'),
     );
@@ -272,17 +272,18 @@ describe('MockEventRepository 역할별 권한', () => {
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
   });
 
-  it('담임교사는 담당 학급의 최종 미션만 진행하고 부스 결과는 고칠 수 없다', async () => {
-    repository.signInAs('homeroom_teacher', { classId: 'g3-c4' });
+  it('교사는 모든 학급의 최종 미션을 진행하고, 교사 등록과 행사 설정은 할 수 없다', async () => {
+    repository.signInAs('teacher');
     await expect(
       repository.startClassFinal({ eventId: EVENT, classId: 'g3-c4', requestId: 's1' }),
     ).resolves.toMatchObject({ status: 'active' });
-    await expect(
-      repository.startClassFinal({ eventId: EVENT, classId: 'g3-c1', requestId: 's2' }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
-    await expect(
-      repository.startStationRound({ eventId: EVENT, missionId: 'ozobot', grade: 4, roundNo: 2 }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+    expect((await repository.getClassFinalView(EVENT, 'g3-c1')).canRunFinal).toBe(true);
+    await expect(repository.getTeacherRegistry()).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    await expect(repository.setActiveGrade(EVENT, 5)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
   });
 
   it('로그인하지 않으면 대시보드를 볼 수 없다', async () => {

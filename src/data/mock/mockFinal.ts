@@ -342,12 +342,12 @@ export class MockFinalStore {
         : null,
       confirmedCount: responses.filter((response) => response.confirmedAt !== null).length,
       canViewResults,
-      canRunFinal: this.ctx.canRunClassFinal(classInfo.id),
+      canRunFinal: this.ctx.teacher() !== null,
     };
   }
 
   start(input: StartClassFinalInput): ClassFinalView {
-    this.ctx.requireClassAccess(input.classId);
+    this.ctx.requireTeacher();
     const classInfo = this.ctx.findClass(input.classId);
     const state = this.stateOf(classInfo);
     // 새로고침·다른 기기·연타로 다시 시작해도 처음 시작 시각과 스냅샷을 유지한다.
@@ -390,7 +390,7 @@ export class MockFinalStore {
     config: FinalQuestionConfig;
     response: FinalResponse;
   } | null {
-    this.ctx.requireClassAccess(classId);
+    this.ctx.requireTeacher();
     const classInfo = this.ctx.findClass(classId);
     if (this.closeIfExpired(classInfo)) return null;
     const state = this.stateOf(classInfo);
@@ -457,7 +457,7 @@ export class MockFinalStore {
       stored?.confirmedAt != null &&
       this.ctx.state().processedRequests[input.requestId] === stored.id
     ) {
-      this.ctx.requireClassAccess(input.classId);
+      this.ctx.requireTeacher();
       return this.classView(classInfo.id);
     }
     const current = this.activeQuestion(input.classId, input.questionId);
@@ -486,7 +486,7 @@ export class MockFinalStore {
   }
 
   closeExpired(classId: string): ClassFinalView {
-    this.ctx.requireClassAccess(classId);
+    this.ctx.requireTeacher();
     return this.classView(classId);
   }
 

@@ -269,9 +269,6 @@ export class FirestoreEventRepository implements EventRepository {
       teacher: () => this.teacher,
       requireTeacher: () => this.requireTeacher(),
       requireAdmin: () => this.requireAdmin(),
-      requireStationAccess: (missionId) => this.requireStationAccess(missionId),
-      requireClassAccess: (classId) => this.requireClassAccess(classId),
-      canRunClassFinal: (classId) => this.canRunClassFinal(classId),
       currentEvent: async (eventId) => {
         const live = this.liveEvents.get(eventId)?.event;
         if (live) return live;
@@ -443,35 +440,6 @@ export class FirestoreEventRepository implements EventRepository {
     const teacher = this.requireTeacher();
     if (teacher.role !== 'admin') {
       throw new RepositoryError('not-allowed', '총괄 선생님만 할 수 있어요.');
-    }
-    return teacher;
-  }
-
-  /** 총괄 운영자 또는 그 미션 담당(담당이 정해지지 않은 부스 교사 포함) */
-  private requireStationAccess(missionId: string): TeacherProfile {
-    const teacher = this.requireTeacher();
-    const allowed =
-      teacher.role === 'admin' ||
-      (teacher.role === 'station_teacher' &&
-        (teacher.missionId === null || teacher.missionId === missionId));
-    if (!allowed) throw new RepositoryError('not-allowed', '담당 미션만 운영할 수 있어요.');
-    return teacher;
-  }
-
-  private canRunClassFinal(classId: string): boolean {
-    const teacher = this.teacher;
-    if (!teacher) return false;
-    return (
-      teacher.role === 'admin' ||
-      (teacher.role === 'homeroom_teacher' && teacher.classId === classId)
-    );
-  }
-
-  /** 총괄 운영자 또는 그 학급 담임 */
-  private requireClassAccess(classId: string): TeacherProfile {
-    const teacher = this.requireTeacher();
-    if (!this.canRunClassFinal(classId)) {
-      throw new RepositoryError('not-allowed', '담당 학급의 최종 미션만 진행할 수 있어요.');
     }
     return teacher;
   }
@@ -795,7 +763,7 @@ export class FirestoreEventRepository implements EventRepository {
   ): Promise<Mission> {
     return run(async () => {
       await this.ensureUser();
-      this.requireStationAccess(missionId);
+      this.requireTeacher();
       const mission = await this.getMission(eventId, missionId);
       if (config.type !== mission.type) {
         throw new RepositoryError('invalid-input', '미션 종류와 설정 형식이 달라요.');
@@ -1238,7 +1206,7 @@ export class FirestoreEventRepository implements EventRepository {
   ): Promise<void> {
     return run(async () => {
       await this.ensureUser();
-      this.requireStationAccess(missionId);
+      this.requireTeacher();
       const state = this.missionStateWrite(eventId, missionId, grade, roundNo, {
         answerRevealed: revealed,
       });
@@ -1380,7 +1348,7 @@ export class FirestoreEventRepository implements EventRepository {
   async finalizeRanking(input: FinalizeRankingInput): Promise<FinalizeRankingOutcome> {
     return run(async () => {
       await this.ensureUser();
-      const teacher = this.requireStationAccess(input.missionId);
+      const teacher = this.requireTeacher();
 
       const existing = await this.resultsOf(input);
       if (existing.length > 0) {
@@ -1467,7 +1435,7 @@ export class FirestoreEventRepository implements EventRepository {
   async reviseRanking(input: FinalizeRankingInput): Promise<ReviseRankingOutcome> {
     return run(async () => {
       await this.ensureUser();
-      const teacher = this.requireStationAccess(input.missionId);
+      const teacher = this.requireTeacher();
       const existing = await this.resultsOf(input);
       if (existing.length === 0) {
         throw new RepositoryError(
@@ -1577,7 +1545,7 @@ export class FirestoreEventRepository implements EventRepository {
   async reopenSubmission(input: ReopenSubmissionInput): Promise<void> {
     return run(async () => {
       await this.ensureUser();
-      this.requireStationAccess(input.missionId);
+      this.requireTeacher();
       const ref = doc(
         this.sub(input.eventId, 'submissions'),
         submissionId(input.missionId, input.teamId),
@@ -1861,7 +1829,7 @@ export class FirestoreEventRepository implements EventRepository {
         session,
         finalState: redactFinalClassState(finalState, canViewFinalResults(session, teacher.role)),
         finalStatus: presentFinalClassStatus(session, finalState, this.serverNow()),
-        canRunFinal: this.canRunClassFinal(classId),
+        canRunFinal: this.teacher !== null,
         startBlocker: getFinalStartBlocker(session, finalState),
       };
     });

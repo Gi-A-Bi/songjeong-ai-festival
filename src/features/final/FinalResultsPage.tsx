@@ -311,7 +311,7 @@ function SessionPanel({
           </>
         }
       >
-        <p>열고 나면 각 반 담임 선생님 화면의 “최종 미션 시작” 버튼이 켜져요.</p>
+        <p>열고 나면 각 반 화면의 “최종 미션 시작” 버튼이 켜져요.</p>
         {blocked ? (
           <div className="stack">
             <InlineAlert tone="warning">

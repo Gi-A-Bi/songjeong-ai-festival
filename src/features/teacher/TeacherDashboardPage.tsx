@@ -168,8 +168,8 @@ export function TeacherDashboardPage() {
         </div>
         {!isAdmin ? (
           <p className="control-bar__hint muted">
-            <Icon name="visibility" size="sm" /> 전체 현황은 읽기 전용이에요. 라운드 제어는 총괄
-            선생님만 할 수 있어요.
+            <Icon name="visibility" size="sm" /> 라운드는 총괄 선생님이 진행해요. 부스 운영과 채점은
+            아래 “부스 바로 가기”에서 해요.
           </p>
         ) : running ? null : (
           <p className="control-bar__hint muted">
@@ -178,6 +178,28 @@ export function TeacherDashboardPage() {
         )}
         {actionError ? <InlineAlert tone="danger">{toUserMessage(actionError)}</InlineAlert> : null}
       </section>
+
+      {/* 담당을 나누지 않으므로 누구나 여기서 자기가 맡은 부스로 바로 간다. */}
+      {missions.status === 'success' ? (
+        <nav className="panel booth-links" aria-label="부스 바로 가기">
+          <h2 className="booth-links__title">
+            <Icon name="meeting_room" /> 부스 바로 가기
+          </h2>
+          <ul className="booth-links__list">
+            {missions.data.map((mission) => (
+              <li key={mission.id}>
+                <ButtonLink
+                  to={paths.teacherStation(eventId, mission.id)}
+                  variant="secondary"
+                  icon={MISSION_TYPE_INFO[mission.type].icon}
+                >
+                  {mission.no}. {mission.title} · {mission.room}
+                </ButtonLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ) : null}
 
       {liveOps && grade !== null ? (
         <OpsBoard eventId={eventId} grade={grade} event={event} />

@@ -69,7 +69,7 @@ const CLOSE_MARGIN_MS = 1500;
 const CHECKLIST_TTL_MS = 15_000;
 const QUESTION_SET_TTL_MS = 5 * 60_000;
 
-/** 담임교사 기기까지 내려가는 문제. 정답은 들어 있지 않다(정답 문서는 총괄 운영자만 읽는다). */
+/** 교사 기기까지 내려가는 문제. 정답은 들어 있지 않다(정답 문서는 총괄 운영자만 읽는다). */
 interface PublicQuestion extends FinalQuestion {
   hintRemoveChoiceId: string;
 }
@@ -843,7 +843,7 @@ export class FirestoreFinalStore {
       response: state.status === 'active' ? response : null,
       confirmedCount: state.currentQuestionIndex,
       canViewResults,
-      canRunFinal: this.ctx.canRunClassFinal(classInfo.id),
+      canRunFinal: this.ctx.teacher() !== null,
     };
   }
 
@@ -857,7 +857,7 @@ export class FirestoreFinalStore {
     // 제한 시간이 지난 채 열었으면 저장된 답안으로 마감한다(진행 권한이 있을 때만).
     if (
       state.status === 'active' &&
-      this.ctx.canRunClassFinal(classId) &&
+      this.ctx.teacher() !== null &&
       isFinalExpired(session, state, this.ctx.serverNow() - CLOSE_MARGIN_MS)
     ) {
       state = await this.closeNow(eventId, classInfo, session).catch(() => state);
@@ -885,7 +885,7 @@ export class FirestoreFinalStore {
 
   async start(input: StartClassFinalInput): Promise<ClassFinalView> {
     await this.ctx.ensureUser();
-    this.ctx.requireClassAccess(input.classId);
+    this.ctx.requireTeacher();
     const classInfo = await this.ctx.getClass(input.eventId, input.classId);
     const session = await this.sessionOf(input.eventId, classInfo.grade);
     const state = await this.stateOf(input.eventId, classInfo, session);
@@ -954,7 +954,7 @@ export class FirestoreFinalStore {
     }) => { state?: Record<string, unknown>; answer: Record<string, unknown> },
   ): Promise<ClassFinalView> {
     await this.ctx.ensureUser();
-    this.ctx.requireClassAccess(input.classId);
+    this.ctx.requireTeacher();
     const classInfo = await this.ctx.getClass(input.eventId, input.classId);
     const session = await this.sessionOf(input.eventId, classInfo.grade);
     const questions = await this.questionsOf(input.eventId, classInfo.grade, session.questionCount);
@@ -1125,7 +1125,7 @@ export class FirestoreFinalStore {
 
   async closeExpired(eventId: string, classId: string): Promise<ClassFinalView> {
     await this.ctx.ensureUser();
-    this.ctx.requireClassAccess(classId);
+    this.ctx.requireTeacher();
     const classInfo = await this.ctx.getClass(eventId, classId);
     const session = await this.sessionOf(eventId, classInfo.grade);
     const state = await this.stateOf(eventId, classInfo, session);

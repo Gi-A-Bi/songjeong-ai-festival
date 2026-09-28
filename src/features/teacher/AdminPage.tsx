@@ -26,11 +26,7 @@ export function AdminPage() {
   const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
 
   if (teacher.role !== 'admin') {
-    return (
-      <InlineAlert tone="warning">
-        이 화면은 관리자(admin) 권한이 있는 선생님만 쓸 수 있어요.
-      </InlineAlert>
-    );
+    return <InlineAlert tone="warning">행사 설정은 총괄 선생님만 쓸 수 있어요.</InlineAlert>;
   }
 
   return (
@@ -111,7 +107,7 @@ export function AdminPage() {
         </ButtonLink>
       </section>
 
-      <TeacherRegistrationPanel eventId={eventId} currentUid={teacher.uid} />
+      <TeacherRegistrationPanel currentUid={teacher.uid} />
 
       <ConfirmDialog
         open={confirmOpen}

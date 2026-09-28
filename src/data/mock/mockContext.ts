@@ -21,11 +21,6 @@ export interface MockStoreContext {
   teacher(): TeacherProfile | null;
   requireTeacher(): TeacherProfile;
   requireAdmin(): TeacherProfile;
-  /** 총괄 운영자 또는 그 미션 담당(담당이 정해지지 않은 부스 교사 포함) */
-  requireStationAccess(missionId: string): TeacherProfile;
-  /** 총괄 운영자 또는 그 학급 담임 */
-  requireClassAccess(classId: string): TeacherProfile;
-  canRunClassFinal(classId: string): boolean;
   findTeam(teamId: string): Team;
   findClass(classId: string): ClassInfo;
   findMission(missionId: string): Mission;

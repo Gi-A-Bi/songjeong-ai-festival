@@ -99,16 +99,18 @@
 
 학생 개인 계정과 이름은 수집하지 않는다.
 
-### 5.2 미션 담당 교사
+### 5.2 교사
 
-- Google 계정으로 로그인
-- 전체 대시보드는 읽기 전용으로 확인
-- 담당 미션의 예정 팀과 QR 체크인 여부 확인
-- 담당 미션의 현재 라운드 시작·일시정지·종료
-- 제출 현황 확인
-- 수동 채점 또는 순위 확정
+2026-09-28에 미션 담당 교사와 담임교사를 교사 하나로 합쳤다. 담당을 나누지 않으며, 교사는 아래 일을 모든 부스와 모든 학급에서 할 수 있다.
+
+- Google 계정으로 로그인(총괄 운영자가 이메일로 등록한 계정)
+- 전체 대시보드 확인(라운드 제어는 총괄 운영자만)
+- 부스의 예정 팀과 QR 체크인 여부 확인, 직접 입장 처리, 미션 시작
+- 제출 현황 확인, 수동 채점 또는 순위 확정
 - 순위에 따른 카드 종류 후보 생성 및 보상 확정
 - 오류 제출 취소와 재제출 허용
+- 학급의 팀 위치, 미션 결과, 카드 진행도 확인
+- 총괄 운영자가 최종 미션을 연 뒤 학급의 최종 미션 시작, 전자칠판에서 10문제 풀이와 최종 제출 진행
 
 ### 5.3 총괄 관리자
 
@@ -120,15 +122,7 @@
 - 결과를 CSV 또는 JSON으로 내보내기
 - 리허설 데이터 초기화
 
-### 5.4 담임교사
-
-- Google 계정으로 로그인
-- 전체 대시보드는 읽기 전용으로 확인
-- 담당 학급의 팀 위치, 미션 결과, 카드 진행도 확인
-- 총괄 운영자가 최종 미션을 연 뒤 담당 학급의 최종 미션 시작
-- 전자칠판에서 10문제 풀이와 최종 제출 진행
-
-초기 버전에서는 부스 교사, 담임교사, 총괄 관리자를 하나의 교사용 앱 안에서 역할값으로 구분한다.
+총괄 관리자와 교사는 하나의 교사용 앱에서 같은 화면과 메뉴를 쓰고, 역할값(admin, teacher)으로 할 수 있는 일만 구분한다. 행사 설정 메뉴는 총괄 관리자에게만 보인다.
 
 ## 6. 다섯 가지 미션
 
@@ -562,12 +556,10 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
 
     displayName: string
     email: string
-    role: "admin" | "station_teacher" | "homeroom_teacher"
-    missionId: string | null   (부스 교사의 담당 미션. 비어 있으면 모든 부스)
-    classId: string | null     (담임교사의 담당 학급, 예: g4-c2)
+    role: "admin" | "teacher"
     active: boolean
 
-예전 값 role: "teacher"는 담당이 정해지지 않은 부스 교사로 취급한다.
+예전 값 role: "station_teacher", "homeroom_teacher"와 missionId, classId 항목이 남아 있는 문서는 교사로 읽고 담당은 권한에 쓰지 않는다.
 
 #### teacherInvites/{email}
 
@@ -575,14 +567,12 @@ Cloud Storage for Firebase는 2026년부터 Blaze 요금제가 필요하므로 �
 
     email: string              (문서 ID와 같음)
     displayName: string        (비어 있으면 첫 로그인 때 Google 계정 이름을 쓴다)
-    role: "admin" | "station_teacher" | "homeroom_teacher"
-    missionId: string | null
-    classId: string | null
+    role: "admin" | "teacher"
     active: boolean
     createdBy: string          (등록한 총괄 운영자의 UID)
     createdAt: timestamp
 
-그 Google 계정이 처음 로그인하면 앱이 초대장과 같은 역할·담당으로 teachers/{uid}를 만든다. 보안 규칙은 Google 로그인으로 확인된 이메일인지, 역할과 담당이 초대장과 같은지 검사한다.
+그 Google 계정이 처음 로그인하면 앱이 초대장과 같은 역할로 teachers/{uid}를 만든다. 보안 규칙은 Google 로그인으로 확인된 이메일인지, 역할이 초대장과 같은지 검사한다.
 
 #### events/{eventId}
 

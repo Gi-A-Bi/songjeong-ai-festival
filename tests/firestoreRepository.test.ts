@@ -508,31 +508,26 @@ describe('이메일로 교사 등록 (에뮬레이터)', () => {
     await signInAsTeacher();
     const registry = await repository.saveTeacherInvites({
       emails: ['new.teacher@example.com', 'head@example.com'],
-      role: 'station_teacher',
-      missionId: 'drawing',
-      // 부스 교사에게 맞지 않는 담당 학급은 저장하지 않는다.
-      classId: 'g4-c1',
+      role: 'teacher',
     });
     expect(registry.invites).toEqual([
-      expect.objectContaining({ email: 'head@example.com', role: 'station_teacher' }),
-      expect.objectContaining({
-        email: 'new.teacher@example.com',
-        role: 'station_teacher',
-        missionId: 'drawing',
-        classId: null,
-      }),
+      expect.objectContaining({ email: 'head@example.com', role: 'teacher' }),
+      expect.objectContaining({ email: 'new.teacher@example.com', role: 'teacher' }),
     ]);
 
     // Google 계정의 이메일에 대문자가 섞여 있어도 등록한 이메일로 알아본다.
     const user = await signInWithGoogle('google-1', 'New.Teacher@example.com', '새 선생님');
     const profile = await repository.restoreTeacher();
-    expect(profile).toEqual({
-      uid: user.uid,
-      displayName: '새 선생님',
-      role: 'station_teacher',
-      missionId: 'drawing',
-      classId: null,
-    });
+    expect(profile).toEqual({ uid: user.uid, displayName: '새 선생님', role: 'teacher' });
+    // 교사는 담당을 나누지 않고 어느 부스의 설정이든 고칠 수 있다.
+    await signInAsTeacher();
+    await repository.setupEvent(DEFAULT_EVENT_ID);
+    await signInWithGoogle('google-1', 'New.Teacher@example.com', '새 선생님');
+    await repository.restoreTeacher();
+    const mission = await repository.getMission(DEFAULT_EVENT_ID, 'drawing');
+    await expect(
+      repository.updateMissionConfig(DEFAULT_EVENT_ID, 'drawing', mission.config),
+    ).resolves.toBeTruthy();
 
     // 다시 로그인해도 같은 교사다.
     await signInWithGoogle('google-1', 'New.Teacher@example.com', '새 선생님');
@@ -544,8 +539,6 @@ describe('이메일로 교사 등록 (에뮬레이터)', () => {
     await repository.saveTeacherInvites({
       emails: ['new.teacher@example.com'],
       role: 'admin',
-      missionId: null,
-      classId: null,
     });
 
     await signInWithGoogle('google-2', 'stranger@example.com', '모르는 사람');
@@ -557,8 +550,6 @@ describe('이메일로 교사 등록 (에뮬레이터)', () => {
       repository.saveTeacherInvites({
         emails: ['stranger@example.com'],
         role: 'admin',
-        missionId: null,
-        classId: null,
       }),
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
   });
@@ -568,17 +559,13 @@ describe('이메일로 교사 등록 (에뮬레이터)', () => {
     await repository.saveTeacherInvites({
       emails: ['head@example.com'],
       role: 'admin',
-      missionId: null,
-      classId: null,
     });
 
     await signInWithGoogle('google-3', 'head@example.com', '새 총괄');
     expect((await repository.restoreTeacher())?.role).toBe('admin');
     const registry = await repository.saveTeacherInvites({
       emails: ['homeroom@example.com'],
-      role: 'homeroom_teacher',
-      missionId: null,
-      classId: 'g4-c2',
+      role: 'teacher',
     });
     expect(registry.invites.map((item) => item.email)).toContain('homeroom@example.com');
     expect(registry.accounts.map((item) => item.email)).toContain('head@example.com');
@@ -588,9 +575,7 @@ describe('이메일로 교사 등록 (에뮬레이터)', () => {
     await signInAsTeacher();
     await repository.saveTeacherInvites({
       emails: ['new.teacher@example.com'],
-      role: 'station_teacher',
-      missionId: null,
-      classId: null,
+      role: 'teacher',
     });
     const registry = await repository.deleteTeacherInvite('new.teacher@example.com');
     expect(registry.invites).toEqual([]);
@@ -603,9 +588,7 @@ describe('이메일로 교사 등록 (에뮬레이터)', () => {
     await signInAsTeacher();
     await repository.saveTeacherInvites({
       emails: ['new.teacher@example.com'],
-      role: 'station_teacher',
-      missionId: null,
-      classId: null,
+      role: 'teacher',
     });
     const user = await signInWithGoogle('google-1', 'new.teacher@example.com', '새 선생님');
     expect(await repository.restoreTeacher()).not.toBeNull();
@@ -625,21 +608,14 @@ describe('이메일로 교사 등록 (에뮬레이터)', () => {
     await signInAsTeacher();
     await repository.setTeacherActive(user.uid, true);
     await signInWithGoogle('google-1', 'new.teacher@example.com', '새 선생님');
-    expect((await repository.restoreTeacher())?.role).toBe('station_teacher');
+    expect((await repository.restoreTeacher())?.role).toBe('teacher');
   });
 
-  it('이메일이 없거나 담임에게 학급이 없으면 등록하지 않는다', async () => {
+  it('이메일이 없으면 등록하지 않는다', async () => {
     await signInAsTeacher();
-    await expect(
-      repository.saveTeacherInvites({ emails: [], role: 'admin', missionId: null, classId: null }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
-    await expect(
-      repository.saveTeacherInvites({
-        emails: ['homeroom@example.com'],
-        role: 'homeroom_teacher',
-        missionId: null,
-        classId: null,
-      }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
+    await expect(repository.saveTeacherInvites({ emails: [], role: 'admin' })).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'invalid-input'),
+    );
+    expect((await repository.getTeacherRegistry()).invites).toEqual([]);
   });
 });
