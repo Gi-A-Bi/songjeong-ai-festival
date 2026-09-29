@@ -1,18 +1,27 @@
+import { getGoldenBellQuestions, isGoldenBellCorrect } from './goldenBell';
 import type {
   CircleRegion,
   ErrorHuntConfig,
   GoldenBellAnswer,
   GoldenBellConfig,
+  Grade,
   Mission,
   MissionConfig,
   Submission,
   SubmissionAnswer,
 } from './types';
 
-/** 골든벨: 맞힌 문제 수. 지금 등록된 문제 기준으로 센다. */
-export function countGoldenBellCorrect(config: GoldenBellConfig, answer: GoldenBellAnswer): number {
-  return config.questions.filter(
-    (question) => answer.selections[question.id] === question.answerIndex,
+/**
+ * 골든벨: 맞힌 문제 수. 그 학년이 푸는 문제를 지금 등록된 내용 기준으로 센다.
+ * 학년을 모르면(null) 공통 문제로 센다.
+ */
+export function countGoldenBellCorrect(
+  config: GoldenBellConfig,
+  answer: GoldenBellAnswer,
+  grade: Grade | null = null,
+): number {
+  return getGoldenBellQuestions(config, grade).filter((question) =>
+    isGoldenBellCorrect(question, answer),
   ).length;
 }
 
@@ -48,9 +57,13 @@ export function countErrorHuntFound(config: ErrorHuntConfig, foundRegionIds: rea
 }
 
 /** 자동 채점 미션만 점수를 계산한다. 교사 판정 미션은 null. */
-export function calculateAutoScore(config: MissionConfig, answer: SubmissionAnswer): number | null {
+export function calculateAutoScore(
+  config: MissionConfig,
+  answer: SubmissionAnswer,
+  grade: Grade | null = null,
+): number | null {
   if (config.type === 'golden_bell' && answer.type === 'golden_bell') {
-    return countGoldenBellCorrect(config, answer) * 100;
+    return countGoldenBellCorrect(config, answer, grade) * 100;
   }
   if (config.type === 'error_hunt' && answer.type === 'error_hunt') {
     return calculateErrorHuntScore({
@@ -70,7 +83,7 @@ export function calculateAutoScore(config: MissionConfig, answer: SubmissionAnsw
  */
 export function resolveSubmissionScore(submission: Submission, mission: Mission): number | null {
   if (submission.status === 'verified' && submission.score !== null) return submission.score;
-  return calculateAutoScore(mission.config, submission.answer);
+  return calculateAutoScore(mission.config, submission.answer, submission.grade);
 }
 
 /**

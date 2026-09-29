@@ -63,20 +63,39 @@ export interface Team {
   status: TeamStatus;
 }
 
+/** 골든벨 문제 형식: O/X, 객관식, 단답형 */
+export type GoldenBellQuestionKind = 'ox' | 'choice' | 'short';
+
+/** 골든벨 난이도: 하·중·상 */
+export type GoldenBellLevel = 'low' | 'mid' | 'high';
+
 export interface GoldenBellQuestion {
   /** 문제를 고쳐도 학생 답이 따라가도록 고정한 ID */
   id: string;
+  /** 문제 형식. 없으면 객관식이다(예전에 저장한 문제). */
+  kind?: GoldenBellQuestionKind;
   question: string;
+  /** O/X와 객관식의 보기. O/X는 늘 ['O', 'X']이고 단답형은 비어 있다. */
   choices: string[];
-  /** 정답 보기 번호(0부터) */
+  /** 정답 보기 번호(0부터). 단답형은 쓰지 않는다. */
   answerIndex: number;
+  /** 단답형 정답. 첫 번째가 대표 정답이고 나머지는 함께 인정하는 답이다. */
+  answers?: string[];
+  /** 단답형 힌트(초성 등) */
+  hint?: string;
+  level?: GoldenBellLevel;
+  /** 영역(AI 이해·AI 윤리·AI 활용 등) */
+  area?: string;
   explanation: string;
 }
 
-/** 골든벨 문제 목록. 교사가 미션 운영 화면에서 등록한다. */
+/** 골든벨 문제 목록. 교사가 미션 운영 화면에서 등록하거나 문제 파일로 올린다. */
 export interface GoldenBellConfig {
   type: 'golden_bell';
+  /** 학년 공통 문제. 학년별 문제가 없는 학년이 쓴다. */
   questions: GoldenBellQuestion[];
+  /** 학년별 문제. 등록한 학년은 공통 문제 대신 이 문제를 쓴다. */
+  gradeQuestions?: Partial<Record<Grade, GoldenBellQuestion[]>>;
 }
 
 /** 정답 영역. 좌표와 반지름은 이미지 너비·높이에 대한 0~1 비율이다. */
@@ -158,6 +177,8 @@ export interface GoldenBellAnswer {
   type: 'golden_bell';
   /** 문제 ID → 고른 보기 번호(0부터) */
   selections: Record<string, number>;
+  /** 단답형: 문제 ID → 학생이 적은 답 */
+  texts?: Record<string, string>;
 }
 
 export interface ErrorHuntAnswer {

@@ -42,7 +42,7 @@ import {
   redactFinalClassState,
 } from '../../domain/finalMission';
 import { getDrawingConfigError } from '../../domain/drawingPrompts';
-import { getGoldenBellConfigError } from '../../domain/goldenBell';
+import { getGoldenBellSetsError } from '../../domain/goldenBell';
 import { DEFAULT_GAME_DURATION_MS } from '../../config';
 import { toRoundStatus } from '../../domain/boothRound';
 import { getGameDurationError } from '../../domain/gameDuration';
@@ -697,7 +697,7 @@ export class FirestoreEventRepository implements EventRepository {
         throw new RepositoryError('invalid-input', '미션 종류와 설정 형식이 달라요.');
       }
       if (config.type === 'golden_bell') {
-        const error = getGoldenBellConfigError(config.questions);
+        const error = getGoldenBellSetsError(config);
         if (error) throw new RepositoryError('invalid-input', error);
       }
       if (config.type === 'drawing') {
