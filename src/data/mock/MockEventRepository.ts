@@ -9,7 +9,7 @@ import {
 import { toDeviceCode } from '../../domain/device';
 import { getDrawingConfigError } from '../../domain/drawingPrompts';
 import { getTeacherInviteError } from '../../domain/teacherInvites';
-import { getGoldenBellConfigError } from '../../domain/goldenBell';
+import { getGoldenBellSetsError } from '../../domain/goldenBell';
 import { toRoundStatus, type BoothAction } from '../../domain/boothRound';
 import { getGameDurationError } from '../../domain/gameDuration';
 import { getSubmissionBlocker } from '../../domain/missionPhase';
@@ -326,7 +326,7 @@ export class MockEventRepository implements EventRepository, DevTools {
       throw new RepositoryError('invalid-input', '미션 종류와 설정 형식이 달라요.');
     }
     if (config.type === 'golden_bell') {
-      const error = getGoldenBellConfigError(config.questions);
+      const error = getGoldenBellSetsError(config);
       if (error) throw new RepositoryError('invalid-input', error);
     }
     if (config.type === 'drawing') {

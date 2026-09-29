@@ -10,9 +10,18 @@ import { MissionShell } from '../../../components/MissionShell';
 import { EmptyView } from '../../../components/StateViews';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { useRepository } from '../../../data/RepositoryContext';
+import {
+  getGoldenBellAnswerLabel,
+  getGoldenBellKind,
+  getGoldenBellQuestions,
+  GOLDEN_BELL_KIND_LABELS,
+  GOLDEN_BELL_LEVEL_LABELS,
+  GOLDEN_BELL_SHORT_MAX_LENGTH,
+  isGoldenBellAnswered,
+  isGoldenBellCorrect,
+} from '../../../domain/goldenBell';
 import { canSubmitInPhase } from '../../../domain/missionPhase';
-import { countGoldenBellCorrect } from '../../../domain/scoring';
-import type { GoldenBellConfig } from '../../../domain/types';
+import type { GoldenBellConfig, GoldenBellQuestion } from '../../../domain/types';
 import { MissionNotice } from '../MissionNotice';
 import type { MissionScreenProps } from '../missionTypes';
 import { useMissionSubmit } from '../useMissionSubmit';
@@ -22,7 +31,14 @@ interface GoldenBellMissionProps extends MissionScreenProps {
   config: GoldenBellConfig;
 }
 
-/** 등록된 문제를 팀이 차례로 풀고, 모두 푼 뒤 한 번에 제출한다. */
+interface Answers {
+  selections: Record<string, number>;
+  texts: Record<string, string>;
+}
+
+/**
+ * 그 학년에 등록된 문제(O/X, 객관식, 단답형)를 팀이 차례로 풀고, 모두 푼 뒤 한 번에 제출한다.
+ */
 export function GoldenBellMission({
   eventId,
   view,
@@ -34,23 +50,27 @@ export function GoldenBellMission({
   const { team, mission, submission, answerRevealed, roundNo } = view;
   const repository = useRepository();
   const { playEffect } = useSettings();
-  const { questions } = config;
-  const previous = submission?.answer.type === 'golden_bell' ? submission.answer.selections : {};
+  const questions = getGoldenBellQuestions(config, team.grade);
+  const previous: Answers =
+    submission?.answer.type === 'golden_bell'
+      ? { selections: submission.answer.selections, texts: submission.answer.texts ?? {} }
+      : { selections: {}, texts: {} };
   const saved = submission && submission.status !== 'draft' ? previous : null;
   // 재제출 허용이면 지난번 답을 채워 두고 고칠 수 있게 한다.
-  const [selections, setSelections] = useState<Record<string, number>>(previous);
+  const [draft, setDraft] = useState<Answers>(previous);
   const [index, setIndex] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const { submit, isPending, error } = useMissionSubmit(eventId, team.id, mission.id, onSubmitted);
 
-  const answers = saved ?? selections;
+  const answers = saved ?? draft;
   const canAnswer = canSubmitInPhase(phase) && saved === null && !isPending;
-  const answeredCount = questions.filter((question) => answers[question.id] !== undefined).length;
+  const answeredCount = questions.filter((question) =>
+    isGoldenBellAnswered(question, answers),
+  ).length;
   const unanswered = questions.length - answeredCount;
-  const correctCount = countGoldenBellCorrect(config, {
-    type: 'golden_bell',
-    selections: answers,
-  });
+  const correctCount = questions.filter((question) =>
+    isGoldenBellCorrect(question, answers),
+  ).length;
 
   const notice = <MissionNotice phase={phase} event={event} view={view} error={error} />;
 
@@ -68,16 +88,24 @@ export function GoldenBellMission({
 
   const currentIndex = Math.min(index, questions.length - 1);
   const current = questions[currentIndex];
-  const chosen = answers[current.id];
+  const kind = getGoldenBellKind(current);
   const isLast = currentIndex === questions.length - 1;
+  const currentAnswered = isGoldenBellAnswered(current, answers);
+  const currentCorrect = isGoldenBellCorrect(current, answers);
 
   const handleSubmit = async () => {
-    const cleaned = Object.fromEntries(
-      questions
-        .filter((question) => selections[question.id] !== undefined)
-        .map((question) => [question.id, selections[question.id]]),
-    );
-    await submit({ type: 'golden_bell', selections: cleaned });
+    // 지금 등록된 문제의 답만, 형식에 맞는 칸에 담아 보낸다.
+    const selections: Record<string, number> = {};
+    const texts: Record<string, string> = {};
+    for (const question of questions) {
+      if (!isGoldenBellAnswered(question, draft)) continue;
+      if (getGoldenBellKind(question) === 'short') {
+        texts[question.id] = draft.texts[question.id].trim();
+      } else {
+        selections[question.id] = draft.selections[question.id];
+      }
+    }
+    await submit({ type: 'golden_bell', selections, texts });
     setConfirmOpen(false);
   };
 
@@ -124,8 +152,8 @@ export function GoldenBellMission({
       <div className="gb-toolbar">
         <nav className="gb-steps" aria-label="문제 번호">
           {questions.map((question, questionIndex) => {
-            const answered = answers[question.id] !== undefined;
-            const correct = answers[question.id] === question.answerIndex;
+            const answered = isGoldenBellAnswered(question, answers);
+            const correct = isGoldenBellCorrect(question, answers);
             const className = [
               'gb-step',
               answered ? 'gb-step--answered' : '',
@@ -160,7 +188,7 @@ export function GoldenBellMission({
           </Button>
           {!isLast ? (
             <Button
-              variant={chosen !== undefined ? 'primary' : 'secondary'}
+              variant={currentAnswered ? 'primary' : 'secondary'}
               size="lg"
               iconEnd="arrow_forward"
               onClick={() => setIndex(currentIndex + 1)}
@@ -172,78 +200,129 @@ export function GoldenBellMission({
       </div>
 
       <section className="gb-question" aria-labelledby="gb-question-text">
-        <p className="gb-question__no">
-          <Icon name="notifications_active" />
-          문제 {currentIndex + 1} / {questions.length}
-        </p>
+        <div className="gb-question__meta">
+          <p className="gb-question__no">
+            <Icon name="notifications_active" />
+            문제 {currentIndex + 1} / {questions.length}
+          </p>
+          <QuestionTags question={current} />
+        </div>
         <h2 id="gb-question-text" className="gb-question__text">
           {current.question}
         </h2>
       </section>
 
-      <div className="gb-choices" role="radiogroup" aria-labelledby="gb-question-text">
-        {current.choices.map((text, choiceIndex) => {
-          const isChosen = chosen === choiceIndex;
-          const isAnswer = answerRevealed && choiceIndex === current.answerIndex;
-          const className = [
-            'gb-choice',
-            // 보기 색은 네 가지를 돌려 쓴다. 번호를 함께 보여 주므로 색만으로 구분하지 않는다.
-            `gb-choice--c${(choiceIndex % 4) + 1}`,
-            isChosen ? 'gb-choice--chosen' : '',
-            isAnswer ? 'gb-choice--answer' : '',
-            answerRevealed && isChosen && !isAnswer ? 'gb-choice--wrong' : '',
-          ]
-            .filter(Boolean)
-            .join(' ');
-          return (
-            <button
-              key={`${current.id}-${choiceIndex}`}
-              type="button"
-              role="radio"
-              aria-checked={isChosen}
-              className={className}
-              disabled={!canAnswer}
-              onClick={() => {
-                playEffect('tap');
-                setSelections((values) => ({ ...values, [current.id]: choiceIndex }));
-              }}
-            >
-              <span className="gb-choice__no number">{choiceIndex + 1}</span>
-              <span className="gb-choice__text">{text}</span>
-              {isAnswer ? (
-                <StatusBadge tone="success" icon="check_circle">
-                  정답
-                </StatusBadge>
-              ) : null}
-              {isChosen && !isAnswer ? (
-                <StatusBadge
-                  tone={answerRevealed ? 'danger' : 'info'}
-                  icon={answerRevealed ? 'close' : 'check'}
-                >
-                  우리 답
-                </StatusBadge>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
+      {kind === 'short' ? (
+        <ShortAnswer
+          // 문제를 넘기면 입력 칸도 그 문제의 답으로 바뀐다.
+          key={current.id}
+          question={current}
+          value={answers.texts[current.id] ?? ''}
+          disabled={!canAnswer}
+          revealed={answerRevealed}
+          correct={currentCorrect}
+          onChange={(text) =>
+            setDraft((values) => ({
+              ...values,
+              texts: { ...values.texts, [current.id]: text },
+            }))
+          }
+        />
+      ) : (
+        <div
+          className={`gb-choices${kind === 'ox' ? ' gb-choices--ox' : ''}`}
+          role="radiogroup"
+          aria-labelledby="gb-question-text"
+        >
+          {current.choices.map((text, choiceIndex) => {
+            const chosen = answers.selections[current.id];
+            const isChosen = chosen === choiceIndex;
+            const isAnswer = answerRevealed && choiceIndex === current.answerIndex;
+            // O는 파랑, X는 분홍. 객관식은 네 가지 색을 돌려 쓴다.
+            const color = kind === 'ox' ? (choiceIndex === 0 ? 1 : 4) : (choiceIndex % 4) + 1;
+            const className = [
+              'gb-choice',
+              // 번호나 O·X 글자를 함께 보여 주므로 색만으로 구분하지 않는다.
+              `gb-choice--c${color}`,
+              kind === 'ox' ? 'gb-choice--ox' : '',
+              isChosen ? 'gb-choice--chosen' : '',
+              isAnswer ? 'gb-choice--answer' : '',
+              answerRevealed && isChosen && !isAnswer ? 'gb-choice--wrong' : '',
+            ]
+              .filter(Boolean)
+              .join(' ');
+            return (
+              <button
+                key={`${current.id}-${choiceIndex}`}
+                type="button"
+                role="radio"
+                aria-checked={isChosen}
+                aria-label={
+                  kind === 'ox' ? (choiceIndex === 0 ? 'O 맞아요' : 'X 아니에요') : undefined
+                }
+                className={className}
+                disabled={!canAnswer}
+                onClick={() => {
+                  playEffect('tap');
+                  setDraft((values) => ({
+                    ...values,
+                    selections: { ...values.selections, [current.id]: choiceIndex },
+                  }));
+                }}
+              >
+                {kind === 'ox' ? (
+                  <>
+                    <span className="gb-choice__mark" aria-hidden="true">
+                      {text}
+                    </span>
+                    <span className="gb-choice__text" aria-hidden="true">
+                      {choiceIndex === 0 ? '맞아요' : '아니에요'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="gb-choice__no number">{choiceIndex + 1}</span>
+                    <span className="gb-choice__text">{text}</span>
+                  </>
+                )}
+                {isAnswer ? (
+                  <StatusBadge tone="success" icon="check_circle">
+                    정답
+                  </StatusBadge>
+                ) : null}
+                {isChosen && !isAnswer ? (
+                  <StatusBadge
+                    tone={answerRevealed ? 'danger' : 'info'}
+                    icon={answerRevealed ? 'close' : 'check'}
+                  >
+                    우리 답
+                  </StatusBadge>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {answerRevealed ? (
         <section className="gb-reveal" aria-live="polite">
           <AssetImage
-            asset={chosen === current.answerIndex ? 'mascotCorrect' : 'mascotHint'}
+            asset={currentCorrect ? 'mascotCorrect' : 'mascotHint'}
             decorative
             className="gb-reveal__mascot"
           />
           <div>
             <p className="gb-reveal__title">
-              {chosen === undefined
+              {!currentAnswered
                 ? '정답 공개'
-                : chosen === current.answerIndex
+                : currentCorrect
                   ? '정답이에요!'
-                  : '아쉬워요! 해설을 읽어 봐요'}
+                  : '아쉬워요! 정답을 확인해 봐요'}
             </p>
-            <p>{current.explanation}</p>
+            <p>
+              정답: <strong>{getGoldenBellAnswerLabel(current)}</strong>
+            </p>
+            {current.explanation ? <p>{current.explanation}</p> : null}
           </div>
         </section>
       ) : null}
@@ -276,5 +355,75 @@ export function GoldenBellMission({
         <p className="muted">제출하면 답을 바꿀 수 없어요.</p>
       </ConfirmDialog>
     </MissionShell>
+  );
+}
+
+/** 문제 형식, 난이도, 영역을 작은 표식으로 보여 준다. */
+function QuestionTags({ question }: { question: GoldenBellQuestion }) {
+  return (
+    <p className="gb-question__tags">
+      <span className="gb-tag">{GOLDEN_BELL_KIND_LABELS[getGoldenBellKind(question)]}</span>
+      {question.level ? (
+        <span className={`gb-tag gb-tag--${question.level}`}>
+          난이도 {GOLDEN_BELL_LEVEL_LABELS[question.level]}
+        </span>
+      ) : null}
+      {question.area ? <span className="gb-tag">{question.area}</span> : null}
+    </p>
+  );
+}
+
+/** 단답형: 팀이 답을 직접 적는다. 띄어쓰기와 대소문자는 채점에 영향을 주지 않는다. */
+function ShortAnswer({
+  question,
+  value,
+  disabled,
+  revealed,
+  correct,
+  onChange,
+}: {
+  question: GoldenBellQuestion;
+  value: string;
+  disabled: boolean;
+  revealed: boolean;
+  correct: boolean;
+  onChange: (text: string) => void;
+}) {
+  const inputId = `gb-short-${question.id}`;
+  const state = !revealed ? '' : correct ? ' gb-short--correct' : ' gb-short--wrong';
+  return (
+    <div className={`gb-short${state}`}>
+      <label className="gb-short__label" htmlFor={inputId}>
+        <Icon name="edit" /> 답을 적어요
+      </label>
+      {question.hint ? (
+        <p className="gb-short__hint" id={`${inputId}-hint`}>
+          <Icon name="lightbulb" /> 힌트: {question.hint}
+        </p>
+      ) : null}
+      <input
+        id={inputId}
+        className="gb-short__input"
+        type="text"
+        value={value}
+        maxLength={GOLDEN_BELL_SHORT_MAX_LENGTH}
+        disabled={disabled}
+        autoComplete="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        placeholder="여기에 답을 적어요"
+        aria-describedby={question.hint ? `${inputId}-hint` : undefined}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {revealed && value.trim() ? (
+        <StatusBadge
+          tone={correct ? 'success' : 'danger'}
+          icon={correct ? 'check_circle' : 'close'}
+        >
+          {correct ? '우리 답이 맞았어요' : '우리 답이 달라요'}
+        </StatusBadge>
+      ) : null}
+      <p className="gb-short__tip">띄어쓰기와 영어 대문자·소문자는 달라도 괜찮아요.</p>
+    </div>
   );
 }

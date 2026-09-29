@@ -1,4 +1,11 @@
 import { formatBytes } from '../../../domain/drawingFiles';
+import {
+  getGoldenBellAnswerLabel,
+  getGoldenBellKind,
+  getGoldenBellQuestions,
+  isGoldenBellAnswered,
+  isGoldenBellCorrect,
+} from '../../../domain/goldenBell';
 import { countErrorHuntFound, countGoldenBellCorrect } from '../../../domain/scoring';
 import type { Mission, Submission } from '../../../domain/types';
 
@@ -17,13 +24,33 @@ export function AnswerSummary({
   switch (answer.type) {
     case 'golden_bell': {
       if (config.type !== 'golden_bell') return <>-</>;
-      const answered = config.questions.filter(
-        (question) => answer.selections[question.id] !== undefined,
+      const questions = getGoldenBellQuestions(config, submission.grade);
+      const answered = questions.filter((question) =>
+        isGoldenBellAnswered(question, answer),
       ).length;
+      // 단답형은 글자가 조금 달라 틀린 것일 수 있어, 틀린 답을 그대로 보여 주고 선생님이 판단하게 한다.
+      const missed = questions
+        .map((question, index) => ({ question, no: index + 1 }))
+        .filter(
+          ({ question }) =>
+            getGoldenBellKind(question) === 'short' &&
+            isGoldenBellAnswered(question, answer) &&
+            !isGoldenBellCorrect(question, answer),
+        );
       return (
         <>
-          맞힘 {countGoldenBellCorrect(config, answer)}/{config.questions.length} · 답한 문제{' '}
-          {answered}
+          맞힘 {countGoldenBellCorrect(config, answer, submission.grade)}/{questions.length} · 답한
+          문제 {answered}
+          {missed.length > 0 ? (
+            <dl className="answer-list">
+              <dt>틀린 단답형(맞게 볼 답이면 점수를 고쳐 주세요)</dt>
+              {missed.map(({ question, no }) => (
+                <dd key={question.id}>
+                  {no}번 “{answer.texts?.[question.id]}” · 정답 {getGoldenBellAnswerLabel(question)}
+                </dd>
+              ))}
+            </dl>
+          ) : null}
         </>
       );
     }

@@ -7,6 +7,7 @@ import { EmptyView, ErrorView, InlineAlert, LoadingView } from '../../components
 import type { MissionParticipant } from '../../data/EventRepository';
 import { toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
+import { getGoldenBellQuestions } from '../../domain/goldenBell';
 import { ROUND_NUMBERS } from '../../domain/rotation';
 import { MISSION_ROUND_STATUS_LABELS } from '../../domain/tour';
 import type { FestivalEvent, Grade, Mission, MissionRoundState, RoundNo } from '../../domain/types';
@@ -126,7 +127,8 @@ export function TeacherMissionPage() {
             aria-pressed={tab === 'questions'}
             onClick={() => setTab('questions')}
           >
-            <Icon name="quiz" /> 문제 등록 ({config.questions.length}문항)
+            {/* 지금 진행하는 학년이 푸는 문제 수 */}
+            <Icon name="quiz" /> 문제 등록 ({getGoldenBellQuestions(config, grade).length}문항)
           </button>
         </div>
       ) : null}
@@ -156,6 +158,7 @@ export function TeacherMissionPage() {
           eventId={eventId}
           mission={mission}
           config={config}
+          grade={grade}
           onSaved={refresh}
         />
       ) : config.type === 'drawing' && tab === 'questions' ? (

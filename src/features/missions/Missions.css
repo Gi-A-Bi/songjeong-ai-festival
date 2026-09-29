@@ -65,21 +65,20 @@
   font-size: var(--font-size-sm);
 }
 
-/* AI 골든벨 */
+/* AI 골든벨. 15문항이어도 문제 번호가 한 줄에 들어가게 번호 칸을 터치 최소 크기로 잡는다. */
 .gb-steps {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: 6px;
 }
 
 .gb-step {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  min-width: 52px;
-  min-height: 52px;
-  padding: 0 var(--space-2);
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+  padding: 0 var(--space-1);
   border: 3px solid var(--color-border-strong);
   border-radius: var(--radius-pill);
   background: var(--color-neutral-soft);
@@ -132,6 +131,14 @@
   box-shadow: var(--shadow-lg);
 }
 
+.gb-question__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+
 .gb-question__no {
   display: flex;
   align-items: center;
@@ -139,6 +146,37 @@
   color: var(--gold-600);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-heavy);
+}
+
+/* 문제 형식·난이도·영역 표식 */
+.gb-question__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.gb-tag {
+  padding: 2px var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--gray-100);
+  color: var(--gray-700);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-heavy);
+}
+
+.gb-tag--low {
+  background: var(--green-100);
+  color: var(--green-800);
+}
+
+.gb-tag--mid {
+  background: var(--blue-100);
+  color: var(--blue-700);
+}
+
+.gb-tag--high {
+  background: var(--purple-100);
+  color: var(--purple-600);
 }
 
 .gb-question__text {
@@ -214,6 +252,106 @@
 
 .gb-choice__text {
   flex: 1;
+}
+
+/* O/X: 큰 글자 두 칸. O와 X 글자, “맞아요/아니에요”를 함께 보여 준다. */
+.gb-choice--ox {
+  justify-content: center;
+  gap: var(--space-4);
+  min-height: clamp(120px, 22vh, 200px);
+  font-size: var(--font-size-xl);
+}
+
+.gb-choice--ox .gb-choice__text {
+  flex: none;
+}
+
+.gb-choice__mark {
+  display: grid;
+  place-items: center;
+  width: clamp(72px, 12vh, 112px);
+  height: clamp(72px, 12vh, 112px);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  color: var(--choice-ink, var(--navy-900));
+  font-family: var(--font-family-number);
+  font-size: clamp(3rem, 9vh, 5rem);
+  font-weight: var(--font-weight-heavy);
+  line-height: 1;
+}
+
+/* 단답형: 밝은 입력 칸에 크게 적는다. */
+.gb-short {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border: 3px solid var(--color-accent-purple);
+  border-radius: var(--radius-xl);
+  background: var(--color-accent-purple-soft);
+}
+
+.gb-short__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+}
+
+.gb-short__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--gold-400);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+  letter-spacing: 0.08em;
+}
+
+.gb-short__input {
+  width: 100%;
+  min-height: 84px;
+  padding: var(--space-2) var(--space-5);
+  border: 4px solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  color: var(--navy-900);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-heavy);
+}
+
+.gb-short__input::placeholder {
+  color: var(--gray-400);
+  font-weight: var(--font-weight-medium);
+}
+
+.gb-short__input:focus-visible {
+  border-color: var(--gold-400);
+  outline-offset: 0;
+}
+
+.gb-short__input:disabled {
+  background: var(--gray-200);
+  color: var(--gray-700);
+}
+
+.gb-short--correct .gb-short__input {
+  border-color: var(--green-500);
+}
+
+.gb-short--wrong .gb-short__input {
+  border-style: dashed;
+  border-color: var(--red-500);
+}
+
+.gb-short .badge {
+  align-self: flex-start;
+}
+
+.gb-short__tip {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .gb-choice .badge {

@@ -13,6 +13,9 @@ import { getFirebase } from '../src/data/firebase/firebaseApp';
 import { isRepositoryError } from '../src/data/errors';
 import type { MissionLiveState } from '../src/data/EventRepository';
 import { resolveDrawingPrompt } from '../src/domain/drawingPrompts';
+import { getGoldenBellQuestions } from '../src/domain/goldenBell';
+import { applyGoldenBellUpload, parseGoldenBellUpload } from '../src/domain/goldenBellUpload';
+import { createGoldenUploadFixture } from '../src/test/goldenUploadFixture';
 import type { FestivalEvent, RoundNo } from '../src/domain/types';
 
 const PROJECT_ID = 'demo-songjeong';
@@ -667,6 +670,58 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
         questions: [],
       }),
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
+  });
+
+  it('골든벨 문제 파일을 올리면 학년별 문제가 저장되고, 학생의 O/X·객관식·단답형 답을 채점한다', async () => {
+    await prepareTour();
+    const before = await repository.getMission(DEFAULT_EVENT_ID, 'golden-bell');
+    if (before.config.type !== 'golden_bell') throw new Error('골든벨 미션이 아니에요');
+
+    // 예시 파일의 3학년 묶음을 4학년 문제로 바꿔 올린다(진행 학년이 4학년이다).
+    const raw = createGoldenUploadFixture();
+    raw.sets[0].grades = [4];
+    const { sets, errors } = parseGoldenBellUpload(raw);
+    expect(errors).toEqual([]);
+    await repository.updateMissionConfig(
+      DEFAULT_EVENT_ID,
+      'golden-bell',
+      applyGoldenBellUpload(before.config, sets),
+    );
+
+    const mission = await repository.getMission(DEFAULT_EVENT_ID, 'golden-bell');
+    if (mission.config.type !== 'golden_bell') throw new Error('골든벨 미션이 아니에요');
+    expect(getGoldenBellQuestions(mission.config, 4)).toEqual(sets[0].questions);
+    expect(getGoldenBellQuestions(mission.config, 5)).toEqual(sets[1].questions);
+    expect(getGoldenBellQuestions(mission.config, 6)).toEqual(sets[1].questions);
+    // 파일에 없는 3학년은 공통 문제를 그대로 쓴다.
+    expect(getGoldenBellQuestions(mission.config, 3)).toEqual(before.config.questions);
+
+    await startGame('golden-bell');
+    await signInAsStudent();
+    await repository.joinTeam(DEFAULT_EVENT_ID, TEAM_ID);
+    const view = await repository.getTeamMissionView(DEFAULT_EVENT_ID, TEAM_ID, 'golden-bell');
+    if (view.mission.config.type !== 'golden_bell') throw new Error('골든벨 미션이 아니에요');
+    expect(getGoldenBellQuestions(view.mission.config, view.team.grade)).toHaveLength(3);
+
+    const [ox, choice, short] = sets[0].questions;
+    const saved = await repository.saveSubmission({
+      eventId: DEFAULT_EVENT_ID,
+      missionId: 'golden-bell',
+      teamId: TEAM_ID,
+      answer: {
+        type: 'golden_bell',
+        selections: { [ox.id]: 0, [choice.id]: 0 },
+        // 띄어쓰기와 대소문자가 달라도 맞게 채점한다.
+        texts: { [short.id]: ' key board ' },
+      },
+      requestId: 'golden-kinds',
+    });
+    expect(saved.score).toBe(200);
+    expect(saved.answer).toEqual({
+      type: 'golden_bell',
+      selections: { [ox.id]: 0, [choice.id]: 0 },
+      texts: { [short.id]: ' key board ' },
+    });
   });
 });
 
