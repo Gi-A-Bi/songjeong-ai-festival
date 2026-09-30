@@ -1,3 +1,4 @@
+import { getErrorHuntRegions, getRegionRadiusY } from './errorHunt';
 import { getGoldenBellQuestions, isGoldenBellCorrect } from './goldenBell';
 import type {
   CircleRegion,
@@ -50,9 +51,13 @@ export function calculateErrorHuntScore({
   return Math.max(0, base + timeBonus - penalty);
 }
 
-/** 설정에 있는 정답 영역만, 한 번씩만 센다. */
-export function countErrorHuntFound(config: ErrorHuntConfig, foundRegionIds: readonly string[]) {
-  const valid = new Set(config.regions.map((region) => region.id));
+/** 그 학년이 푸는 그림의 정답 영역만, 한 번씩만 센다. */
+export function countErrorHuntFound(
+  config: ErrorHuntConfig,
+  foundRegionIds: readonly string[],
+  grade: Grade | null = null,
+) {
+  const valid = new Set(getErrorHuntRegions(config, grade).map((region) => region.id));
   return new Set(foundRegionIds.filter((id) => valid.has(id))).size;
 }
 
@@ -67,8 +72,8 @@ export function calculateAutoScore(
   }
   if (config.type === 'error_hunt' && answer.type === 'error_hunt') {
     return calculateErrorHuntScore({
-      found: countErrorHuntFound(config, answer.foundRegionIds),
-      total: config.regions.length,
+      found: countErrorHuntFound(config, answer.foundRegionIds, grade),
+      total: getErrorHuntRegions(config, grade).length,
       remainingSeconds: answer.remainingSeconds,
       wrongTaps: answer.wrongTaps,
     });
@@ -87,8 +92,9 @@ export function resolveSubmissionScore(submission: Submission, mission: Mission)
 }
 
 /**
- * 터치 위치(0~1 비율)가 원형 정답 영역 안인지 판정한다.
- * 반지름은 너비 기준 비율이므로 실제 이미지 비율(aspect = 너비/높이)로 세로 거리를 보정한다.
+ * 터치 위치(0~1 비율)가 정답 영역(원 또는 타원) 안인지 판정한다.
+ * 원의 반지름은 너비 기준 비율이므로 실제 이미지 비율(aspect = 너비/높이)로 세로 반지름을 구한다.
+ * 영역이 겹친 곳을 누르면 가운데가 더 가까운 영역으로 본다.
  */
 export function findHitRegion(
   regions: readonly CircleRegion[],
@@ -98,11 +104,13 @@ export function findHitRegion(
   let best: { region: CircleRegion; distance: number } | null = null;
   for (const region of regions) {
     const dx = point.x - region.x;
-    const dy = (point.y - region.y) / aspect;
-    const distance = Math.hypot(dx, dy);
-    if (distance <= region.r && (!best || distance < best.distance)) {
-      best = { region, distance };
-    }
+    const dy = point.y - region.y;
+    const ry = getRegionRadiusY(region, aspect);
+    if (region.r <= 0 || ry <= 0) continue;
+    if ((dx / region.r) ** 2 + (dy / ry) ** 2 > 1) continue;
+    // 가운데까지의 거리는 화면에서 보이는 길이(너비 기준)로 견준다.
+    const distance = Math.hypot(dx, dy / aspect);
+    if (!best || distance < best.distance) best = { region, distance };
   }
   return best?.region ?? null;
 }

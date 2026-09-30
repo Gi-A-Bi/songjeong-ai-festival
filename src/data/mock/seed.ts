@@ -2,6 +2,7 @@ import { DEFAULT_EVENT_ID, DEFAULT_GAME_DURATION_MS } from '../../config';
 import type { BoothTimes } from '../../domain/boothRound';
 import { CARD_TYPES, drawOfferedTypes } from '../../domain/cards';
 import { createDefaultDrawingConfig } from '../../domain/drawingPrompts';
+import { getErrorHuntRegions } from '../../domain/errorHunt';
 import { getSelectionModeForRank, OFFER_COUNT_BY_MODE } from '../../domain/rewards';
 import {
   emptyFinalClassState,
@@ -299,7 +300,7 @@ function sampleScore(mission: Mission, rank: number, teamCount: number): number 
   return (teamCount + 1 - rank) * (mission.type === 'drawing' ? 2 : 100);
 }
 
-function sampleAnswer(mission: Mission, variant: number): SubmissionAnswer {
+function sampleAnswer(mission: Mission, variant: number, grade: Grade): SubmissionAnswer {
   const config = mission.config;
   switch (config.type) {
     case 'golden_bell':
@@ -314,15 +315,16 @@ function sampleAnswer(mission: Mission, variant: number): SubmissionAnswer {
           ]),
         ),
       };
-    case 'error_hunt':
+    case 'error_hunt': {
+      // 그 학년이 푸는 그림에서 앞에서부터 몇 곳을 찾은 것으로 한다.
+      const regions = getErrorHuntRegions(config, grade);
       return {
         type: 'error_hunt',
-        foundRegionIds: config.regions
-          .slice(0, (variant % config.regions.length) + 1)
-          .map((region) => region.id),
+        foundRegionIds: regions.slice(0, (variant % regions.length) + 1).map((region) => region.id),
         wrongTaps: variant % 3,
         remainingSeconds: 60 + variant * 20,
       };
+    }
     case 'drawing':
       return {
         type: 'drawing',
@@ -580,7 +582,7 @@ export function createSeedState(now: number): MockState {
         grade: DEMO_GRADE,
         roundNo: round1,
         status: 'verified',
-        answer: sampleAnswer(mission, classNo),
+        answer: sampleAnswer(mission, classNo, DEMO_GRADE),
         score,
         reopened: false,
         submittedAt,
@@ -624,7 +626,7 @@ export function createSeedState(now: number): MockState {
       const team2Id = toTeamId(DEMO_GRADE, classNo, getTeamNoForMission(mission.no, round2));
       const playing = !waitingMissionIds.includes(mission.id);
       if (playing && (classNo + mission.no) % 2 === 0 && team2Id !== DEMO_TEAM_ID) {
-        const answer = sampleAnswer(mission, classNo + 1);
+        const answer = sampleAnswer(mission, classNo + 1, DEMO_GRADE);
         const id2 = submissionId(mission.id, team2Id);
         const submittedAt2 = round2StartedAt + (classNo % 3) * 20_000 + 30_000;
         submissions[id2] = {
@@ -672,7 +674,7 @@ export function createSeedState(now: number): MockState {
           grade: FINAL_DEMO_GRADE,
           roundNo,
           status: 'verified',
-          answer: sampleAnswer(mission, classNo + roundNo),
+          answer: sampleAnswer(mission, classNo + roundNo, FINAL_DEMO_GRADE),
           score,
           reopened: false,
           submittedAt: roundStartedAt + (2 + rank) * MINUTE,
