@@ -1,6 +1,7 @@
 import { getErrorHuntRegions, getRegionRadiusY } from './errorHunt';
 import { getGoldenBellQuestions, isGoldenBellCorrect } from './goldenBell';
 import { hasLibraryCheckAnswerKey, scoreLibraryCheck } from './libraryCheck';
+import { calculateOzobotScore, getOzobotSolved } from './ozobot';
 import type {
   CircleRegion,
   ErrorHuntConfig,
@@ -78,6 +79,10 @@ export function calculateAutoScore(
       remainingSeconds: answer.remainingSeconds,
       wrongTaps: answer.wrongTaps,
     });
+  }
+  if (config.type === 'ozobot' && answer.type === 'ozobot') {
+    // 선생님이 오조봇으로 확인한 카드의 별 점수를 더한다.
+    return calculateOzobotScore(getOzobotSolved(answer));
   }
   if (config.type === 'library_check' && answer.type === 'library_check') {
     // 정답을 등록한 뒤에만 자동 채점한다. 등록 전에는 선생님이 직접 채점한다.

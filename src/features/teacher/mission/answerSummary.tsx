@@ -14,6 +14,12 @@ import {
   LIBRARY_CHECK_POINTS,
   scoreLibraryCheck,
 } from '../../../domain/libraryCheck';
+import {
+  calculateOzobotScore,
+  findOzobotChallenge,
+  getOzobotSolved,
+  ozobotStars,
+} from '../../../domain/ozobot';
 import { countErrorHuntFound, countGoldenBellCorrect } from '../../../domain/scoring';
 import type { Mission, Submission } from '../../../domain/types';
 
@@ -75,8 +81,22 @@ export function AnswerSummary({
     }
     case 'drawing':
       return <>그림 파일 {answer.byteSize > 0 ? formatBytes(answer.byteSize) : '(샘플)'}</>;
-    case 'ozobot':
-      return <>시작 준비 완료</>;
+    case 'ozobot': {
+      const solved = getOzobotSolved(answer);
+      if (solved.length === 0) return <>성공 기록 없음</>;
+      return (
+        <>
+          성공 {solved.length}개 ·{' '}
+          {solved
+            .map((item) => {
+              const card = findOzobotChallenge(item.challengeId);
+              return `카드 ${card?.cardNo ?? item.challengeId} ${ozobotStars(item.level)}`;
+            })
+            .join(', ')}{' '}
+          · {calculateOzobotScore(solved)}점
+        </>
+      );
+    }
     case 'library_check': {
       const result = config.type === 'library_check' ? scoreLibraryCheck(config, answer) : null;
       return (

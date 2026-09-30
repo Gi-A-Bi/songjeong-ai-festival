@@ -187,6 +187,8 @@ export interface DrawingConfig {
 export interface OzobotConfig {
   type: 'ozobot';
   rules: string[];
+  /** 제한 시간(분). 없으면 7분. 다른 부스의 게임 시간과 따로 정한다. */
+  timeLimitMinutes?: number;
 }
 
 /**
@@ -256,9 +258,24 @@ export interface DrawingAnswer {
   height: number;
 }
 
+/** 선생님이 오조봇으로 확인한 성공 한 건 */
+export interface OzobotSolve {
+  /** 도전 과제 카드 ID(src/domain/ozobot.ts) */
+  challengeId: string;
+  /** 별 수. 점수는 별 1개 5점, 2개 10점, 3개 20점 */
+  level: 1 | 2 | 3;
+  /** 선생님이 성공을 기록한 시각(epoch ms) */
+  at: number;
+}
+
+/**
+ * 로봇 길찾기 기록. 학생은 쓰지 않고 선생님이 성공을 기록한다.
+ * 예전에는 학생이 "시작 준비 완료"만 알렸다(ready).
+ */
 export interface OzobotAnswer {
   type: 'ozobot';
-  ready: true;
+  solved?: OzobotSolve[];
+  ready?: true;
 }
 
 export interface LibraryCheckAnswer {

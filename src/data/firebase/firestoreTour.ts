@@ -60,6 +60,7 @@ import type {
   TeamMissionState,
 } from '../../domain/types';
 import { missionRoom } from '../../domain/missionRoom';
+import { getMissionGameDurationMs } from '../../domain/ozobot';
 import { isValidStationCode, normalizeStationCode } from '../../domain/stationCode';
 import { formatClock } from '../../lib/time';
 import { RepositoryError } from '../errors';
@@ -945,7 +946,10 @@ export class FirestoreTourStore {
         action === 'open'
           ? { openedAt: serverTimestamp() }
           : action === 'start'
-            ? { startedAt: serverTimestamp(), durationMs: event.gameDurationMs }
+            ? {
+                startedAt: serverTimestamp(),
+                durationMs: getMissionGameDurationMs(mission, event.gameDurationMs),
+              }
             : action === 'skip'
               ? { completedAt: serverTimestamp(), skipped: true }
               : { completedAt: serverTimestamp() };

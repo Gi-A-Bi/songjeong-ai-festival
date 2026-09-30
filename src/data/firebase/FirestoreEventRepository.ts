@@ -53,6 +53,7 @@ import { missionRoundStateId, presentMissionRound, teamMissionStateId } from '..
 import { getRoundForMission, getTeamNoForMission } from '../../domain/rotation';
 import { isTeacherJudged, resolveSubmissionScore } from '../../domain/scoring';
 import { getLibraryCheckConfigError } from '../../domain/libraryCheck';
+import { findOzobotChallenge, getOzobotSolved } from '../../domain/ozobot';
 import {
   getMissionInfoError,
   normalizeMissionInfo,
@@ -108,6 +109,7 @@ import type {
   MissionParticipant,
   OpenFinalInput,
   OpsDashboard,
+  OzobotRecordInput,
   ReopenSubmissionInput,
   ResetRehearsalInput,
   ReviseRankingOutcome,
@@ -1551,6 +1553,90 @@ export class FirestoreEventRepository implements EventRepository {
       batch.set(state.ref, state.data, { merge: true });
       await batch.commit();
     });
+  }
+
+  async recordOzobotSuccess(input: OzobotRecordInput): Promise<Submission> {
+    return run(() => this.changeOzobotRecord(input, 'add'));
+  }
+
+  async undoOzobotSuccess(input: OzobotRecordInput): Promise<Submission> {
+    return run(() => this.changeOzobotRecord(input, 'remove'));
+  }
+
+  /**
+   * 로봇 길찾기 성공 기록은 선생님이 그 팀의 제출 문서에 쓴다(학생은 쓰지 않는다).
+   * 트랜잭션이라 두 선생님이 거의 동시에 눌러도 기록이 사라지지 않는다.
+   */
+  private async changeOzobotRecord(
+    input: OzobotRecordInput,
+    change: 'add' | 'remove',
+  ): Promise<Submission> {
+    await this.ensureUser();
+    this.requireTeacher();
+    const [team, mission] = await Promise.all([
+      this.getTeam(input.eventId, input.teamId),
+      this.getMission(input.eventId, input.missionId),
+    ]);
+    const challenge = findOzobotChallenge(input.challengeId);
+    if (mission.type !== 'ozobot' || !challenge) {
+      throw new RepositoryError('invalid-input', '로봇 길찾기 도전 과제를 찾을 수 없어요.');
+    }
+    const roundNo = getRoundForMission(team.teamNo, mission.no);
+    const booth = await this.boothOf(input.eventId, mission.id, team.grade, roundNo);
+    if (booth.startedAt === null) {
+      throw new RepositoryError('not-allowed', '게임을 시작한 뒤에 성공을 기록할 수 있어요.');
+    }
+    const ref = doc(this.sub(input.eventId, 'submissions'), submissionId(mission.id, team.id));
+    const resultRef = doc(
+      this.sub(input.eventId, 'results'),
+      resultId(mission.id, team.grade, roundNo, team.id),
+    );
+    const state = this.missionStateWrite(input.eventId, mission.id, team.grade, roundNo);
+    const now = this.serverNow();
+    await runTransaction(this.db, async (transaction) => {
+      const [snapshot, result] = await Promise.all([
+        transaction.get(ref),
+        transaction.get(resultRef),
+      ]);
+      if (result.exists()) {
+        throw new RepositoryError(
+          'not-allowed',
+          '순위를 확정한 뒤에는 성공 기록을 바꿀 수 없어요. 순위 수정으로 점수를 고쳐 주세요.',
+        );
+      }
+      const data = snapshot.data();
+      const existing = isCompleteSubmission(data) ? mapSubmission(snapshot) : null;
+      const previous = getOzobotSolved(
+        existing?.answer.type === 'ozobot' ? existing.answer : undefined,
+      );
+      const already = previous.some((item) => item.challengeId === challenge.id);
+      if (change === 'add' && already) return;
+      if (change === 'remove' && !already) {
+        throw new RepositoryError('not-allowed', '지울 성공 기록이 없어요.');
+      }
+      const solved =
+        change === 'add'
+          ? [...previous, { challengeId: challenge.id, level: challenge.level, at: now }]
+          : previous.filter((item) => item.challengeId !== challenge.id);
+      transaction.set(ref, {
+        teamId: team.id,
+        classId: team.classId,
+        missionId: mission.id,
+        grade: team.grade,
+        roundNo,
+        status: solved.length > 0 ? 'submitted' : 'draft',
+        answer: { type: 'ozobot', solved },
+        score: null,
+        reopened: false,
+        requestId: `ozobot-${team.id}`,
+        // 점수가 같으면 마지막 성공이 이른 팀이 앞선다.
+        submittedAt: solved.length > 0 ? serverTimestamp() : null,
+        updatedAt: serverTimestamp(),
+      });
+      transaction.set(state.ref, state.data, { merge: true });
+    });
+    const saved = await getDocFromServer(ref);
+    return mapSubmission(saved);
   }
 
   async listDrawingFiles(

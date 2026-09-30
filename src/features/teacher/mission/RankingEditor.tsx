@@ -248,7 +248,9 @@ export function RankingEditor({
 
       {mission.type === 'ozobot' && editable ? (
         <InlineAlert tone="info">
-          완주 시간과 재시도 횟수를 반영한 점수를 입력한 뒤 순위를 정해 주세요.
+          위의 “도전 과제 성공 기록”에서 성공을 누르면 점수(★5 · ★★10 · ★★★20)가 여기에 바로
+          들어가요. 점수가 같으면 마지막 성공이 이른 팀이 앞서요. 필요하면 점수와 순위를 직접 고칠
+          수 있어요.
         </InlineAlert>
       ) : null}
       {mission.type === 'drawing' && editable ? (
@@ -386,7 +388,7 @@ export function RankingEditor({
                   </td>
                   {!finalized ? (
                     <td>
-                      {submitted ? (
+                      {submitted && mission.type !== 'ozobot' ? (
                         <Button
                           variant="secondary"
                           icon="restart_alt"

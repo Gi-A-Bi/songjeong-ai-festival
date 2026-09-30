@@ -189,6 +189,20 @@ export function normalizeAnswer(raw: unknown): SubmissionAnswer {
           : {},
     };
   }
+  if (answer.type === 'ozobot') {
+    const solved = Array.isArray(answer.solved) ? answer.solved : [];
+    return {
+      type: 'ozobot',
+      solved: solved.flatMap((item) => {
+        const entry = (item ?? {}) as Record<string, unknown>;
+        const level = entry.level;
+        if (typeof entry.challengeId !== 'string' || (level !== 1 && level !== 2 && level !== 3)) {
+          return [];
+        }
+        return [{ challengeId: entry.challengeId, level, at: Number(entry.at ?? 0) }];
+      }),
+    };
+  }
   if (answer.type === 'drawing') {
     // 예전 화면 그림판 제출에는 프롬프트 ID가, 더 예전 제출에는 파일 정보도 없다.
     const hasFile = typeof answer.byteSize === 'number';

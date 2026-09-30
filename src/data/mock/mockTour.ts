@@ -43,6 +43,7 @@ import type {
   TeamMissionState,
 } from '../../domain/types';
 import { missionRoom } from '../../domain/missionRoom';
+import { getMissionGameDurationMs } from '../../domain/ozobot';
 import { matchesStationCode } from '../../domain/stationCode';
 import { RepositoryError } from '../errors';
 import type {
@@ -381,7 +382,7 @@ export class MockTourStore {
     if (action === 'start') {
       next.openedAt ??= now;
       next.startedAt = now;
-      next.durationMs = state.event.gameDurationMs;
+      next.durationMs = getMissionGameDurationMs(mission, state.event.gameDurationMs);
       for (const team of this.scheduledTeams(mission, input.grade, input.roundNo)) {
         const record = this.recordOf(team, input.roundNo);
         const started = applyStationStart(record, now);

@@ -11,6 +11,7 @@ import { getLiveRoundStatus } from '../../domain/boothRound';
 import { getAnswerRevealBlocker, getGoldenBellQuestions } from '../../domain/goldenBell';
 import { hasLibraryCheckAnswerKey } from '../../domain/libraryCheck';
 import { missionRoom } from '../../domain/missionRoom';
+import { getMissionGameDurationMs } from '../../domain/ozobot';
 import { ROUND_NUMBERS } from '../../domain/rotation';
 import { MISSION_ROUND_STATUS_LABELS } from '../../domain/tour';
 import type { FestivalEvent, Grade, Mission, MissionRoundState, RoundNo } from '../../domain/types';
@@ -25,6 +26,7 @@ import { DrawingPromptPicker } from './mission/DrawingPromptPicker';
 import { ErrorHuntAnswerSheet } from './mission/ErrorHuntAnswerSheet';
 import { GoldenBellQuestionEditor } from './mission/GoldenBellQuestionEditor';
 import { LibraryCheckEditor } from './mission/LibraryCheckEditor';
+import { OzobotChallengeGallery, OzobotScoreBoard } from './mission/OzobotScoreBoard';
 import { RankingEditor } from './mission/RankingEditor';
 import { StationArrivalsPanel } from './mission/StationArrivalsPanel';
 import { StationCodeCard } from './mission/StationCodeCard';
@@ -179,6 +181,26 @@ export function TeacherMissionPage() {
           </button>
         </div>
       ) : null}
+      {config.type === 'ozobot' ? (
+        <div className="segmented" role="group" aria-label="로봇 길찾기 화면 선택">
+          <button
+            type="button"
+            className="segmented__button"
+            aria-pressed={tab === 'operate'}
+            onClick={() => setTab('operate')}
+          >
+            <Icon name="leaderboard" /> 운영·채점
+          </button>
+          <button
+            type="button"
+            className="segmented__button"
+            aria-pressed={tab === 'questions'}
+            onClick={() => setTab('questions')}
+          >
+            <Icon name="style" /> 도전 과제 카드
+          </button>
+        </div>
+      ) : null}
       {config.type === 'library_check' ? (
         <div className="segmented" role="group" aria-label="오류찾기 화면 선택">
           <button
@@ -228,6 +250,8 @@ export function TeacherMissionPage() {
           event={event}
           onSaved={refresh}
         />
+      ) : config.type === 'ozobot' && tab === 'questions' ? (
+        <OzobotChallengeGallery />
       ) : config.type === 'library_check' && tab === 'questions' ? (
         <LibraryCheckEditor
           key={mission.id}
@@ -433,7 +457,7 @@ function BoothRound({
               }
             : null
         }
-        gameMinutes={Math.round(event.gameDurationMs / 60_000)}
+        gameMinutes={Math.round(getMissionGameDurationMs(mission, event.gameDurationMs) / 60_000)}
         onChanged={(message) => {
           onNotice(message);
           onBoothChanged();
@@ -494,6 +518,19 @@ function BoothRound({
           ) : null}
           {arrivals.status === 'error' ? (
             <ErrorView error={arrivals.error} onRetry={arrivals.reload} />
+          ) : null}
+          {config.type === 'ozobot' ? (
+            <OzobotScoreBoard
+              eventId={eventId}
+              mission={mission}
+              participants={roundData.data.participants}
+              started={booth.startedAt !== null}
+              finalized={rankingFinalized}
+              onChanged={(message) => {
+                onNotice(`${round}라운드: ${message}`);
+                roundData.reload();
+              }}
+            />
           ) : null}
           {config.type === 'drawing' ? (
             <DrawingGallery

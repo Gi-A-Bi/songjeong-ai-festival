@@ -220,6 +220,8 @@ export function scopeEventToTeam(
       activeRound: roundNo,
       roundEndsAt: getGameClosedAt(booth),
       boothStatus,
+      // 부스마다 게임 시간이 다를 수 있어(로봇 길찾기 7분) 그 부스의 시간을 보여 준다.
+      gameDurationMs: booth?.durationMs ?? event.gameDurationMs,
     };
   }
   const previousRound = (roundNo - 1) as 0 | RoundNo;

@@ -109,10 +109,9 @@ describe('학생 화면', () => {
     ).toBeInTheDocument();
     // 인증코드를 넣기 전에는 게임 중이어도 미션 내용을 보여 주지 않는다.
     expect(
-      screen.getByText('인증코드를 넣고 입장하면 로봇 길과 미션 규칙이 나타나요'),
+      screen.getByText('인증코드를 넣고 입장하면 도전 과제 카드가 나타나요'),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '미션 규칙' })).toBeNull();
-    expect(screen.getByRole('button', { name: '시작 준비 완료' })).toBeDisabled();
+    expect(screen.queryByRole('group', { name: '난이도 고르기' })).toBeNull();
     const enter = screen.getByRole('button', { name: '입장하기' });
     expect(enter).toBeDisabled();
 
@@ -132,7 +131,7 @@ describe('학생 화면', () => {
     const after = await repository.getTeamTourStatus(DEFAULT_EVENT_ID, DEMO_TEAM_ID);
     expect(after.state?.checkedInAt).toEqual(expect.any(Number));
     // 과학실은 게임 중이라 입장하자마자 미션 내용이 보인다.
-    expect(await screen.findByRole('heading', { name: '미션 규칙' })).toBeInTheDocument();
+    expect(await screen.findByRole('group', { name: '난이도 고르기' })).toBeInTheDocument();
   });
 
   it('인증코드를 세 번 틀리면 잠깐 기다려야 한다', async () => {
@@ -154,7 +153,7 @@ describe('학생 화면', () => {
     expect(await screen.findByRole('heading', { name: '로봇 길찾기' })).toBeInTheDocument();
     expect(screen.queryByLabelText('교실 인증코드')).toBeNull();
     expect(screen.queryByText(/아직 입장하지 않았어요/)).toBeNull();
-    expect(screen.getByRole('heading', { name: '미션 규칙' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '난이도 고르기' })).toBeInTheDocument();
   });
 
   it('라운드만 연 교실의 미션 화면은 입장했는지에 따라 다르게 안내하고, 게임 시작 전에는 글을 가린다', async () => {
@@ -338,9 +337,9 @@ describe('학생 화면', () => {
 
     renderApp(`/team/${DEFAULT_EVENT_ID}/${teamId}/mission/ozobot`);
     expect(
-      await screen.findByText('게임이 시작되면 로봇 길과 미션 규칙이 나타나요'),
+      await screen.findByText('게임이 시작되면 도전 과제 카드가 나타나요'),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '미션 규칙' })).toBeNull();
+    expect(screen.queryByRole('group', { name: '난이도 고르기' })).toBeNull();
   });
 
   it('골든벨은 여러 문제를 풀고 확인한 뒤 한 번에 제출한다', async () => {

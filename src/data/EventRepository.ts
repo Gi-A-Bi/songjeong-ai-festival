@@ -404,6 +404,15 @@ export interface ReopenSubmissionInput {
   teamId: string;
 }
 
+/** 로봇 길찾기: 선생님이 오조봇으로 확인한 도전 과제 성공(또는 그 취소) */
+export interface OzobotRecordInput {
+  eventId: string;
+  missionId: string;
+  teamId: string;
+  /** 도전 과제 카드 ID(src/domain/ozobot.ts) */
+  challengeId: string;
+}
+
 export interface RankingEntryInput {
   teamId: string;
   score: number;
@@ -577,6 +586,13 @@ export interface EventRepository {
   reviseRanking(input: FinalizeRankingInput): Promise<ReviseRankingOutcome>;
   /** 순위 확정 전 제출을 되돌려 팀이 다시 낼 수 있게 한다. */
   reopenSubmission(input: ReopenSubmissionInput): Promise<void>;
+  /**
+   * 로봇 길찾기: 선생님이 오조봇으로 확인한 성공을 그 팀의 기록에 더한다(교사).
+   * 같은 카드는 한 번만 센다. 게임을 시작한 뒤, 순위를 확정하기 전에만 할 수 있다.
+   */
+  recordOzobotSuccess(input: OzobotRecordInput): Promise<Submission>;
+  /** 로봇 길찾기: 잘못 누른 성공 기록을 지운다(교사). 순위를 확정하기 전에만 할 수 있다. */
+  undoOzobotSuccess(input: OzobotRecordInput): Promise<Submission>;
   /** 미션 문제 같은 설정을 바꾼다. 미션 종류는 바꿀 수 없다. */
   updateMissionConfig(eventId: string, missionId: string, config: MissionConfig): Promise<Mission>;
   /** 미션 이름·교실·한 줄 소개를 바꾼다(교사). 교실 이름의 {학년}은 학년에 맞춰 보인다. */

@@ -1251,3 +1251,39 @@ describe('연습 기록 지우기 (에뮬레이터)', () => {
     expect(summary.finalOpened).toBe(false);
   });
 });
+
+describe('로봇 길찾기 성공 기록 (에뮬레이터)', () => {
+  it('교사가 성공을 기록·취소하면 점수가 바뀌고, 게임은 7분이며, 학생은 기록할 수 없다', async () => {
+    await prepareTour();
+    // 1라운드에 로봇 길찾기(4번 미션)는 4팀이 한다.
+    const teamId = 'g4-c1-t4';
+    const started = await startGame('ozobot');
+    expect((started.endsAt ?? 0) - (started.startedAt ?? 0)).toBe(7 * 60_000);
+
+    const input = { eventId: EVENT, missionId: 'ozobot', teamId, challengeId: 'card-12' };
+    const saved = await repository.recordOzobotSuccess(input);
+    expect(saved).toMatchObject({ status: 'submitted', roundNo: 1 });
+    await repository.recordOzobotSuccess({ ...input, challengeId: 'card-4' });
+    // 같은 카드를 다시 눌러도 한 번만 센다.
+    await repository.recordOzobotSuccess(input);
+    const scoreOf = async () => {
+      const participants = await repository.listMissionParticipants(EVENT, 'ozobot', 4, 1, {
+        fresh: true,
+      });
+      return participants.find((item) => item.team.id === teamId)?.submission?.score;
+    };
+    expect(await scoreOf()).toBe(25);
+    await repository.undoOzobotSuccess(input);
+    expect(await scoreOf()).toBe(5);
+
+    await signInAsStudent(teamId);
+    await expect(repository.recordOzobotSuccess(input)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    const view = await repository.getTeamMissionView(EVENT, teamId, 'ozobot');
+    expect(view.submission?.answer).toMatchObject({
+      type: 'ozobot',
+      solved: [{ challengeId: 'card-4', level: 1 }],
+    });
+  });
+});

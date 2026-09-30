@@ -265,17 +265,18 @@ export function createSampleMissions(): Mission[] {
       title: '로봇 길찾기',
       room: classroomName(4),
       cardType: 'command',
-      summary: '오조봇이 길을 완주하게 설계해요',
+      summary: '길 조각을 이어 오조봇이 지나갈 길을 만들어요',
       teacherJudged: true,
       enabled: true,
       config: {
         type: 'ozobot',
         rules: [
-          '선이 끊기지 않게 굵고 진하게 그려요.',
-          '컬러 코드는 선 위에 순서대로 칠해요.',
-          '출발선에 로봇을 올리고 준비되면 버튼을 눌러요.',
-          '완주 시간과 재시도 횟수는 선생님이 기록해요.',
+          '난이도(별 1~3개)를 고르면 도전 과제 카드가 하나 나와요.',
+          '보드판에 길 조각을 이어 출발 칸에서 도착 칸까지 길을 만들어요.',
+          '다 만들면 손을 들어 선생님을 불러요. 선생님이 오조봇으로 확인해요.',
+          '성공하면 별 1개 5점, 2개 10점, 3개 20점! 7분 동안 점수를 모아요.',
         ],
+        timeLimitMinutes: 7,
       },
     },
     {
@@ -355,7 +356,14 @@ function sampleAnswer(mission: Mission, variant: number, grade: Grade): Submissi
         height: 960,
       };
     case 'ozobot':
-      return { type: 'ozobot', ready: true };
+      // 별 1개 카드는 모두, 변형에 따라 별 2개 카드 하나를 더 성공했다.
+      return {
+        type: 'ozobot',
+        solved: [
+          { challengeId: 'card-4', level: 1, at: 0 },
+          ...(variant % 2 === 0 ? [{ challengeId: 'card-7', level: 2 as const, at: 0 }] : []),
+        ],
+      };
     case 'library_check':
       return {
         type: 'library_check',

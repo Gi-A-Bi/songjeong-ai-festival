@@ -18,6 +18,7 @@ import { getRankingEntryError } from '../../domain/rewards';
 import { getRoundForMission, getTeamNoForMission } from '../../domain/rotation';
 import { isTeacherJudged, resolveSubmissionScore } from '../../domain/scoring';
 import { getLibraryCheckConfigError } from '../../domain/libraryCheck';
+import { findOzobotChallenge, getOzobotSolved } from '../../domain/ozobot';
 import {
   getMissionInfoError,
   normalizeMissionInfo,
@@ -79,6 +80,7 @@ import type {
   MissionParticipant,
   OpenFinalInput,
   OpsDashboard,
+  OzobotRecordInput,
   ReopenSubmissionInput,
   ResetRehearsalInput,
   ReviseRankingOutcome,
@@ -797,6 +799,74 @@ export class MockEventRepository implements EventRepository, DevTools {
       updatedAt: this.now(),
     };
     this.touchMissionState(mission.id, existing.grade, existing.roundNo, {});
+  }
+
+  async recordOzobotSuccess(input: OzobotRecordInput): Promise<Submission> {
+    return this.changeOzobotRecord(input, 'add');
+  }
+
+  async undoOzobotSuccess(input: OzobotRecordInput): Promise<Submission> {
+    return this.changeOzobotRecord(input, 'remove');
+  }
+
+  private async changeOzobotRecord(
+    input: OzobotRecordInput,
+    change: 'add' | 'remove',
+  ): Promise<Submission> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    this.requireTeacher();
+    const mission = this.findMission(input.missionId);
+    const team = this.findTeam(input.teamId);
+    const challenge = findOzobotChallenge(input.challengeId);
+    if (mission.type !== 'ozobot' || !challenge) {
+      throw new RepositoryError('invalid-input', '로봇 길찾기 도전 과제를 찾을 수 없어요.');
+    }
+    const roundNo = getRoundForMission(team.teamNo, mission.no);
+    if (this.tour.missionRound(mission.id, team.grade, roundNo).startedAt === null) {
+      throw new RepositoryError('not-allowed', '게임을 시작한 뒤에 성공을 기록할 수 있어요.');
+    }
+    if (this.isFinalized(mission.id, team.grade, roundNo)) {
+      throw new RepositoryError(
+        'not-allowed',
+        '순위를 확정한 뒤에는 성공 기록을 바꿀 수 없어요. 순위 수정으로 점수를 고쳐 주세요.',
+      );
+    }
+    const id = submissionId(mission.id, team.id);
+    const existing = this.state.submissions[id];
+    const previous = getOzobotSolved(
+      existing?.answer.type === 'ozobot' ? existing.answer : undefined,
+    );
+    const already = previous.some((item) => item.challengeId === challenge.id);
+    if ((change === 'add' && already) || (change === 'remove' && !already)) {
+      if (existing) return clone(existing);
+      throw new RepositoryError('not-allowed', '지울 성공 기록이 없어요.');
+    }
+    const now = this.now();
+    const solved =
+      change === 'add'
+        ? [...previous, { challengeId: challenge.id, level: challenge.level, at: now }]
+        : previous.filter((item) => item.challengeId !== challenge.id);
+    const last = solved.reduce<number | null>((max, item) => Math.max(max ?? 0, item.at), null);
+    const next: Submission = {
+      id,
+      teamId: team.id,
+      classId: team.classId,
+      missionId: mission.id,
+      grade: team.grade,
+      roundNo,
+      status: solved.length > 0 ? 'submitted' : 'draft',
+      answer: { type: 'ozobot', solved },
+      score: null,
+      reopened: false,
+      // 점수가 같으면 마지막 성공이 이른 팀이 앞선다.
+      submittedAt: solved.length > 0 ? last : null,
+      updatedAt: now,
+    };
+    this.state.submissions[id] = next;
+    this.touchMissionState(mission.id, team.grade, roundNo, {});
+    this.notifyOps(team.grade);
+    return clone(next);
   }
 
   async listDrawingFiles(
