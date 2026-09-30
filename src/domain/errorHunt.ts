@@ -1,5 +1,5 @@
 import { DEFAULT_ERROR_HUNT_PUZZLES } from './errorHuntPuzzles';
-import type { WaitingReason } from './missionPhase';
+import { isMissionContentHidden, type WaitingReason } from './missionPhase';
 import type {
   CircleRegion,
   ErrorHuntBand,
@@ -51,12 +51,11 @@ export function getRegionRadiusY(region: Pick<CircleRegion, 'r' | 'ry'>, aspect:
 }
 
 /**
- * 게임을 시작하기 전에는 그림을 보여 주지 않는다.
+ * 게임을 시작하기 전에는 그림을 보여 주지 않는다(모든 미션이 같은 규칙을 쓴다).
  * 남은 시간이 점수가 되므로, 미리 본 팀이 유리해지지 않게 한다.
- * 시간이 끝난 미션(missed)은 더 풀 수 없으므로 보여 준다.
  */
 export function isErrorHuntPictureHidden(phase: MissionPhase, reason: WaitingReason): boolean {
-  return phase === 'waiting' && reason !== 'missed';
+  return isMissionContentHidden(phase, reason);
 }
 
 /** 그림 한 장에서 찾은 곳의 수 */

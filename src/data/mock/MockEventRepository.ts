@@ -16,7 +16,14 @@ import { getSubmissionBlocker } from '../../domain/missionPhase';
 import type { RehearsalSummary } from '../../domain/rehearsal';
 import { getRankingEntryError } from '../../domain/rewards';
 import { getRoundForMission, getTeamNoForMission } from '../../domain/rotation';
-import { resolveSubmissionScore } from '../../domain/scoring';
+import { isTeacherJudged, resolveSubmissionScore } from '../../domain/scoring';
+import { getLibraryCheckConfigError } from '../../domain/libraryCheck';
+import {
+  getMissionInfoError,
+  normalizeMissionInfo,
+  type MissionInfoInput,
+} from '../../domain/missionRoom';
+import { getStationCodesError } from '../../domain/stationCode';
 import { CARD_INFO } from '../../domain/catalog';
 import {
   emptyFinalSession,
@@ -81,6 +88,7 @@ import type {
   StartClassFinalInput,
   StartStationInput,
   StationArrivals,
+  StationCodeList,
   TeacherClassCards,
   TeacherRegistry,
   TeamMissionView,
@@ -333,7 +341,28 @@ export class MockEventRepository implements EventRepository, DevTools {
       const error = getDrawingConfigError(config);
       if (error) throw new RepositoryError('invalid-input', error);
     }
+    if (config.type === 'library_check') {
+      const error = getLibraryCheckConfigError(config);
+      if (error) throw new RepositoryError('invalid-input', error);
+    }
     mission.config = clone(config);
+    // 도서관 오류찾기는 정답을 등록하면 자동 채점, 지우면 선생님 판정으로 바뀐다.
+    mission.teacherJudged = isTeacherJudged(mission);
+    return clone(mission);
+  }
+
+  async updateMissionInfo(
+    eventId: string,
+    missionId: string,
+    info: MissionInfoInput,
+  ): Promise<Mission> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    const mission = this.findMission(missionId);
+    const error = getMissionInfoError(info);
+    if (error) throw new RepositoryError('invalid-input', error);
+    Object.assign(mission, normalizeMissionInfo(info));
     return clone(mission);
   }
 
@@ -880,7 +909,7 @@ export class MockEventRepository implements EventRepository, DevTools {
     });
   }
 
-  // ---- 팀 이동과 QR 체크인 ----
+  // ---- 팀 이동과 교실 입장 ----
 
   async getMyTeam(eventId: string): Promise<Team | null> {
     await this.request();
@@ -892,13 +921,41 @@ export class MockEventRepository implements EventRepository, DevTools {
   async checkInStation(input: CheckInInput): Promise<CheckInOutcome> {
     await this.request();
     this.assertEvent(input.eventId);
-    return clone(this.tour.checkIn(this.findTeam(input.teamId), input.stationId));
+    return clone(this.tour.checkIn(this.findTeam(input.teamId), input.stationId, input.accessCode));
   }
 
   async getTeamTourStatus(eventId: string, teamId: string): Promise<TeamTourStatus> {
     await this.request();
     this.assertEvent(eventId);
     return clone(this.tour.tourStatus(this.findTeam(teamId)));
+  }
+
+  async listStationCodes(eventId: string): Promise<StationCodeList> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    return this.stationCodeList();
+  }
+
+  async saveStationCodes(eventId: string, codes: Record<string, string>): Promise<StationCodeList> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireAdmin();
+    const missions = [...this.state.missions].sort((a, b) => a.no - b.no);
+    const error = getStationCodesError(codes, missions);
+    if (error) throw new RepositoryError('invalid-input', error);
+    for (const mission of missions) this.state.stationCodes[mission.id] = codes[mission.id];
+    return this.stationCodeList();
+  }
+
+  private stationCodeList(): StationCodeList {
+    return [...this.state.missions]
+      .sort((a, b) => a.no - b.no)
+      .map((mission) => ({
+        missionId: mission.id,
+        code: this.state.stationCodes[mission.id] ?? null,
+        updatedAt: null,
+      }));
   }
 
   // ---- 실시간 운영 대시보드 ----

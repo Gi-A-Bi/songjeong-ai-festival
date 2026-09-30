@@ -71,10 +71,10 @@ describe('팀 홈의 미션 지도', () => {
     const rows = within(map).getAllByRole('link');
     expect(rows).toHaveLength(5);
     expect(rows[0]).toHaveTextContent('AI 설명대로 그려라');
-    expect(rows[0]).toHaveTextContent('1라운드 · 미술실');
+    expect(rows[0]).toHaveTextContent('1라운드 · 4학년 3반 교실');
     expect(rows[0]).toHaveTextContent('완료');
     expect(rows[1]).toHaveTextContent('로봇 길찾기');
-    expect(rows[1]).toHaveTextContent('2라운드 · 과학실');
+    expect(rows[1]).toHaveTextContent('2라운드 · 4학년 4반 교실');
     expect(rows[1]).toHaveTextContent('지금');
     expect(rows[2]).toHaveTextContent('3라운드 · 도서관');
     expect(rows[2]).toHaveTextContent('예정');

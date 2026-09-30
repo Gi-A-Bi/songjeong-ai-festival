@@ -74,6 +74,25 @@
   margin-block: var(--space-4);
 }
 
+/* 교실 인증코드: 멀리서도 읽히게 크게 */
+.qr-sheet__code-value {
+  margin: var(--space-6) 0;
+  padding: var(--space-4) var(--space-8);
+  border: 6px solid var(--navy-900);
+  border-radius: var(--radius-xl);
+  font-size: 7rem;
+  font-weight: var(--font-weight-heavy);
+  letter-spacing: 0.3em;
+  line-height: 1;
+}
+
+.qr-sheet__warning {
+  margin: 0;
+  color: var(--red-600);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
 .qr-sheet__steps {
   display: flex;
   flex-direction: column;

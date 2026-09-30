@@ -220,6 +220,7 @@ describe('학생 틀린그림 찾기: 게임 시작 전에는 그림을 가린�
             view={view}
             event={event}
             phase={phase}
+            gate={null}
             onSubmitted={() => undefined}
             config={config}
           />

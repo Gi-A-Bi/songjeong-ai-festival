@@ -135,7 +135,7 @@ export function BoothRoundPanel({
         ? '5라운드를 건너뛰었어요. 이제 우리 반으로 돌아가 최종 미션(담임 활동)을 진행해요.'
         : `${round}라운드를 건너뛰었어요. 다음 라운드를 열어 주세요.`;
   } else if (status === 'ready') {
-    guide = `${round}라운드를 열면 팀이 교실 QR을 찍고 들어올 수 있어요.`;
+    guide = `${round}라운드를 열면 팀이 이 교실의 인증코드를 넣고 들어올 수 있어요.`;
   } else if (status === 'open') {
     guide = `팀이 모두 들어오면 게임을 시작해 주세요. 게임 시간은 ${gameMinutes}분이에요.`;
   } else if (status === 'completed') {
@@ -279,7 +279,7 @@ export function BoothRoundPanel({
         onConfirm={() => run('start')}
       >
         <p>
-          시작하면 {gameMinutes}분이 흐르기 시작해요. 늦게 온 팀도 게임 중에 교실 QR을 찍고 들어올
+          시작하면 {gameMinutes}분이 흐르기 시작해요. 늦게 온 팀도 게임 중에 인증코드를 넣고 들어올
           수 있어요.
         </p>
       </ConfirmDialog>

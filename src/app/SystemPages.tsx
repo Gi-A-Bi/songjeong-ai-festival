@@ -36,6 +36,12 @@ export function TeamCardsRedirect() {
   return <Navigate to={paths.cards(eventId, teamId)} replace />;
 }
 
+/** 예전 교실 체크인 주소(/team/:eventId/:teamId/check-in/:stationId)를 미션 화면으로 보낸다. */
+export function TeamCheckInRedirect() {
+  const { eventId = '', teamId = '', stationId = '' } = useParams();
+  return <Navigate to={paths.mission(eventId, teamId, stationId)} replace />;
+}
+
 /** 예전 카드 교환(/teacher/:eventId/exchange) 주소를 학급 카드 현황으로 보낸다. */
 export function TeacherCardsRedirect() {
   const { eventId = '' } = useParams();

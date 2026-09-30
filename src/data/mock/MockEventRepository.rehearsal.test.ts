@@ -29,8 +29,8 @@ describe('MockEventRepository 연습 기록 지우기', () => {
       submissions: 34,
       results: 25,
       cardAwards: 25,
-      // 2라운드 25팀 가운데 아직 오지 않은 2팀을 뺀 기록(잘못 찍은 기록 포함)
-      checkIns: 23,
+      // 2라운드 25팀 가운데 아직 오지 않은 3팀을 뺀 기록
+      checkIns: 22,
       // 다섯 부스의 1·2라운드
       boothRounds: 10,
       finalClasses: 0,

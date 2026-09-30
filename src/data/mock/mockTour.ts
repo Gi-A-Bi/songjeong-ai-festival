@@ -42,6 +42,8 @@ import type {
   Team,
   TeamMissionState,
 } from '../../domain/types';
+import { missionRoom } from '../../domain/missionRoom';
+import { matchesStationCode } from '../../domain/stationCode';
 import { RepositoryError } from '../errors';
 import type {
   CheckInOutcome,
@@ -68,7 +70,7 @@ const ACTION_LABELS: Record<BoothAction, string> = {
   skip: '라운드 건너뛰기',
 };
 
-/** 팀 이동(QR 체크인), 부스 라운드, 운영 대시보드의 mock 구현 */
+/** 팀 이동(교실 입장), 부스 라운드, 운영 대시보드의 mock 구현 */
 export class MockTourStore {
   private readonly ctx: MockStoreContext;
 
@@ -207,8 +209,12 @@ export class MockTourStore {
     return getBoothStatus(this.boothOf(mission.id, grade, roundNo), this.ctx.now());
   }
 
-  checkIn(team: Team, stationId: string): CheckInOutcome {
-    const scannedMission = this.ctx.findMission(stationId);
+  /**
+   * 교실 인증코드로 입장한다. 이번 라운드에 가야 할 교실이어야 하고,
+   * 선생님이 라운드를 열었어야 하며, 코드가 맞아야 기록한다.
+   */
+  checkIn(team: Team, stationId: string, accessCode: string): CheckInOutcome {
+    const mission = this.ctx.findMission(stationId);
     const roundNo = getCheckInRound(this.teamEvent(team), team.grade);
     if (roundNo === null) {
       throw new RepositoryError(
@@ -217,73 +223,52 @@ export class MockTourStore {
       );
     }
     const expectedMission = this.missionForRound(team, roundNo);
-    const nextMission = roundNo < 5 ? this.missionForRound(team, (roundNo + 1) as RoundNo) : null;
-    const before = this.recordOf(team, roundNo);
-    const unrecorded = (kind: CheckInOutcome['kind']): CheckInOutcome => ({
-      kind,
-      roundNo,
-      scannedMission,
-      expectedMission,
-      nextMission,
-      state: this.present(team, roundNo),
-    });
-    // 이미 지나간 라운드의 교실 QR을 다시 찍은 것은 잘못된 교실로 기록하지 않는다.
-    if (getRoundForMission(team.teamNo, scannedMission.no) < roundNo) return unrecorded('finished');
-    if (before.resultId !== null) {
-      // 이번 라운드 순위가 이미 나왔다. 같은 교실의 QR이면 이미 입장한 것이고,
-      // 다른 교실의 QR이면 다음 교실이 라운드를 열 때까지 들어갈 수 없다.
-      return unrecorded(scannedMission.id === expectedMission.id ? 'already_checked_in' : 'early');
+    if (mission.id !== expectedMission.id) {
+      throw new RepositoryError(
+        'not-allowed',
+        getRoundForMission(team.teamNo, mission.no) < roundNo
+          ? `이미 지나간 미션이에요. 우리 팀은 지금 ${roundNo}라운드 ${missionRoom(expectedMission, team.grade)}으로 가요.`
+          : `아직 차례가 아닌 미션이에요. 우리 팀은 지금 ${roundNo}라운드 ${missionRoom(expectedMission, team.grade)}으로 가요.`,
+      );
     }
-    const status = this.boothStatus(expectedMission, team.grade, roundNo);
-    if (scannedMission.id === expectedMission.id && !canCheckInAtBooth(status)) {
+    const before = this.recordOf(team, roundNo);
+    // 이번 라운드 순위가 이미 나왔으면 입장한 것으로 본다.
+    if (before.resultId !== null || before.checkedInAt !== null) {
+      return { kind: 'already_checked_in', roundNo, mission, state: this.present(team, roundNo) };
+    }
+    const status = this.boothStatus(mission, team.grade, roundNo);
+    if (!canCheckInAtBooth(status)) {
       throw new RepositoryError(
         'not-allowed',
         '선생님이 라운드를 열면 들어갈 수 있어요. 교실 앞에서 잠깐 기다려 주세요.',
       );
     }
-    const { record, kind } = applyCheckIn(
-      before,
-      scannedMission.id,
-      this.ctx.now(),
-      status === 'active',
-    );
-    if (record !== before) this.save(record);
-
-    if (kind === 'checked_in') {
-      this.ctx.addActivity({
-        id: `check_in__${record.id}`,
-        grade: team.grade,
-        type: 'check_in',
-        message: `${team.displayName} · ${expectedMission.room}(${expectedMission.title}) 입장`,
-        classId: team.classId,
-        teamId: team.id,
-        missionId: expectedMission.id,
-        roundNo,
-      });
-    } else if (kind === 'wrong_station') {
-      this.ctx.addActivity({
-        id: `wrong__${record.id}__${scannedMission.id}`,
-        grade: team.grade,
-        type: 'wrong_station',
-        message: `${team.displayName} · ${scannedMission.room}에 잘못 입장(가야 할 곳: ${expectedMission.room})`,
-        classId: team.classId,
-        teamId: team.id,
-        missionId: scannedMission.id,
-        roundNo,
-      });
+    if (!matchesStationCode(this.ctx.state().stationCodes[mission.id] ?? null, accessCode)) {
+      throw new RepositoryError(
+        'invalid-input',
+        '인증코드가 달라요. 교실 선생님께 인증코드를 다시 확인해 주세요.',
+      );
     }
-    if (kind !== 'already_checked_in') this.ctx.notifyOps(team.grade);
-    return {
-      kind,
+    const { record, kind } = applyCheckIn(before, mission.id, this.ctx.now(), status === 'active');
+    if (kind !== 'checked_in') {
+      return { kind: 'already_checked_in', roundNo, mission, state: this.present(team, roundNo) };
+    }
+    this.save(record);
+    this.ctx.addActivity({
+      id: `check_in__${record.id}`,
+      grade: team.grade,
+      type: 'check_in',
+      message: `${team.displayName} · ${missionRoom(mission, team.grade)}(${mission.title}) 입장`,
+      classId: team.classId,
+      teamId: team.id,
+      missionId: mission.id,
       roundNo,
-      scannedMission,
-      expectedMission,
-      nextMission,
-      state: this.present(team, roundNo),
-    };
+    });
+    this.ctx.notifyOps(team.grade);
+    return { kind, roundNo, mission, state: this.present(team, roundNo) };
   }
 
-  /** QR을 찍지 못한 팀을 교사가 직접 입장 처리한다. */
+  /** 인증코드를 넣지 못한 팀을 교사가 직접 입장 처리한다. */
   markArrived(input: MarkArrivedInput): TeamMissionState {
     this.ctx.requireTeacher();
     const team = this.ctx.findTeam(input.teamId);
@@ -303,7 +288,7 @@ export class MockTourStore {
         id: `check_in__${record.id}`,
         grade: team.grade,
         type: 'check_in',
-        message: `${team.displayName} · ${mission.room} 입장(선생님이 직접 처리)`,
+        message: `${team.displayName} · ${missionRoom(mission, team.grade)} 입장(선생님이 직접 처리)`,
         classId: team.classId,
         teamId: team.id,
         missionId: mission.id,
@@ -414,7 +399,7 @@ export class MockTourStore {
       id: `${action}__${id}`,
       grade: input.grade,
       type: action === 'close' || action === 'skip' ? 'round_changed' : 'mission_started',
-      message: `${mission.title}(${mission.room}) ${input.roundNo}라운드 · ${ACTION_LABELS[action]}`,
+      message: `${mission.title}(${missionRoom(mission, input.grade)}) ${input.roundNo}라운드 · ${ACTION_LABELS[action]}`,
       classId: null,
       teamId: null,
       missionId: mission.id,
@@ -563,7 +548,7 @@ export class MockTourStore {
         team: cell.team,
         mission: cell.mission,
         roundNo: cell.state.roundNo,
-        message: `${cell.team.displayName} · ${cell.state.roundNo}라운드 ${cell.mission.title}(${cell.mission.room}) ${ALERT_LABELS[code]}`,
+        message: `${cell.team.displayName} · ${cell.state.roundNo}라운드 ${cell.mission.title}(${missionRoom(cell.mission, grade)}) ${ALERT_LABELS[code]}`,
       })),
     );
     // 시각으로 계산한 경고는 처음 발견했을 때 한 번만 활동 기록에 남긴다.

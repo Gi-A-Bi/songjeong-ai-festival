@@ -3,11 +3,22 @@ import { DEFAULT_EVENT_ID } from '../../config';
 import { isRepositoryError } from '../errors';
 import { toTeamId } from './keys';
 import { MockEventRepository } from './MockEventRepository';
-import { DEMO_TEAM_ID } from './seed';
+import { DEMO_TEAM_ID, SAMPLE_STATION_CODES } from './seed';
 
 const EVENT = DEFAULT_EVENT_ID;
 const START = 5_000_000;
 const MINUTE = 60_000;
+/** 샘플 교실의 인증코드로 입장 입력을 만든다. */
+const enter = (
+  teamId: string,
+  stationId: string,
+  accessCode = SAMPLE_STATION_CODES[stationId],
+) => ({
+  eventId: EVENT,
+  teamId,
+  stationId,
+  accessCode,
+});
 
 describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
   let clock: number;
@@ -35,35 +46,37 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     });
   }
 
-  it('예정 교실 QR은 입장, 다시 찍으면 그대로, 다른 교실은 오입장 안내를 준다', async () => {
+  it('인증코드가 맞으면 입장하고, 다시 넣어도 기록은 하나이며, 다른 교실이나 틀린 코드는 거부한다', async () => {
     // 샘플 팀(4학년 2반 3팀)의 2라운드 교실은 과학실(로봇 길찾기)이다. 시청각실은 4라운드에 간다.
-    const wrong = await repository.checkInStation({
-      eventId: EVENT,
-      teamId: DEMO_TEAM_ID,
-      stationId: 'golden-bell',
-    });
-    expect(wrong.kind).toBe('wrong_station');
-    expect(wrong.expectedMission.id).toBe('ozobot');
-    expect(wrong.state).toMatchObject({ status: 'attention', checkedInAt: null });
-    expect(wrong.state.alertCodes).toContain('wrong_station');
+    await expect(repository.checkInStation(enter(DEMO_TEAM_ID, 'golden-bell'))).rejects.toSatisfy(
+      (error) =>
+        isRepositoryError(error, 'not-allowed') && /아직 차례가 아닌 미션/.test(error.message),
+    );
+    // 틀린 코드는 기록하지 않는다.
+    await expect(
+      repository.checkInStation(enter(DEMO_TEAM_ID, 'ozobot', '0000')),
+    ).rejects.toSatisfy(
+      (error) =>
+        isRepositoryError(error, 'invalid-input') && /인증코드가 달라요/.test(error.message),
+    );
+    expect((await repository.getTeamTourStatus(EVENT, DEMO_TEAM_ID)).state?.checkedInAt).toBeNull();
 
-    const first = await repository.checkInStation({
-      eventId: EVENT,
-      teamId: DEMO_TEAM_ID,
-      stationId: 'ozobot',
-    });
-    expect(first).toMatchObject({ kind: 'checked_in', roundNo: 2 });
+    // 띄어쓰기나 전각 숫자가 섞여도 숫자만 견준다.
+    const first = await repository.checkInStation(
+      enter(DEMO_TEAM_ID, 'ozobot', ` ${SAMPLE_STATION_CODES.ozobot.split('').join(' ')} `),
+    );
+    expect(first).toMatchObject({ kind: 'checked_in', roundNo: 2, mission: { id: 'ozobot' } });
     // 과학실은 이미 게임 중이라 늦게 들어온 팀은 바로 진행 중이 된다.
     expect(first.state).toMatchObject({ status: 'active', checkedInAt: START, alertCodes: [] });
 
     clock += 30_000;
-    const again = await repository.checkInStation({
-      eventId: EVENT,
-      teamId: DEMO_TEAM_ID,
-      stationId: 'ozobot',
-    });
+    const again = await repository.checkInStation(enter(DEMO_TEAM_ID, 'ozobot'));
     expect(again.kind).toBe('already_checked_in');
     expect(again.state.checkedInAt).toBe(START);
+    // 이미 입장한 팀은 코드가 달라도 그대로 입장한 것으로 본다.
+    expect((await repository.checkInStation(enter(DEMO_TEAM_ID, 'ozobot', '0000'))).kind).toBe(
+      'already_checked_in',
+    );
 
     // 입장 기록은 활동에 한 번만 남는다.
     await repository.signInTeacher();
@@ -76,9 +89,53 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
   });
 
   it('투어 중이 아닌 학년의 팀은 체크인할 수 없다', async () => {
+    await expect(repository.checkInStation(enter(toTeamId(5, 1, 1), 'ozobot'))).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed'),
+    );
+  });
+
+  it('교실 인증코드는 교사가 읽고 총괄이 정하며, 겹치거나 네 자리가 아니면 저장하지 않는다', async () => {
+    await expect(repository.listStationCodes(EVENT)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    repository.signInAs('teacher');
+    const codes = await repository.listStationCodes(EVENT);
+    expect(codes.map((item) => item.missionId)).toEqual([
+      'golden-bell',
+      'error-hunt',
+      'drawing',
+      'ozobot',
+      'library-check',
+    ]);
+    expect(codes.find((item) => item.missionId === 'ozobot')?.code).toBe(
+      SAMPLE_STATION_CODES.ozobot,
+    );
+    const next: Record<string, string> = { ...SAMPLE_STATION_CODES, ozobot: '9081' };
+    await expect(repository.saveStationCodes(EVENT, next)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+
+    repository.signInAs('admin');
     await expect(
-      repository.checkInStation({ eventId: EVENT, teamId: toTeamId(5, 1, 1), stationId: 'ozobot' }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+      repository.saveStationCodes(EVENT, { ...next, drawing: next['golden-bell'] }),
+    ).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'invalid-input') && /같아요/.test(error.message),
+    );
+    await expect(repository.saveStationCodes(EVENT, { ...next, drawing: '12' })).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'invalid-input') && /3반 교실/.test(error.message),
+    );
+    const saved = await repository.saveStationCodes(EVENT, next);
+    expect(saved.find((item) => item.missionId === 'ozobot')?.code).toBe('9081');
+
+    // 바뀐 코드로만 들어갈 수 있다.
+    repository.signInAs('teacher');
+    await repository.signOutTeacher();
+    await expect(
+      repository.checkInStation(enter(DEMO_TEAM_ID, 'ozobot', SAMPLE_STATION_CODES.ozobot)),
+    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
+    expect((await repository.checkInStation(enter(DEMO_TEAM_ID, 'ozobot', '9081'))).kind).toBe(
+      'checked_in',
+    );
   });
 
   it('선생님이 라운드를 열기 전에는 입장할 수 없다', async () => {
@@ -92,13 +149,7 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     });
     // 3팀의 3라운드 교실은 도서관(AI 오류찾기)인데, 도서관은 아직 2라운드를 하고 있다.
     expect((await repository.getTeamTourStatus(EVENT, DEMO_TEAM_ID)).roundNo).toBe(3);
-    await expect(
-      repository.checkInStation({
-        eventId: EVENT,
-        teamId: DEMO_TEAM_ID,
-        stationId: 'library-check',
-      }),
-    ).rejects.toSatisfy(
+    await expect(repository.checkInStation(enter(DEMO_TEAM_ID, 'library-check'))).rejects.toSatisfy(
       (error) => isRepositoryError(error, 'not-allowed') && /라운드를 열면/.test(error.message),
     );
   });
@@ -107,27 +158,14 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     await repository.signInTeacher();
     await finalize('ozobot', 2);
 
-    // 3팀의 다음(3라운드) 교실은 도서관이다.
-    const early = await repository.checkInStation({
-      eventId: EVENT,
-      teamId: DEMO_TEAM_ID,
-      stationId: 'library-check',
-    });
-    expect(early).toMatchObject({
-      kind: 'early',
-      roundNo: 2,
-      scannedMission: { id: 'library-check' },
-      expectedMission: { id: 'ozobot' },
-      nextMission: { id: 'library-check' },
-    });
-    expect(early.state.alertCodes).not.toContain('wrong_station');
+    // 3팀의 다음(3라운드) 교실은 도서관이지만 아직 2라운드 교실에 있다.
+    await expect(repository.checkInStation(enter(DEMO_TEAM_ID, 'library-check'))).rejects.toSatisfy(
+      (error) =>
+        isRepositoryError(error, 'not-allowed') && /아직 차례가 아닌 미션/.test(error.message),
+    );
 
-    // 끝낸 교실의 QR을 다시 찍은 것은 이미 입장한 것이다.
-    const same = await repository.checkInStation({
-      eventId: EVENT,
-      teamId: DEMO_TEAM_ID,
-      stationId: 'ozobot',
-    });
+    // 순위가 나온 교실에 다시 들어오는 것은 이미 입장한 것이다.
+    const same = await repository.checkInStation(enter(DEMO_TEAM_ID, 'ozobot'));
     expect(same.kind).toBe('already_checked_in');
 
     const dashboard = await repository.getOpsDashboard(EVENT, 4);
@@ -154,11 +192,7 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
       roundNo: 3,
       expectedMission: { id: 'library-check' },
     });
-    const entered = await repository.checkInStation({
-      eventId: EVENT,
-      teamId: DEMO_TEAM_ID,
-      stationId: 'library-check',
-    });
+    const entered = await repository.checkInStation(enter(DEMO_TEAM_ID, 'library-check'));
     expect(entered).toMatchObject({ kind: 'checked_in', roundNo: 3 });
 
     // 게임을 시작하면 제출할 수 있다.
@@ -197,20 +231,13 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     expect(demo).toMatchObject({ mission: { id: 'library-check' }, state: { roundNo: 3 } });
   });
 
-  it('이미 지나간 라운드의 교실 QR을 다시 찍어도 잘못된 교실로 기록하지 않는다', async () => {
+  it('이미 지나간 라운드의 교실에는 다시 들어갈 수 없고 기록도 남기지 않는다', async () => {
     // 3팀의 1라운드 교실은 미술실이었고 지금은 2라운드다.
-    const past = await repository.checkInStation({
-      eventId: EVENT,
-      teamId: DEMO_TEAM_ID,
-      stationId: 'drawing',
-    });
-    expect(past).toMatchObject({
-      kind: 'finished',
-      roundNo: 2,
-      scannedMission: { id: 'drawing' },
-      expectedMission: { id: 'ozobot' },
-    });
-    expect(past.state.alertCodes).not.toContain('wrong_station');
+    await expect(repository.checkInStation(enter(DEMO_TEAM_ID, 'drawing'))).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed') && /이미 지나간 미션/.test(error.message),
+    );
+    const status = await repository.getTeamTourStatus(EVENT, DEMO_TEAM_ID);
+    expect(status.state?.alertCodes).not.toContain('wrong_station');
   });
 
   it('라운드를 건너뛰면 게임과 순위 없이 끝나고 팀은 다음 교실로 넘어간다', async () => {
@@ -332,7 +359,7 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
   it('미션 화면용 정보는 팀이 그 교실에 입장했는지 알려 준다', async () => {
     const waiting = await repository.getTeamMissionView(EVENT, DEMO_TEAM_ID, 'ozobot');
     expect(waiting.checkedIn).toBe(false);
-    await repository.checkInStation({ eventId: EVENT, teamId: DEMO_TEAM_ID, stationId: 'ozobot' });
+    await repository.checkInStation(enter(DEMO_TEAM_ID, 'ozobot'));
     const entered = await repository.getTeamMissionView(EVENT, DEMO_TEAM_ID, 'ozobot');
     expect(entered.checkedIn).toBe(true);
     // 아직 차례가 아닌 미션은 입장 전이다.
@@ -355,15 +382,11 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     expect(dashboard.classRows).toHaveLength(5);
     expect(dashboard.classRows[0].cells.map((cell) => cell.team.teamNo)).toEqual([1, 2, 3, 4, 5]);
 
-    // 게임 중인 부스의 미도착 2팀(2반 3팀, 4반 5팀)과 잘못된 교실 1팀(5반 4팀).
+    // 게임 중인 부스의 미도착 2팀(2반 3팀, 4반 5팀).
     // 5반 4팀이 갈 도서관은 아직 게임을 시작하지 않아 미도착으로 세지 않는다.
     const codes = dashboard.alerts.map((alert) => `${alert.team.id}:${alert.code}`).sort();
-    expect(codes).toEqual([
-      `${toTeamId(4, 2, 3)}:not_arrived`,
-      `${toTeamId(4, 4, 5)}:not_arrived`,
-      `${toTeamId(4, 5, 4)}:wrong_station`,
-    ]);
-    expect(dashboard.summary.alertCount).toBe(3);
+    expect(codes).toEqual([`${toTeamId(4, 2, 3)}:not_arrived`, `${toTeamId(4, 4, 5)}:not_arrived`]);
+    expect(dashboard.summary.alertCount).toBe(2);
 
     // 게임을 시작한 부스의 입장 팀은 진행 중이다.
     const goldenBell = dashboard.stations.find((station) => station.mission.id === 'golden-bell');
@@ -419,14 +442,11 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
       participants.map((row) => [row.team.id, row.movement.status]),
     );
     expect(byTeam[toTeamId(4, 1, 4)]).toBe('active');
-    expect(byTeam[toTeamId(4, 5, 4)]).toBe('attention');
+    // 아직 오지 않은 팀은 입장 전이다(2분이 지나면 미도착 경고가 뜬다).
+    expect(byTeam[toTeamId(4, 5, 4)]).toBe('scheduled');
 
     // 늦게 입장한 팀은 바로 진행 중이 된다.
-    const late = await repository.checkInStation({
-      eventId: EVENT,
-      teamId: toTeamId(4, 5, 4),
-      stationId: 'library-check',
-    });
+    const late = await repository.checkInStation(enter(toTeamId(4, 5, 4), 'library-check'));
     expect(late.state.status).toBe('active');
   });
 
@@ -513,16 +533,12 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     expect(before.movements.map((movement) => movement.teamNo)).toEqual([4, 4, 4, 4, 4]);
     expect(before.movements.find((item) => item.teamId === lateTeamId)?.checkedInAt).toBeNull();
 
-    await repository.checkInStation({
-      eventId: EVENT,
-      teamId: lateTeamId,
-      stationId: 'library-check',
-    });
+    await repository.checkInStation(enter(lateTeamId, 'library-check'));
     const after = await repository.getStationArrivals(EVENT, 'library-check', 4, 2);
     expect(after.movements.find((item) => item.teamId === lateTeamId)?.status).toBe('checked_in');
   });
 
-  it('QR을 찍지 못한 팀은 교사가 직접 입장 처리할 수 있다', async () => {
+  it('인증코드를 넣지 못한 팀은 교사가 직접 입장 처리할 수 있다', async () => {
     await repository.signInTeacher();
     const state = await repository.markTeamArrived({
       eventId: EVENT,
@@ -602,7 +618,7 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     expect(dashboard.alerts.filter((alert) => alert.code === 'result_missing')).toHaveLength(20);
   });
 
-  it('라운드를 종료한 뒤 찍은 QR은 다음 라운드 입장으로 기록된다', async () => {
+  it('라운드를 종료한 뒤 넣은 인증코드는 다음 라운드 입장으로 기록된다', async () => {
     await repository.signInTeacher();
     await finalize('ozobot', 2);
     await repository.closeStationRound({
@@ -618,11 +634,7 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     await repository.closeStationRound({ ...library, roundNo: 2 });
     await repository.openStationRound({ ...library, roundNo: 3 });
 
-    const outcome = await repository.checkInStation({
-      eventId: EVENT,
-      teamId: DEMO_TEAM_ID,
-      stationId: 'library-check',
-    });
+    const outcome = await repository.checkInStation(enter(DEMO_TEAM_ID, 'library-check'));
     expect(outcome).toMatchObject({ kind: 'checked_in', roundNo: 3 });
     expect(outcome.state.status).toBe('checked_in');
   });
@@ -667,9 +679,9 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
       () => undefined,
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
-    await repository.checkInStation({ eventId: EVENT, teamId: DEMO_TEAM_ID, stationId: 'ozobot' });
-    // 같은 QR을 다시 찍은 것은 상태 변화가 아니라 알리지 않는다.
-    await repository.checkInStation({ eventId: EVENT, teamId: DEMO_TEAM_ID, stationId: 'ozobot' });
+    await repository.checkInStation(enter(DEMO_TEAM_ID, 'ozobot'));
+    // 같은 코드를 다시 넣은 것은 상태 변화가 아니라 알리지 않는다.
+    await repository.checkInStation(enter(DEMO_TEAM_ID, 'ozobot'));
     stop();
     expect(revisions).toHaveLength(2);
   });

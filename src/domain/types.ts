@@ -189,10 +189,28 @@ export interface OzobotConfig {
   rules: string[];
 }
 
+/**
+ * 도서관 오류찾기의 정답. 학생 답에 인정하는 말이 들어 있으면 그 항목을 맞은 것으로 본다.
+ * 골든벨 문제처럼 미션 설정에 들어가므로 실제 정답은 행사 사이트에서 교사가 등록한다.
+ */
+export interface LibraryCheckAnswerKey {
+  /** 틀린 부분으로 인정하는 말(하나라도 들어 있으면 정답) */
+  wrongPartKeywords: string[];
+  /** 올바른 내용으로 인정하는 말 */
+  correctionKeywords: string[];
+  /** 확인할 수 있는 책 제목(부제가 붙어도 인정) */
+  bookTitles: string[];
+  /** 인정하는 쪽수 범위. pageTo가 없으면 pageFrom 한 쪽만 */
+  pageFrom: number | null;
+  pageTo: number | null;
+}
+
 export interface LibraryCheckConfig {
   type: 'library_check';
   passageTitle: string;
   passage: string;
+  /** 정답을 등록하면 제출 즉시 자동으로 채점한다. 없으면 선생님이 직접 채점한다. */
+  answerKey?: LibraryCheckAnswerKey;
 }
 
 export type MissionConfig =

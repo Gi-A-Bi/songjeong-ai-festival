@@ -35,3 +35,21 @@ export function GameStartSplash({ phase }: { phase: MissionPhase | null }) {
     </div>
   );
 }
+
+const ARRIVAL_MS = 1800;
+
+/** 인증코드로 입장한 순간 “입장 완료!”를 잠깐 보여 준다. 소리는 입력 화면이 낸다. */
+export function ArrivalSplash({ at, onDone }: { at: number | null; onDone: () => void }) {
+  useEffect(() => {
+    if (at === null) return undefined;
+    const id = window.setTimeout(onDone, ARRIVAL_MS);
+    return () => window.clearTimeout(id);
+  }, [at, onDone]);
+
+  if (at === null) return null;
+  return (
+    <div key={at} className="start-splash start-splash--arrival" role="status">
+      <p className="start-splash__text">입장 완료!</p>
+    </div>
+  );
+}

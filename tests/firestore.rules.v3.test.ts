@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 
 /*
- * v3 보안 규칙: 역할별 권한, 교실 QR 체크인, 부스 상태, 학급 전체 최종 미션.
+ * v3 보안 규칙: 역할별 권한, 교실 입장(인증코드), 부스 상태, 학급 전체 최종 미션.
  * 기준 상태: 4학년 진행 중. 과학실(ozobot) 부스가 2라운드를 열어 두었다.
  * t3(4학년 1반 3팀)은 2라운드에 4번 미션(ozobot)으로 간다.
  */
@@ -100,6 +100,11 @@ beforeEach(async () => {
     const missions = ['golden-bell', 'error-hunt', 'drawing', 'ozobot', 'library-check'];
     for (const [index, id] of missions.entries()) {
       await setDoc(doc(db, `${EVENT}/missions/${id}`), { no: index + 1, type: id });
+      // 교실 인증코드: 미션 번호를 네 번 적은 값(ozobot은 4444)
+      await setDoc(doc(db, `${EVENT}/stationCodes/${id}`), {
+        missionId: id,
+        code: String(index + 1).repeat(4),
+      });
     }
     await setDoc(doc(db, `${EVENT}/classes/${CLASS_ID}`), { grade: 4, classNo: 1 });
     await setDoc(doc(db, `${EVENT}/classes/g4-c2`), { grade: 4, classNo: 2 });
@@ -228,7 +233,7 @@ describe('기기 잠금(세션)', () => {
   });
 });
 
-// ---- 교실 QR 체크인 ----
+// ---- 교실 입장(인증코드) ----
 
 function arrival(extra: Record<string, unknown> = {}) {
   return {
@@ -243,21 +248,13 @@ function arrival(extra: Record<string, unknown> = {}) {
     manualReview: false,
     checkedInAt: serverTimestamp(),
     checkedInBy: 'team',
+    accessCode: '4444',
     updatedAt: serverTimestamp(),
     ...extra,
   };
 }
 
-const wrongScan = (extra: Record<string, unknown> = {}) =>
-  arrival({
-    actualMissionId: 'golden-bell',
-    wrongStationId: 'golden-bell',
-    checkedInAt: null,
-    checkedInBy: null,
-    ...extra,
-  });
-
-describe('교실 QR 체크인', () => {
+describe('교실 입장(인증코드)', () => {
   const stateRef = (db: ReturnType<typeof dbOf>, id = `${CLASS_ID}_3_2`) =>
     doc(db, `${EVENT}/teamMissionStates/${id}`);
 
@@ -294,6 +291,7 @@ describe('교실 QR 체크인', () => {
       roundNo: 3,
       expectedMissionId: 'library-check',
       actualMissionId: 'library-check',
+      accessCode: '5555',
     });
     await assertFails(setDoc(stateRef(studentDb(), `${CLASS_ID}_3_3`), next));
     await seed((db) =>
@@ -339,30 +337,65 @@ describe('교실 QR 체크인', () => {
     await assertFails(setDoc(stateRef(studentDb()), arrival()));
   });
 
-  it('가야 할 부스가 아직 열리지 않았어도 다른 교실 QR을 찍은 기록은 남긴다', async () => {
-    await seed((db) => deleteDoc(doc(db, `${EVENT}/missionRoundStates/ozobot_g4_r2`)));
-    await assertSucceeds(setDoc(stateRef(studentDb()), wrongScan()));
-    // 열리지 않은 부스에는 입장할 수 없다.
+  it('인증코드가 다르거나 없으면 입장할 수 없다', async () => {
+    await assertFails(setDoc(stateRef(studentDb()), arrival({ accessCode: '4443' })));
+    await assertFails(setDoc(stateRef(studentDb()), arrival({ accessCode: 4444 })));
+    await assertFails(setDoc(stateRef(studentDb()), arrival({ accessCode: null })));
+    // 코드 문서가 없는 교실에는 들어갈 수 없다.
+    await seed((db) => deleteDoc(doc(db, `${EVENT}/stationCodes/ozobot`)));
     await assertFails(setDoc(stateRef(studentDb()), arrival()));
   });
 
-  it('다른 교실 QR은 입장으로 치지 않고 잘못 찍은 교실만 남긴다', async () => {
-    await assertSucceeds(setDoc(stateRef(studentDb()), wrongScan()));
-    // 그 뒤 올바른 교실에 입장할 수 있다.
-    await assertSucceeds(setDoc(stateRef(studentDb()), arrival()));
-    // 잘못 찍은 기록에 입장 시각을 넣을 수는 없다.
+  it('학생은 다른 교실의 기록을 남기거나 인증코드 없이 입장 시각만 넣을 수 없다', async () => {
     await assertFails(
       setDoc(
-        stateRef(studentDb(), `${CLASS_ID}_3_2`),
-        wrongScan({ checkedInAt: serverTimestamp(), checkedInBy: 'team' }),
+        stateRef(studentDb()),
+        arrival({
+          actualMissionId: 'golden-bell',
+          wrongStationId: 'golden-bell',
+          checkedInAt: null,
+          checkedInBy: null,
+        }),
       ),
+    );
+    await assertFails(setDoc(stateRef(studentDb()), arrival({ checkedInBy: null })));
+  });
+
+  it('학생은 자기 팀의 입장 기록만 읽는다(없는 문서도 읽을 수 있다)', async () => {
+    await assertSucceeds(getDoc(stateRef(studentDb())));
+    await assertSucceeds(setDoc(stateRef(studentDb()), arrival()));
+    await assertSucceeds(getDoc(stateRef(studentDb())));
+    await assertFails(getDoc(stateRef(otherStudentDb())));
+    await assertSucceeds(getDoc(stateRef(homeroomDb())));
+  });
+
+  it('교실 인증코드는 교사만 읽고 총괄만 정한다', async () => {
+    const codeRef = (db: ReturnType<typeof dbOf>) => doc(db, `${EVENT}/stationCodes/ozobot`);
+    await assertSucceeds(getDoc(codeRef(homeroomDb())));
+    await assertFails(getDoc(codeRef(studentDb())));
+    await assertFails(getDoc(codeRef(inactiveTeacherDb())));
+    const valid = {
+      missionId: 'ozobot',
+      code: '0912',
+      updatedBy: 'admin-1',
+      updatedAt: serverTimestamp(),
+    };
+    await assertSucceeds(setDoc(codeRef(adminDb()), valid));
+    await assertFails(setDoc(codeRef(homeroomDb()), valid));
+    await assertFails(setDoc(codeRef(adminDb()), { ...valid, code: '91' }));
+    await assertFails(setDoc(codeRef(adminDb()), { ...valid, code: 912 }));
+    await assertFails(setDoc(codeRef(adminDb()), { ...valid, missionId: 'drawing' }));
+    await assertFails(
+      setDoc(doc(adminDb(), `${EVENT}/stationCodes/no-such-mission`), {
+        ...valid,
+        missionId: 'no-such-mission',
+      }),
     );
   });
 
   it('이미 입장한 기록은 학생이 다시 쓸 수 없다', async () => {
     await assertSucceeds(setDoc(stateRef(studentDb()), arrival()));
     await assertFails(setDoc(stateRef(studentDb()), arrival()));
-    await assertFails(setDoc(stateRef(studentDb()), wrongScan()));
     await assertFails(deleteDoc(stateRef(studentDb())));
   });
 

@@ -14,7 +14,7 @@ import { TeacherLayout } from '../features/teacher/TeacherLayout';
 import { TeacherLoginPage } from '../features/teacher/TeacherLoginPage';
 import { TeacherMissionPage } from '../features/teacher/TeacherMissionPage';
 import { QrPrintPage } from '../features/teacher/qr/QrPrintPage';
-import { CheckInPage, StationQrPage } from '../features/tour/CheckInPage';
+import { StationLinkPage } from '../features/tour/StationLinkPage';
 import { TeamHomePage } from '../features/tour/TeamHomePage';
 import { TeamLayout } from '../features/tour/TeamLayout';
 import { StageLayout } from './StageLayout';
@@ -27,6 +27,7 @@ import {
   TeacherCardsRedirect,
   TeacherPathRedirect,
   TeamCardsRedirect,
+  TeamCheckInRedirect,
 } from './SystemPages';
 
 export const appRoutes: RouteObject[] = [
@@ -41,15 +42,16 @@ export const appRoutes: RouteObject[] = [
           { index: true, element: <StartPage /> },
           { path: 'join/:eventId', element: <JoinPage /> },
           { path: 'join/:eventId/:teamId', element: <JoinPage /> },
-          // 미션 교실에 붙이는 QR 주소. 기기에 입장한 팀의 체크인 화면으로 보낸다.
-          { path: 'check-in/:eventId/:stationId', element: <StationQrPage /> },
+          // 예전 교실 QR 주소. 기기에 입장한 팀의 그 미션 화면(인증코드 입력)으로 보낸다.
+          { path: 'check-in/:eventId/:stationId', element: <StationLinkPage /> },
           {
             path: 'team/:eventId/:teamId',
             element: <TeamLayout />,
             children: [
               { index: true, element: <TeamHomePage /> },
               { path: 'mission/:missionId', element: <MissionPage /> },
-              { path: 'check-in/:stationId', element: <CheckInPage /> },
+              // 예전 체크인 주소는 미션 화면으로 보낸다.
+              { path: 'check-in/:stationId', element: <TeamCheckInRedirect /> },
               { path: 'reward', element: <RewardPage /> },
               { path: 'cards', element: <CardBoardPage /> },
               // 예전 카드 뽑기·피날레·팀별 결승 북마크는 학급 카드 현황으로 보낸다.

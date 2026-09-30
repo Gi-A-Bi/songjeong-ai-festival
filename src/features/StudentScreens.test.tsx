@@ -1,10 +1,10 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../config';
 import { toTeamId } from '../data/mock/keys';
 import { MockEventRepository } from '../data/mock/MockEventRepository';
-import { DEMO_TEAM_ID } from '../data/mock/seed';
+import { DEMO_TEAM_ID, SAMPLE_STATION_CODES } from '../data/mock/seed';
 import { renderApp } from '../test/renderApp';
 
 describe('학생 화면', () => {
@@ -18,14 +18,14 @@ describe('학생 화면', () => {
     expect(screen.getByRole('img', { name: /페스티벌 장면/ })).toBeInTheDocument();
   });
 
-  it('팀 홈에 팀 이름, 지금 미션과 교실이 보이고, 입장 전에는 미션을 미리 보기만 한다', async () => {
-    // 샘플 팀은 아직 교실 QR을 찍지 않았다.
+  it('팀 홈에 팀 이름, 지금 미션과 교실이 보이고, 입장 전에는 인증코드를 넣으러 가게 한다', async () => {
+    // 샘플 팀은 아직 과학실에 입장하지 않았고, 과학실은 게임 중이다.
     renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}`);
     expect(await screen.findByRole('heading', { name: '로봇 길찾기' })).toBeInTheDocument();
     expect(screen.getByText('4학년 2반 3팀 팀 홈')).toBeInTheDocument();
     expect(screen.getByText(/2라운드 · 지금 미션/)).toBeInTheDocument();
-    expect(screen.getByText('과학실')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /미션 미리 보기/ })).toHaveAttribute(
+    expect(screen.getByText('4학년 4반 교실')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /인증코드 넣고 입장/ })).toHaveAttribute(
       'href',
       `/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/mission/ozobot`,
     );
@@ -81,17 +81,17 @@ describe('학생 화면', () => {
     expect(screen.queryByRole('link', { name: /결승/ })).toBeNull();
   });
 
-  it('아직 교실 QR을 찍지 않은 팀의 홈은 교실 QR을 찍어야 입장된다고 알려 준다', async () => {
+  it('아직 입장하지 않은 팀의 홈은 미션을 눌러 인증코드를 넣어야 입장된다고 알려 준다', async () => {
     renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}`);
     expect(
-      await screen.findByText(/교실 입구의 QR을 디벗 카메라로 찍어야 입장돼요/),
+      await screen.findByText(/미션을 눌러 교실 인증코드를 넣어야 입장돼요/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/이 화면에서 미션을 눌러도 입장되지 않아요/)).toBeInTheDocument();
+    expect(screen.getByText(/인증코드는 교실 선생님이 알려 줘요/)).toBeInTheDocument();
     // 과학실은 게임 중이라 남은 시간이 흐른다.
     expect(screen.getByRole('timer', { name: /남은 시간/ })).toBeInTheDocument();
   });
 
-  it('교실 QR을 찍은 팀의 홈에는 미션 시작 버튼이 보인다', async () => {
+  it('입장한 팀의 홈에는 미션 시작 버튼이 보인다', async () => {
     // 샘플 데이터: 4학년 1반 3팀은 과학실에 입장했다.
     renderApp(`/team/${DEFAULT_EVENT_ID}/${toTeamId(4, 1, 3)}`);
     expect(await screen.findByText(/도착 기록 완료/)).toBeInTheDocument();
@@ -101,31 +101,81 @@ describe('학생 화면', () => {
     );
   });
 
-  it('입장하지 않고 미션 화면을 열면 교실 QR을 찍으라고 알려 준다', async () => {
-    renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/mission/ozobot`);
+  it('입장하지 않고 미션 화면을 열면 인증코드 입력이 보이고, 맞는 코드를 넣으면 입장된다', async () => {
+    const user = userEvent.setup();
+    const { repository } = renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/mission/ozobot`);
     expect(
-      await screen.findByText(/아직 입장 기록이 없어요. 과학실 입구의 QR을 디벗 카메라로 찍어/),
+      await screen.findByText(/아직 입장하지 않았어요. 4학년 4반 교실 선생님이 알려 준 인증코드를/),
     ).toBeInTheDocument();
+    // 인증코드를 넣기 전에는 게임 중이어도 미션 내용을 보여 주지 않는다.
+    expect(
+      screen.getByText('인증코드를 넣고 입장하면 로봇 길과 미션 규칙이 나타나요'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '미션 규칙' })).toBeNull();
+    expect(screen.getByRole('button', { name: '시작 준비 완료' })).toBeDisabled();
+    const enter = screen.getByRole('button', { name: '입장하기' });
+    expect(enter).toBeDisabled();
+
+    // 틀린 코드는 거부하고 입장을 기록하지 않는다.
+    await user.type(screen.getByLabelText('교실 인증코드'), '0000');
+    expect(enter).toBeEnabled();
+    await user.click(enter);
+    expect(await screen.findByText(/인증코드가 달라요/)).toBeInTheDocument();
+    const before = await repository.getTeamTourStatus(DEFAULT_EVENT_ID, DEMO_TEAM_ID);
+    expect(before.state?.checkedInAt).toBeNull();
+
+    await user.type(screen.getByLabelText('교실 인증코드'), SAMPLE_STATION_CODES.ozobot);
+    await user.click(screen.getByRole('button', { name: '입장하기' }));
+    expect(await screen.findByText('입장 완료!')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText('교실 인증코드')).toBeNull());
+    expect(screen.queryByText(/아직 입장하지 않았어요/)).toBeNull();
+    const after = await repository.getTeamTourStatus(DEFAULT_EVENT_ID, DEMO_TEAM_ID);
+    expect(after.state?.checkedInAt).toEqual(expect.any(Number));
+    // 과학실은 게임 중이라 입장하자마자 미션 내용이 보인다.
+    expect(await screen.findByRole('heading', { name: '미션 규칙' })).toBeInTheDocument();
   });
 
-  it('입장한 팀의 미션 화면에는 QR 안내가 없다', async () => {
+  it('인증코드를 세 번 틀리면 잠깐 기다려야 한다', async () => {
+    const user = userEvent.setup();
+    renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/mission/ozobot`);
+    const input = await screen.findByLabelText('교실 인증코드');
+    for (const code of ['0000', '1111', '2222']) {
+      await user.type(input, code);
+      await user.click(screen.getByRole('button', { name: '입장하기' }));
+      await waitFor(() => expect(input).toHaveValue(''));
+    }
+    expect(screen.getByText(/인증코드가 여러 번 달랐어요/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '입장하기' })).toBeDisabled();
+    expect(input).toBeDisabled();
+  });
+
+  it('입장한 팀의 미션 화면에는 인증코드 입력이 없다', async () => {
     renderApp(`/team/${DEFAULT_EVENT_ID}/${toTeamId(4, 1, 3)}/mission/ozobot`);
     expect(await screen.findByRole('heading', { name: '로봇 길찾기' })).toBeInTheDocument();
-    expect(screen.queryByText(/아직 입장 기록이 없어요/)).toBeNull();
+    expect(screen.queryByLabelText('교실 인증코드')).toBeNull();
+    expect(screen.queryByText(/아직 입장하지 않았어요/)).toBeNull();
+    expect(screen.getByRole('heading', { name: '미션 규칙' })).toBeInTheDocument();
   });
 
-  it('라운드만 연 교실의 미션 화면은 입장했는지에 따라 다르게 안내한다', async () => {
+  it('라운드만 연 교실의 미션 화면은 입장했는지에 따라 다르게 안내하고, 게임 시작 전에는 글을 가린다', async () => {
     // 샘플 데이터: 도서관은 라운드만 열었다. 1반 4팀은 입장했고 5반 4팀은 아직이다.
     const entered = renderApp(
       `/team/${DEFAULT_EVENT_ID}/${toTeamId(4, 1, 4)}/mission/library-check`,
     );
-    expect(await screen.findByText(/입장했어요! 선생님이 게임을 시작하면/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/입장했어요! 선생님이 게임을 시작하면 문제가 나타나요/),
+    ).toBeInTheDocument();
+    expect(screen.getByText('게임이 시작되면 AI가 찾은 정보가 나타나요')).toBeInTheDocument();
+    expect(screen.queryByText(/꿀벌은 다리가 8개인/)).toBeNull();
+    expect(screen.queryByLabelText('교실 인증코드')).toBeNull();
     entered.unmount();
 
     renderApp(`/team/${DEFAULT_EVENT_ID}/${toTeamId(4, 5, 4)}/mission/library-check`);
     expect(
-      await screen.findByText(/도서관 입구의 QR을 디벗 카메라로 찍어야 입장돼요/),
+      await screen.findByText(/도서관 선생님이 알려 준 인증코드를 넣어야 입장돼요/),
     ).toBeInTheDocument();
+    expect(screen.getByLabelText('교실 인증코드')).toBeInTheDocument();
+    expect(screen.queryByText(/꿀벌은 다리가 8개인/)).toBeNull();
   });
 
   it('입장한 팀의 홈은 선생님이 게임을 시작하기를 기다린다고 알려 준다', async () => {
@@ -167,51 +217,10 @@ describe('학생 화면', () => {
     expect(await screen.findByText(/3라운드 · 다음 미션으로 이동해요/)).toBeInTheDocument();
     expect(screen.getByText('도서관')).toBeInTheDocument();
     expect(
-      await screen.findByText(/교실 앞에서 기다려요. 선생님이 라운드를 열면 교실 입구의/),
+      await screen.findByText(/교실 앞에서 기다려요. 선생님이 라운드를 열면 인증코드를 넣고/),
     ).toBeInTheDocument();
-  });
-
-  it('다른 교실 QR을 찍은 팀의 홈은 가야 할 교실을 다시 알려 준다', async () => {
-    // 샘플 데이터: 4학년 5반 4팀은 도서관 대신 과학실 QR을 찍었다.
-    renderApp(`/team/${DEFAULT_EVENT_ID}/${toTeamId(4, 5, 4)}`);
-    expect(await screen.findByText(/다른 교실 QR을 찍었어요/)).toBeInTheDocument();
-    expect(screen.getByText('도서관')).toBeInTheDocument();
-  });
-
-  it('예정된 교실 QR을 찍으면 입장 완료가 기록되고 다시 찍어도 기록은 하나다', async () => {
-    const { repository } = renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/check-in/ozobot`);
-    expect(await screen.findByRole('heading', { name: '입장 완료!' })).toBeInTheDocument();
-    expect(screen.getByText(/2라운드 · 과학실/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /미션 화면으로/ })).toHaveAttribute(
-      'href',
-      `/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/mission/ozobot`,
-    );
-
-    const first = await repository.getTeamTourStatus(DEFAULT_EVENT_ID, DEMO_TEAM_ID);
-    expect(first.state?.checkedInAt).toEqual(expect.any(Number));
-    const again = await repository.checkInStation({
-      eventId: DEFAULT_EVENT_ID,
-      teamId: DEMO_TEAM_ID,
-      stationId: 'ozobot',
-    });
-    expect(again.kind).toBe('already_checked_in');
-    expect(again.state.checkedInAt).toBe(first.state?.checkedInAt);
-  });
-
-  it('다른 교실 QR을 찍으면 올바른 교실을 안내하고 입장은 기록하지 않는다', async () => {
-    const { repository } = renderApp(
-      `/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/check-in/golden-bell`,
-    );
-    expect(
-      await screen.findByRole('heading', { name: '다른 교실로 가야 해요' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('과학실')).toBeInTheDocument();
-    expect(screen.getByText(/찍은 QR: 시청각실\(AI 골든벨\)/)).toBeInTheDocument();
-    expect(screen.getByText(/우리 팀은 지금 2라운드예요/)).toBeInTheDocument();
-
-    const status = await repository.getTeamTourStatus(DEFAULT_EVENT_ID, DEMO_TEAM_ID);
-    expect(status.state?.checkedInAt).toBeNull();
-    expect(status.state?.alertCodes).toContain('wrong_station');
+    // 라운드를 열기 전에는 인증코드 입력이 없다.
+    expect(screen.getByRole('link', { name: /미션 미리 보기/ })).toBeInTheDocument();
   });
 
   it('건너뛴 라운드는 팀 홈과 미션 화면에 건너뛴 미션으로 보인다', async () => {
@@ -236,77 +245,15 @@ describe('학생 화면', () => {
     expect(await screen.findByText('이번에는 하지 않고 넘어간 미션이에요.')).toBeInTheDocument();
   });
 
-  it('이미 지나간 미션의 교실 QR을 찍으면 지금 갈 교실을 알려 준다', async () => {
-    // 샘플 팀(3팀)의 1라운드 교실은 미술실이었다.
-    const { repository } = renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/check-in/drawing`);
-    expect(
-      await screen.findByRole('heading', { name: '이미 지나간 미션이에요' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('과학실')).toBeInTheDocument();
-    const status = await repository.getTeamTourStatus(DEFAULT_EVENT_ID, DEMO_TEAM_ID);
-    expect(status.state?.alertCodes).not.toContain('wrong_station');
-  });
-
-  it('순위가 나온 뒤 라운드를 종료하기 전에 다음 교실 QR을 찍으면 기다리라고 알려 준다', async () => {
-    const repository = new MockEventRepository();
-    await repository.signInTeacher();
-    // 과학실(2라운드)의 순위를 확정하고 라운드는 아직 종료하지 않았다.
-    const participants = await repository.listMissionParticipants(DEFAULT_EVENT_ID, 'ozobot', 4, 2);
-    await repository.finalizeRanking({
-      eventId: DEFAULT_EVENT_ID,
-      missionId: 'ozobot',
-      grade: 4,
-      roundNo: 2,
-      requestId: 'early-1',
-      entries: participants.map((participant, index) => ({
-        teamId: participant.team.id,
-        score: 100,
-        rank: index + 1,
-      })),
-    });
-
-    // 3팀의 다음(3라운드) 교실은 도서관이다.
-    const next = renderApp(
-      `/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/check-in/library-check`,
-      repository,
-    );
-    expect(await screen.findByRole('heading', { name: '조금만 기다려요' })).toBeInTheDocument();
-    expect(screen.getByText(/찍은 QR: 도서관\(AI 오류찾기\)/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/여기는 다음 미션 교실이 맞아요. 선생님이 3라운드를 열면 들어갈 수 있어요/),
-    ).toBeInTheDocument();
-    // 예전처럼 앞 교실에 “이미 입장했어요”라고 하지 않는다.
-    expect(screen.queryByRole('heading', { name: '이미 입장했어요' })).toBeNull();
-    next.unmount();
-
-    // 다음 교실이 아닌 교실의 QR을 찍으면 다음 교실을 알려 준다.
-    const other = renderApp(
-      `/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/check-in/golden-bell`,
-      repository,
-    );
-    expect(
-      await screen.findByRole('heading', { name: '다음 교실을 확인해요' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('도서관')).toBeInTheDocument();
-    other.unmount();
-
-    // 잘못 찍은 기록은 남기지 않는다.
-    const status = await repository.getTeamTourStatus(DEFAULT_EVENT_ID, DEMO_TEAM_ID);
-    expect(status.state?.alertCodes).not.toContain('wrong_station');
-
-    // 끝낸 교실의 QR을 다시 찍으면 이미 입장한 것으로 알려 준다.
-    renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/check-in/ozobot`, repository);
-    expect(await screen.findByRole('heading', { name: '이미 입장했어요' })).toBeInTheDocument();
-  });
-
-  it('교실 QR 주소는 기기에 입장한 팀의 체크인 화면으로 이어진다', async () => {
+  it('예전 교실 QR 주소로 들어오면 기기에 입장한 팀의 그 미션 화면으로 이동한다', async () => {
     const repository = new MockEventRepository();
     await repository.joinTeam(DEFAULT_EVENT_ID, DEMO_TEAM_ID);
     renderApp(`/check-in/${DEFAULT_EVENT_ID}/ozobot`, repository);
-    expect(await screen.findByRole('heading', { name: '입장 완료!' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '로봇 길찾기' })).toBeInTheDocument();
+    expect(screen.getByLabelText('교실 인증코드')).toBeInTheDocument();
   });
 
-  it('팀에 입장하지 않은 기기로 교실 QR을 찍으면 팀 입장부터 안내한다', async () => {
+  it('팀에 입장하지 않은 기기로 예전 교실 QR 주소를 열면 팀 입장부터 안내한다', async () => {
     renderApp(`/check-in/${DEFAULT_EVENT_ID}/ozobot`);
     expect(
       await screen.findByRole('heading', { name: '먼저 팀으로 입장해 주세요' }),
@@ -367,10 +314,33 @@ describe('학생 화면', () => {
     expect(await screen.findByRole('heading', { name: '4학년 2반 카드' })).toBeInTheDocument();
   });
 
-  it('지금 라운드가 아닌 미션은 살펴보기만 하고 제출할 수 없다', async () => {
+  it('지금 라운드가 아닌 미션은 문제를 가리고 제출할 수 없다', async () => {
     renderApp(`/team/${DEFAULT_EVENT_ID}/${DEMO_TEAM_ID}/mission/golden-bell`);
-    expect(await screen.findByText(/4라운드에 하는 미션이에요/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/4라운드에 하는 미션이에요. 게임이 시작되면 문제가 나타나요/),
+    ).toBeInTheDocument();
+    expect(screen.getByText('게임이 시작되면 문제가 나타나요')).toBeInTheDocument();
+    expect(screen.getByText(/문제 7개를 풀어요/)).toBeInTheDocument();
+    // 문제 글과 보기는 화면에 올리지 않는다.
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(screen.queryByText(/문제 1 \/ 7/)).toBeNull();
     expect(screen.getByRole('button', { name: /정답 제출/ })).toBeDisabled();
+  });
+
+  it('입장 전 그리기·로봇 미션도 게임 시작 전에는 프롬프트와 규칙을 가린다', async () => {
+    // 4학년 2반 5팀은 2라운드(시청각실)에 있고, 그리기는 4라운드, 로봇 길찾기는 5라운드다.
+    const teamId = toTeamId(4, 2, 5);
+    const drawing = renderApp(`/team/${DEFAULT_EVENT_ID}/${teamId}/mission/drawing`);
+    expect(await screen.findByText('게임이 시작되면 그림 프롬프트가 나타나요')).toBeInTheDocument();
+    expect(screen.queryByText(/노란 별 11개/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /사진 파일 고르기/ })).toBeNull();
+    drawing.unmount();
+
+    renderApp(`/team/${DEFAULT_EVENT_ID}/${teamId}/mission/ozobot`);
+    expect(
+      await screen.findByText('게임이 시작되면 로봇 길과 미션 규칙이 나타나요'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '미션 규칙' })).toBeNull();
   });
 
   it('골든벨은 여러 문제를 풀고 확인한 뒤 한 번에 제출한다', async () => {

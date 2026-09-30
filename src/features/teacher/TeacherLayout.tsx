@@ -87,7 +87,7 @@ export function TeacherLayout() {
       ) : null}
       <NavLink to={paths.qrPrint(eventId)} className="teacher-nav__link">
         <Icon name="qr_code_scanner" />
-        QR 인쇄
+        QR·인증코드 인쇄
       </NavLink>
       {/* 메뉴는 총괄과 교사가 같다. 행사 설정(문제·정답, 교사 등록)만 총괄에게 보인다. */}
       {profile.role === 'admin' ? (

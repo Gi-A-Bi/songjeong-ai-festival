@@ -307,9 +307,9 @@ describe('부스 화면의 실시간 제출과 라운드 따라가기', () => {
     await submitLate(repository);
     expect(screen.getByText('제출 3/5')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '순위 확정' }));
+    await user.click(screen.getByRole('button', { name: '정답 공개하고 순위 확정' }));
     const dialog = await screen.findByRole('dialog', { name: /순위를 확정할까요/ });
-    await user.click(within(dialog).getByRole('button', { name: '순위 확정' }));
+    await user.click(within(dialog).getByRole('button', { name: '정답 공개하고 순위 확정' }));
 
     expect(await screen.findByText(/새 제출이 들어와서 확정하지 않았어요/)).toBeInTheDocument();
     expect(await screen.findByText('제출 4/5')).toBeInTheDocument();
@@ -327,11 +327,13 @@ describe('부스 화면의 실시간 제출과 라운드 따라가기', () => {
     const repository = await signedInRepository();
     renderApp(stationPath, repository);
 
-    await user.click(await screen.findByRole('button', { name: '순위 확정' }));
+    await user.click(await screen.findByRole('button', { name: '정답 공개하고 순위 확정' }));
     const dialog = await screen.findByRole('dialog', { name: /순위를 확정할까요/ });
-    await user.click(within(dialog).getByRole('button', { name: '순위 확정' }));
-    expect(await screen.findByText(/순위를 확정했어요/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: '정답 공개하고 순위 확정' }));
+    expect(await screen.findByText(/정답을 공개하고 순위를 확정했어요/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /2라운드 참가 팀/ })).toBeInTheDocument();
+    // 확정과 함께 학생 화면에 정답이 공개된다.
+    expect(await repository.isAnswerRevealed(DEFAULT_EVENT_ID, 'golden-bell', 4, 2)).toBe(true);
 
     await repository.closeStationRound({
       eventId: DEFAULT_EVENT_ID,
@@ -404,5 +406,56 @@ describe('게임 시간 설정', () => {
     await user.click(screen.getByRole('button', { name: '저장' }));
     expect(await screen.findByText('게임 시간을 12분으로 바꿨어요.')).toBeInTheDocument();
     expect((await repository.getEvent(DEFAULT_EVENT_ID)).gameDurationMs).toBe(12 * 60_000);
+  });
+});
+
+describe('미션 이름과 교실 설정', () => {
+  it('총괄이 교실 이름을 바꾸면 학생 화면에는 학년이 붙어 보인다', async () => {
+    const user = userEvent.setup();
+    const repository = await signedInRepository();
+    const admin = renderApp(`/teacher/${DEFAULT_EVENT_ID}/admin`, repository);
+
+    // 기본값: 미션 1~4는 각 학년의 1~4반 교실, 미션 5는 도서관
+    const room = await screen.findByRole<HTMLInputElement>('textbox', { name: '미션 4 교실' });
+    expect(room.value).toBe('{학년} 4반 교실');
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: '미션 5 교실' }).value).toBe(
+      '도서관',
+    );
+    expect(screen.getByRole('button', { name: '이름·교실 저장' })).toBeDisabled();
+
+    await user.clear(room);
+    expect(screen.getByText(/미션 4: 교실 이름을 적어 주세요/)).toBeInTheDocument();
+    // user-event에서 여는 중괄호는 두 번 적어야 글자로 들어간다.
+    await user.type(room, '{{학년} 과학실');
+    expect(screen.getByRole('cell', { name: '4학년 과학실' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '이름·교실 저장' }));
+    expect(await screen.findByText(/미션 1개의 이름·교실을 저장했어요/)).toBeInTheDocument();
+    admin.unmount();
+
+    const mission = await repository.getMission(DEFAULT_EVENT_ID, 'ozobot');
+    expect(mission.room).toBe('{학년} 과학실');
+
+    // 학생 화면(4학년 2반 3팀의 2라운드 과학실)에는 학년이 붙는다.
+    await repository.signOutTeacher();
+    renderApp(`/team/${DEFAULT_EVENT_ID}/${toTeamId(4, 2, 3)}`, repository);
+    expect(await screen.findByText('4학년 과학실')).toBeInTheDocument();
+  });
+
+  it('교사는 미션 이름을 바꿀 수 있지만 행사 설정 화면은 열 수 없다', async () => {
+    const repository = new MockEventRepository();
+    repository.signInAs('teacher');
+    const saved = await repository.updateMissionInfo(DEFAULT_EVENT_ID, 'golden-bell', {
+      title: ' AI 골든벨 ',
+      room: '{학년} 1반 교실',
+      summary: '팀이 함께 AI 퀴즈를 풀어요',
+    });
+    expect(saved.title).toBe('AI 골든벨');
+    await expect(
+      repository.updateMissionInfo(DEFAULT_EVENT_ID, 'golden-bell', {
+        title: '',
+        room: '{학년} 1반 교실',
+        summary: '',
+      }),
+    ).rejects.toThrow(/미션 이름/);
   });
 });

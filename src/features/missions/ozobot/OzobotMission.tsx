@@ -5,6 +5,8 @@ import { MissionShell } from '../../../components/MissionShell';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { canSubmitInPhase } from '../../../domain/missionPhase';
 import type { OzobotConfig } from '../../../domain/types';
+import { getMissionLock } from '../missionLock';
+import { MissionLockedPanel } from '../MissionLockedPanel';
 import { MissionNotice } from '../MissionNotice';
 import type { MissionScreenProps } from '../missionTypes';
 import { useMissionSubmit } from '../useMissionSubmit';
@@ -14,18 +16,20 @@ interface OzobotMissionProps extends MissionScreenProps {
   config: OzobotConfig;
 }
 
-/** 로봇 기록은 교사가 직접 확인하므로 학생은 준비 완료만 알린다. */
+/** 로봇 기록은 교사가 직접 확인하므로 학생은 준비 완료만 알린다. 게임 시작 전에는 길과 규칙을 가린다. */
 export function OzobotMission({
   eventId,
   view,
   event,
   phase,
+  gate,
   onSubmitted,
   config,
 }: OzobotMissionProps) {
   const { team, mission, submission, roundNo } = view;
   const ready = submission !== null && submission.status !== 'draft';
   const { submit, isPending, error } = useMissionSubmit(eventId, team.id, mission.id, onSubmitted);
+  const lock = getMissionLock(view, event, phase);
 
   return (
     <MissionShell
@@ -35,6 +39,7 @@ export function OzobotMission({
       event={event}
       phase={phase}
       notice={<MissionNotice phase={phase} event={event} view={view} error={error} />}
+      gate={gate}
       actions={
         ready ? (
           <StatusBadge tone="info" icon="pending" size="lg">
@@ -49,7 +54,7 @@ export function OzobotMission({
             <Button
               size="xl"
               icon="flag"
-              disabled={!canSubmitInPhase(phase)}
+              disabled={!canSubmitInPhase(phase) || lock !== null}
               loading={isPending}
               loadingLabel="알리는 중"
               onClick={() => void submit({ type: 'ozobot', ready: true })}
@@ -60,23 +65,29 @@ export function OzobotMission({
         )
       }
     >
-      <div className="ozobot">
-        <AssetImage asset="missionOzobot" className="ozobot__course" loading="eager" />
-        <section className="panel" aria-labelledby="ozobot-rules-title">
-          <h2 id="ozobot-rules-title" className="section-title">
-            <Icon name="format_list_numbered" />
-            미션 규칙
-          </h2>
-          <ol className="rule-list">
-            {config.rules.map((rule, index) => (
-              <li key={rule} className="rule-list__item">
-                <span className="rule-list__no number">{index + 1}</span>
-                {rule}
-              </li>
-            ))}
-          </ol>
-        </section>
-      </div>
+      {lock !== null ? (
+        <MissionLockedPanel mission={mission} reason={lock} subject="로봇 길과 미션 규칙이">
+          <p>선생님이 게임을 시작하면 길을 그리고 로봇을 출발선에 올려요.</p>
+        </MissionLockedPanel>
+      ) : (
+        <div className="ozobot">
+          <AssetImage asset="missionOzobot" className="ozobot__course" loading="eager" />
+          <section className="panel" aria-labelledby="ozobot-rules-title">
+            <h2 id="ozobot-rules-title" className="section-title">
+              <Icon name="format_list_numbered" />
+              미션 규칙
+            </h2>
+            <ol className="rule-list">
+              {config.rules.map((rule, index) => (
+                <li key={rule} className="rule-list__item">
+                  <span className="rule-list__no number">{index + 1}</span>
+                  {rule}
+                </li>
+              ))}
+            </ol>
+          </section>
+        </div>
+      )}
 
       {ready ? (
         <section className="waiting-panel" aria-live="polite">

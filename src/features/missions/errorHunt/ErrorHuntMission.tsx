@@ -11,11 +11,11 @@ import {
   countFoundInPuzzle,
   getErrorHuntPuzzles,
   getFirstOpenPuzzleIndex,
-  isErrorHuntPictureHidden,
 } from '../../../domain/errorHunt';
-import { canSubmitInPhase, getWaitingReason } from '../../../domain/missionPhase';
+import { canSubmitInPhase } from '../../../domain/missionPhase';
 import { findHitRegion } from '../../../domain/scoring';
 import type { ErrorHuntConfig } from '../../../domain/types';
+import { getMissionLock, missionLockTitle } from '../missionLock';
 import { MissionNotice } from '../MissionNotice';
 import type { MissionScreenProps } from '../missionTypes';
 import { useMissionSubmit } from '../useMissionSubmit';
@@ -43,6 +43,7 @@ export function ErrorHuntMission({
   view,
   event,
   phase,
+  gate,
   onSubmitted,
   config,
 }: ErrorHuntMissionProps) {
@@ -71,16 +72,10 @@ export function ErrorHuntMission({
     }
   }, [imageSources]);
 
-  const editable = canSubmitInPhase(phase) && saved === null && !isPending;
-  const hidden = isErrorHuntPictureHidden(
-    phase,
-    getWaitingReason({
-      event,
-      grade: team.grade,
-      missionRound: roundNo,
-      roundStatus: view.roundStatus,
-    }),
-  );
+  // 게임 시작 전과 인증코드를 넣기 전에는 그림을 화면에 올리지 않는다.
+  const lock = getMissionLock(view, event, phase);
+  const hidden = lock !== null;
+  const editable = canSubmitInPhase(phase) && saved === null && !isPending && !hidden;
   const total = puzzles.reduce((sum, puzzle) => sum + puzzle.regions.length, 0);
   const foundCount = puzzles.reduce((sum, puzzle) => sum + countFoundInPuzzle(puzzle, found), 0);
   const currentIndex = Math.min(index, puzzles.length - 1);
@@ -150,6 +145,7 @@ export function ErrorHuntMission({
       event={event}
       phase={phase}
       notice={<MissionNotice phase={phase} event={event} view={view} error={error} />}
+      gate={gate}
       actions={
         <>
           <div className="hunt-stats" aria-live="polite">
@@ -169,7 +165,7 @@ export function ErrorHuntMission({
               size="xl"
               icon="send"
               onClick={handleSubmit}
-              disabled={!canSubmitInPhase(phase)}
+              disabled={!canSubmitInPhase(phase) || hidden}
               loading={isPending}
               loadingLabel="제출하는 중"
             >
@@ -191,8 +187,10 @@ export function ErrorHuntMission({
               draggable={false}
             />
             <div className="hunt-cover">
-              <Icon name="lock" size="xl" />
-              <p className="hunt-cover__title">게임이 시작되면 그림이 나타나요</p>
+              <Icon name={lock === 'not-entered' ? 'login' : 'lock'} size="xl" />
+              <p className="hunt-cover__title">
+                {missionLockTitle(lock ?? 'before-start', '그림이')}
+              </p>
               <p className="hunt-cover__text">
                 그림 {puzzles.length}장에서 이상한 곳 {total}군데를 찾아요.
               </p>

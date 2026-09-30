@@ -7,6 +7,8 @@ import type { IconName } from '../../components/icons';
 import type { TeamMissionView } from '../../data/EventRepository';
 import { toUserMessage } from '../../data/errors';
 import { getWaitingReason } from '../../domain/missionPhase';
+import { missionRoom } from '../../domain/missionRoom';
+import { isTeacherJudged } from '../../domain/scoring';
 import type { FestivalEvent, MissionPhase } from '../../domain/types';
 import './Missions.css';
 
@@ -33,7 +35,7 @@ export function MissionNotice({ phase, event, view, error }: MissionNoticeProps)
       return (
         <NoticeBox tone="success" icon="check_circle" mascot="mascotCorrect">
           제출했어요!{' '}
-          {view.mission.teacherJudged ? '선생님 확인을 기다려요.' : '결과 발표를 기다려요.'}
+          {isTeacherJudged(view.mission) ? '선생님 확인을 기다려요.' : '결과 발표를 기다려요.'}
         </NoticeBox>
       );
     case 'scoring':
@@ -59,9 +61,9 @@ export function MissionNotice({ phase, event, view, error }: MissionNoticeProps)
       }
       // 미션 화면을 열기만 해서는 입장되지 않는다.
       return view.checkedIn ? null : (
-        <NoticeBox tone="warning" icon="qr_code_scanner" mascot="mascotHint">
-          아직 입장 기록이 없어요. {view.mission.room} 입구의 QR을 디벗 카메라로 찍어 주세요. 찍기
-          어려우면 선생님께 말해 주세요.
+        <NoticeBox tone="warning" icon="login" mascot="mascotHint">
+          아직 입장하지 않았어요. {missionRoom(view.mission, view.team.grade)} 선생님이 알려 준
+          인증코드를 아래에 넣어 주세요. 넣기 어려우면 선생님께 말해 주세요.
         </NoticeBox>
       );
   }
@@ -84,7 +86,7 @@ function WaitingNotice({ event, view }: { event: FestivalEvent; view: TeamMissio
     case 'upcoming':
       return (
         <NoticeBox tone="info" icon="visibility" mascot="mascotHint">
-          {view.roundNo}라운드에 하는 미션이에요. 지금은 살펴보기만 할 수 있어요.
+          {view.roundNo}라운드에 하는 미션이에요. 게임이 시작되면 문제가 나타나요.
         </NoticeBox>
       );
     case 'missed':
@@ -100,19 +102,19 @@ function WaitingNotice({ event, view }: { event: FestivalEvent; view: TeamMissio
     case 'not-opened':
       return (
         <NoticeBox tone="info" icon="meeting_room" mascot="mascotTimer">
-          {view.mission.room} 앞에서 기다려요. 선생님이 라운드를 열면 교실 입구의 QR을 찍고
-          들어가요. 이 화면을 열기만 해서는 입장되지 않아요.
+          {missionRoom(view.mission, view.team.grade)} 앞에서 기다려요. 선생님이 라운드를 열면
+          인증코드를 넣고 들어가요. 이 화면을 열기만 해서는 입장되지 않아요.
         </NoticeBox>
       );
     case 'opened':
       return view.checkedIn ? (
         <NoticeBox tone="info" icon="hourglass_top" mascot="mascotTimer">
-          입장했어요! 선생님이 게임을 시작하면 미션이 열려요.
+          입장했어요! 선생님이 게임을 시작하면 문제가 나타나요.
         </NoticeBox>
       ) : (
-        <NoticeBox tone="warning" icon="qr_code_scanner" mascot="mascotHint">
-          {view.mission.room} 입구의 QR을 디벗 카메라로 찍어야 입장돼요. 이 화면을 열기만 해서는
-          입장되지 않아요.
+        <NoticeBox tone="warning" icon="login" mascot="mascotHint">
+          {missionRoom(view.mission, view.team.grade)} 선생님이 알려 준 인증코드를 넣어야 입장돼요.
+          이 화면을 열기만 해서는 입장되지 않아요.
         </NoticeBox>
       );
   }

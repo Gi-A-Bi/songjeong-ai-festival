@@ -88,6 +88,30 @@ export function getWaitingReason({
   return event.boothStatus === 'open' ? 'opened' : 'not-opened';
 }
 
+/**
+ * 게임을 시작하기 전에는 문제(골든벨 문항, 그림, 프롬프트, 지문, 규칙)를 보여 주지 않는다.
+ * 미리 본 팀이 유리해지지 않게 하고, 시간이 끝난 미션(missed)은 더 풀 수 없으므로 보여 준다.
+ */
+export function isMissionContentHidden(phase: MissionPhase, reason: WaitingReason): boolean {
+  return phase === 'waiting' && reason !== 'missed';
+}
+
+/**
+ * 문제를 가리는 이유. before-start(게임 시작 전), not-entered(게임 중인데 인증코드를 넣지 않음).
+ * 가릴 필요가 없으면 null. 인증코드를 넣어야만 문제를 볼 수 있어 입장 기록이 빠지지 않는다.
+ */
+export type MissionLockReason = 'before-start' | 'not-entered';
+
+export function getMissionLockReason(
+  phase: MissionPhase,
+  reason: WaitingReason,
+  checkedIn: boolean,
+): MissionLockReason | null {
+  if (isMissionContentHidden(phase, reason)) return 'before-start';
+  if (phase === 'active' && !checkedIn) return 'not-entered';
+  return null;
+}
+
 export interface SubmissionGateInput {
   /** 이 학년이 지금 진행할 학년인지 */
   touring: boolean;

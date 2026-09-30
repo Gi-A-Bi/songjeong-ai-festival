@@ -515,6 +515,213 @@
   gap: var(--space-3);
 }
 
+/* 제출 즉시 자동 채점 결과. 항목마다 맞음·틀림을 아이콘과 점수로 보여 준다. */
+.library-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 3px solid var(--gold-400);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  box-shadow:
+    0 0 0 6px var(--glow-gold-soft),
+    var(--shadow-md);
+  animation: pop-in var(--duration-slow) var(--ease-bounce);
+}
+
+.library-result__mascot {
+  width: 88px;
+  height: 88px;
+  flex: none;
+}
+
+.library-result__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.library-result__title {
+  font-size: var(--font-size-lg);
+}
+
+.library-result__title strong {
+  color: var(--accent-golden-bell-ink);
+  font-size: var(--font-size-2xl);
+}
+
+.library-result__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+.library-result__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-weight: var(--font-weight-bold);
+}
+
+.library-result__item--ok {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.library-result__note {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* 게임 시작 전 가림막: 미션 삽화를 흐리게 깔고 자물쇠와 안내만 보여 준다. */
+.mission-cover {
+  position: relative;
+  display: grid;
+  min-height: clamp(280px, 40vh, 420px);
+  overflow: hidden;
+  border: 4px solid var(--accent);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+.mission-cover__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(18px) saturate(1.2);
+  transform: scale(1.15);
+}
+
+.mission-cover__body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--stage-panel);
+  color: var(--white);
+  text-align: center;
+}
+
+.mission-cover__body > .icon {
+  width: 72px;
+  height: 72px;
+  padding: var(--space-3);
+  border-radius: 50%;
+  background: var(--gold-400);
+  color: var(--navy-900);
+  box-shadow: 0 0 32px var(--glow-gold);
+}
+
+.mission-cover__title {
+  font-size: clamp(var(--font-size-xl), 3vw, var(--font-size-2xl));
+  font-weight: var(--font-weight-heavy);
+  line-height: 1.3;
+}
+
+.mission-cover__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--blue-100);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 교실 인증코드 입력: 문제 위에 두는 관문. 숫자 네 자리를 크게 넣는다. */
+.code-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border: 3px solid var(--gold-400);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  box-shadow:
+    0 0 0 6px var(--glow-gold-soft),
+    var(--shadow-md);
+}
+
+.code-entry__lead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.code-entry__lead > .icon {
+  flex: none;
+  color: var(--gold-400);
+}
+
+.code-entry__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+}
+
+.code-entry__hint {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.code-entry__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.code-entry__input {
+  flex: 1 1 220px;
+  min-height: var(--button-height-lg);
+  padding: var(--space-2) var(--space-4);
+  border: 4px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  color: var(--navy-900);
+  font-size: clamp(2rem, 6vw, 3rem);
+  font-weight: var(--font-weight-heavy);
+  letter-spacing: 0.35em;
+  text-align: center;
+}
+
+.code-entry__input::placeholder {
+  color: var(--gray-300);
+  letter-spacing: 0.35em;
+}
+
+.code-entry__input:focus-visible {
+  border-color: var(--gold-400);
+  outline-offset: 0;
+}
+
+.code-entry__input[aria-invalid='true'] {
+  border-color: var(--red-500);
+}
+
+.code-entry__input:disabled {
+  background: var(--gray-200);
+  color: var(--gray-600);
+}
+
+.code-entry__refresh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
 @media (max-width: 960px), (orientation: portrait) {
   .gb-choices,
   .ozobot,

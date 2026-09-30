@@ -8,6 +8,7 @@ import { ErrorView, InlineAlert, LoadingView } from '../../../components/StateVi
 import type { OpsDashboard, OpsStation, OpsTeamCell } from '../../../data/EventRepository';
 import { useRepository } from '../../../data/RepositoryContext';
 import { MISSION_TYPE_INFO } from '../../../domain/catalog';
+import { missionRoom } from '../../../domain/missionRoom';
 import { ROUND_NUMBERS } from '../../../domain/rotation';
 import {
   ALERT_LABELS,
@@ -184,7 +185,7 @@ function AlertList({ eventId, data }: { eventId: string; data: OpsDashboard }) {
               </StatusBadge>
               <span className="ops-alert__text">
                 <strong>{alert.team.displayName}</strong> · {alert.roundNo}라운드{' '}
-                {alert.mission.title}({alert.mission.room})
+                {alert.mission.title}({missionRoom(alert.mission, data.summary.grade)})
               </span>
               <Link
                 to={paths.teacherStation(eventId, alert.mission.id)}
@@ -255,7 +256,7 @@ function StationGrid({ eventId, data }: { eventId: string; data: OpsDashboard })
             >
               <p className="ops-station__eyebrow">
                 <Icon name={MISSION_TYPE_INFO[station.mission.type].icon} size="sm" />
-                미션 {station.mission.no} · {station.mission.room}
+                미션 {station.mission.no} · {missionRoom(station.mission, data.summary.grade)}
               </p>
               <h3 className="ops-station__title">{station.mission.title}</h3>
               <div className="cluster">
@@ -338,7 +339,7 @@ function ClassTable({
                       <span className="ops-cell">
                         <span className="ops-cell__mission">
                           <Icon name={MISSION_TYPE_INFO[cell.mission.type].icon} size="sm" />
-                          {cell.mission.room}
+                          {missionRoom(cell.mission, data.summary.grade)}
                         </span>
                         <StatusBadge tone={badge.tone} icon={badge.icon}>
                           {cell.state.alertCodes.length > 0

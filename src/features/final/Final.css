@@ -459,6 +459,317 @@
   opacity: 0.92;
 }
 
+/* 결과 발표: 두구두구 → 1위 발표 → 전체 순위. 전자칠판 전체를 덮는다. */
+.final-celebration {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: var(--space-6);
+  background:
+    radial-gradient(ellipse at 50% 0%, var(--stage-glow-purple), transparent 55%),
+    radial-gradient(ellipse at 20% 100%, var(--stage-glow-blue), transparent 50%),
+    radial-gradient(ellipse at 80% 100%, var(--stage-glow-pink), transparent 50%),
+    var(--navy-950, #060c22);
+  color: var(--white);
+  text-align: center;
+  animation: final-count-pop var(--duration-slow) var(--ease-out);
+}
+
+.final-celebration > .confetti {
+  position: fixed;
+}
+
+/* 무대 조명 두 줄기가 천천히 흔들린다. */
+.final-celebration__light {
+  position: absolute;
+  top: -20%;
+  width: 28vw;
+  height: 140%;
+  background: linear-gradient(180deg, var(--glow-gold-soft), transparent 70%);
+  clip-path: polygon(40% 0, 60% 0, 100% 100%, 0 100%);
+  opacity: 0.8;
+  pointer-events: none;
+  transform-origin: top center;
+}
+
+.final-celebration__light--left {
+  left: 6%;
+  animation: celebration-sweep 5s ease-in-out infinite alternate;
+}
+
+.final-celebration__light--right {
+  right: 6%;
+  animation: celebration-sweep 5s ease-in-out infinite alternate-reverse;
+}
+
+.final-celebration__close {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  color: var(--white);
+}
+
+.final-celebration__stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(var(--space-3), 2vh, var(--space-6));
+  width: min(100%, 1400px);
+}
+
+.final-celebration__kicker {
+  margin: 0;
+  color: var(--gold-100);
+  font-size: clamp(var(--font-size-lg), 2vw, 2.25rem);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.06em;
+}
+
+.final-celebration__title {
+  margin: 0;
+  font-size: clamp(2.5rem, 6vw, 5.5rem);
+  font-weight: var(--font-weight-heavy);
+  line-height: 1.1;
+  text-shadow: 0 0 40px var(--glow-gold);
+}
+
+.final-celebration__lead {
+  margin: 0;
+  font-size: clamp(var(--font-size-xl), 2.4vw, 2.5rem);
+}
+
+.final-celebration__lead strong {
+  color: var(--gold-400);
+}
+
+.final-celebration__drum {
+  margin: 0;
+  color: var(--gold-400);
+  font-size: clamp(2rem, 5vw, 4rem);
+  font-weight: var(--font-weight-heavy);
+  letter-spacing: 0.2em;
+  animation: celebration-drum 0.6s ease-in-out infinite;
+}
+
+/* 1위 발표: 트로피가 빛나며 커지고 학급 이름이 튀어 오른다. */
+.final-celebration__trophy {
+  display: grid;
+  place-items: center;
+  width: clamp(120px, 16vw, 220px);
+  height: clamp(120px, 16vw, 220px);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--gold-400), var(--gold-600));
+  color: var(--navy-900);
+  box-shadow:
+    0 0 0 12px var(--glow-gold-soft),
+    0 0 80px var(--glow-gold);
+  animation:
+    celebration-zoom 0.9s var(--ease-bounce) both,
+    celebration-shine 2.2s ease-in-out 0.9s infinite alternate;
+}
+
+.final-celebration__trophy .icon {
+  width: 60%;
+  height: 60%;
+}
+
+.final-celebration__winner {
+  margin: 0;
+  color: var(--gold-400);
+  font-size: clamp(3rem, 9vw, 8rem);
+  font-weight: var(--font-weight-heavy);
+  line-height: 1.1;
+  text-shadow:
+    0 0 60px var(--glow-gold),
+    0 8px 0 var(--stage-drop);
+  animation: celebration-zoom 1s var(--ease-bounce) 0.25s both;
+}
+
+.final-celebration__mine {
+  margin: 0;
+  padding: var(--space-2) var(--space-6);
+  border: 3px solid var(--blue-400);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-blue-soft);
+  color: var(--white);
+  font-size: clamp(var(--font-size-xl), 2.6vw, 2.75rem);
+  font-weight: var(--font-weight-heavy);
+  box-shadow: 0 0 32px var(--glow-blue);
+  animation: celebration-rise 0.7s var(--ease-out) 0.7s both;
+}
+
+.final-celebration__mine--win {
+  border-color: var(--gold-400);
+  background: var(--accent-golden-bell-soft);
+  color: var(--gold-400);
+  box-shadow: 0 0 40px var(--glow-gold);
+}
+
+/* 전체 순위 */
+.final-celebration__stage--ranking {
+  justify-content: flex-start;
+}
+
+.final-ranking {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(100%, 1100px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.final-ranking__row {
+  display: grid;
+  grid-template-columns: clamp(80px, 8vw, 120px) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: clamp(var(--space-2), 1.4vh, var(--space-4)) var(--space-5);
+  border: 3px solid var(--stage-line);
+  border-radius: var(--radius-xl);
+  background: var(--stage-fill);
+  font-size: clamp(var(--font-size-lg), 2vw, 2.125rem);
+  font-weight: var(--font-weight-bold);
+  text-align: left;
+  animation: celebration-rise 0.6s var(--ease-out) both;
+}
+
+.final-ranking__row--top1 {
+  border-color: var(--gold-400);
+  background: linear-gradient(90deg, var(--accent-golden-bell-soft), var(--stage-fill));
+  box-shadow: 0 0 28px var(--glow-gold-soft);
+}
+
+.final-ranking__row--top1 .final-ranking__rank {
+  color: var(--gold-400);
+}
+
+.final-ranking__row--top2 .final-ranking__rank {
+  color: var(--gray-300, #d6dbe8);
+}
+
+.final-ranking__row--top3 .final-ranking__rank {
+  color: var(--orange-400, #ffb057);
+}
+
+/* 우리 반은 파란 빛으로 도드라지고 조금 커진다. */
+.final-ranking__row--mine {
+  border-color: var(--blue-400);
+  background: var(--color-accent-blue-soft);
+  box-shadow:
+    0 0 0 4px var(--glow-blue-soft),
+    0 0 36px var(--glow-blue);
+  transform: scale(1.03);
+}
+
+.final-ranking__rank {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: clamp(var(--font-size-xl), 2.6vw, 2.75rem);
+  font-weight: var(--font-weight-heavy);
+}
+
+.final-ranking__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.final-ranking__tag {
+  padding: 2px var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--blue-400);
+  color: var(--navy-900);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-heavy);
+}
+
+.final-ranking__tag--cards {
+  background: var(--gold-400);
+}
+
+.final-ranking__score,
+.final-ranking__time {
+  white-space: nowrap;
+}
+
+.final-ranking__time {
+  color: var(--color-text-muted);
+}
+
+@keyframes celebration-sweep {
+  from {
+    transform: rotate(-12deg);
+  }
+
+  to {
+    transform: rotate(12deg);
+  }
+}
+
+@keyframes celebration-drum {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+@keyframes celebration-zoom {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) rotate(-8deg);
+  }
+
+  60% {
+    opacity: 1;
+    transform: scale(1.15) rotate(3deg);
+  }
+
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes celebration-shine {
+  from {
+    box-shadow:
+      0 0 0 12px var(--glow-gold-soft),
+      0 0 60px var(--glow-gold);
+  }
+
+  to {
+    box-shadow:
+      0 0 0 20px var(--glow-gold-soft),
+      0 0 120px var(--glow-gold);
+  }
+}
+
+@keyframes celebration-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* 3, 2, 1, 시작! */
 .final-countdown {
   position: fixed;
@@ -547,8 +858,19 @@
 
 @media (prefers-reduced-motion: reduce) {
   .final-countdown__number,
-  .final-finished__title {
+  .final-finished__title,
+  .final-celebration,
+  .final-celebration__light,
+  .final-celebration__drum,
+  .final-celebration__trophy,
+  .final-celebration__winner,
+  .final-celebration__mine,
+  .final-ranking__row {
     animation: none;
+  }
+
+  .final-ranking__row--mine {
+    transform: none;
   }
 
   .final-choice {

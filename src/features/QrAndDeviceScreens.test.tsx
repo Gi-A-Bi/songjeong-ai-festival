@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../config';
 import { toClassId, toTeamId } from '../data/mock/keys';
 import { MockEventRepository } from '../data/mock/MockEventRepository';
+import { SAMPLE_STATION_CODES } from '../data/mock/seed';
 import { renderApp } from '../test/renderApp';
 
 const EVENT = DEFAULT_EVENT_ID;
@@ -36,55 +37,44 @@ function decodeQr(element: HTMLElement): string | null {
   return jsQR(data, width, width)?.data ?? null;
 }
 
-describe('QR 인쇄 화면', () => {
-  it('미션 교실 도착 QR 다섯 장을 교실 이름과 함께 만든다', async () => {
+describe('QR·인증코드 인쇄 화면', () => {
+  it('팀 입장 QR을 먼저 보여 주고 개발 주소는 학생 기기가 열 수 없다고 알려 준다', async () => {
     const user = userEvent.setup();
     renderApp(`/teacher/${EVENT}/qr`, await adminRepository());
 
-    const sheets = await screen.findByLabelText('미션 교실 QR');
-    expect(within(sheets).getAllByRole('img')).toHaveLength(5);
-    expect(within(sheets).getByRole('heading', { name: '과학실' })).toBeInTheDocument();
+    const sheets = await screen.findByLabelText('팀 입장 QR');
+    await waitFor(() => expect(within(sheets).getAllByRole('img')).toHaveLength(25));
     // 개발 주소로는 학생 기기가 열 수 없으므로 알려 준다.
     expect(screen.getByText(/이 컴퓨터에서만 열려요/)).toBeInTheDocument();
 
     const address = screen.getByLabelText('QR에 넣을 사이트 주소');
     await user.clear(address);
     await user.type(address, `${SITE}/`);
-    expect(qrValue(screen.getByRole('img', { name: '과학실 도착 QR' }))).toBe(
-      `${SITE}/check-in/${EVENT}/ozobot`,
+    expect(qrValue(screen.getByRole('img', { name: '4학년 2반 3팀 입장 QR' }))).toBe(
+      `${SITE}/join/${EVENT}/${toTeamId(4, 2, 3)}`,
     );
     expect(screen.queryByText(/이 컴퓨터에서만 열려요/)).toBeNull();
     expect(screen.getByRole('button', { name: '인쇄하기' })).toBeEnabled();
   });
 
-  it('교실 QR 다섯 장을 해독하면 저마다 그 교실의 도착 주소가 나온다', async () => {
+  it('팀 입장 QR을 해독하면 그 팀의 입장 주소가 나온다', async () => {
     const user = userEvent.setup();
-    const repository = await adminRepository();
-    renderApp(`/teacher/${EVENT}/qr`, repository);
+    renderApp(`/teacher/${EVENT}/qr`, await adminRepository());
     const address = await screen.findByLabelText('QR에 넣을 사이트 주소');
     await user.clear(address);
     await user.type(address, SITE);
+    await user.selectOptions(screen.getByLabelText('학급'), toClassId(4, 2));
 
-    const missions = await repository.listMissions(EVENT);
-    expect(missions.map((mission) => mission.room)).toEqual([
-      '시청각실',
-      '컴퓨터실',
-      '미술실',
-      '과학실',
-      '도서관',
-    ]);
-    const decoded = missions.map((mission) => {
-      const qr = screen.getByRole('img', { name: `${mission.room} 도착 QR` });
-      // 장마다 적힌 교실 이름과 QR이 같은 장에 있다.
-      const sheet = qr.closest('section');
-      expect(within(sheet as HTMLElement).getByRole('heading')).toHaveTextContent(mission.room);
-      return decodeQr(qr);
-    });
-    expect(decoded).toEqual(missions.map((mission) => `${SITE}/check-in/${EVENT}/${mission.id}`));
+    const decoded = [1, 2, 3, 4, 5].map((teamNo) =>
+      decodeQr(screen.getByRole('img', { name: `4학년 2반 ${teamNo}팀 입장 QR` })),
+    );
+    expect(decoded).toEqual(
+      [1, 2, 3, 4, 5].map((teamNo) => `${SITE}/join/${EVENT}/${toTeamId(4, 2, teamNo as 1)}`),
+    );
     expect(new Set(decoded).size).toBe(5);
   });
 
-  it('주소가 올바르지 않으면 인쇄할 수 없다', async () => {
+  it('주소가 올바르지 않으면 팀 QR을 인쇄할 수 없다', async () => {
     const user = userEvent.setup();
     renderApp(`/teacher/${EVENT}/qr`, await adminRepository());
     const address = await screen.findByLabelText('QR에 넣을 사이트 주소');
@@ -92,13 +82,12 @@ describe('QR 인쇄 화면', () => {
     await user.type(address, 'songjeong');
     expect(screen.getByText(/https:\/\/로 시작하는 사이트 주소/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '인쇄하기' })).toBeDisabled();
-    expect(screen.queryByLabelText('미션 교실 QR')).toBeNull();
+    expect(screen.queryByLabelText('팀 입장 QR')).toBeNull();
   });
 
-  it('팀 입장 QR은 반마다 한 장에 다섯 팀이 들어가고 팀 입장 주소를 담는다', async () => {
+  it('팀 입장 QR은 반마다 한 장에 다섯 팀이 들어가고 학년을 바꾸면 그 학년의 반을 만든다', async () => {
     const user = userEvent.setup();
     renderApp(`/teacher/${EVENT}/qr`, await adminRepository());
-    await user.click(await screen.findByRole('button', { name: /팀 입장 QR/ }));
 
     // 샘플 행사는 4학년이 진행 중이라 4학년 5개 반이 먼저 보인다.
     const sheets = await screen.findByLabelText('팀 입장 QR');
@@ -109,9 +98,6 @@ describe('QR 인쇄 화면', () => {
     expect(
       within(sheets).getByRole('heading', { name: '4학년 2반 팀 입장 QR' }),
     ).toBeInTheDocument();
-    expect(qrValue(screen.getByRole('img', { name: '4학년 2반 3팀 입장 QR' }))).toMatch(
-      new RegExp(`/join/${EVENT}/${toTeamId(4, 2, 3)}$`),
-    );
 
     // 학년을 바꾸면 그 학년의 모든 반(3학년은 4개 반)을 다시 만든다.
     await user.selectOptions(screen.getByLabelText('학년'), '3');
@@ -120,21 +106,81 @@ describe('QR 인쇄 화면', () => {
     );
   });
 
-  it('부스 화면에서 넘어오면 그 교실 QR 한 장만 보여 준다', async () => {
-    renderApp(`/teacher/${EVENT}/qr?station=ozobot`, await adminRepository());
-    const sheets = await screen.findByLabelText('미션 교실 QR');
-    expect(within(sheets).getAllByRole('img')).toHaveLength(1);
-    expect(within(sheets).getByRole('heading', { name: '과학실' })).toBeInTheDocument();
+  it('교실 인증코드 안내문은 교실마다 한 장이며 코드를 크게 적는다', async () => {
+    const user = userEvent.setup();
+    renderApp(`/teacher/${EVENT}/qr`, await adminRepository());
+    await user.click(await screen.findByRole('button', { name: /교실 인증코드 안내문/ }));
+
+    const sheets = await screen.findByLabelText('교실 인증코드 안내문');
+    expect(within(sheets).getAllByRole('heading', { level: 2 })).toHaveLength(5);
+    expect(within(sheets).getByLabelText('각 학년 4반 교실 인증코드')).toHaveTextContent(
+      SAMPLE_STATION_CODES.ozobot,
+    );
+    expect(within(sheets).getByLabelText('도서관 인증코드')).toHaveTextContent(
+      SAMPLE_STATION_CODES['library-check'],
+    );
+    // 안내문에는 QR이 없고, 주소가 없어도 인쇄할 수 있다.
+    expect(within(sheets).queryByRole('img')).toBeNull();
+    expect(screen.getByRole('button', { name: '인쇄하기' })).toBeEnabled();
   });
 
-  it('부스 화면은 교실 QR을 화면에 띄우고 인쇄 화면으로 이어 준다', async () => {
-    renderApp(`/teacher/${EVENT}/station/ozobot`, await adminRepository());
-    const qr = await screen.findByRole('img', { name: '과학실 도착 QR' });
-    expect(qrValue(qr)).toMatch(new RegExp(`/check-in/${EVENT}/ozobot$`));
-    expect(screen.getByRole('link', { name: /이 교실 QR 인쇄하기/ })).toHaveAttribute(
-      'href',
-      `/teacher/${EVENT}/qr?station=ozobot`,
+  it('부스 화면에서 넘어오면 그 교실 안내문 한 장만 보여 준다', async () => {
+    renderApp(`/teacher/${EVENT}/qr?station=ozobot`, await adminRepository());
+    const sheets = await screen.findByLabelText('교실 인증코드 안내문');
+    expect(within(sheets).getAllByRole('heading', { level: 2 })).toHaveLength(1);
+    expect(within(sheets).getByRole('heading', { name: '각 학년 4반 교실' })).toBeInTheDocument();
+  });
+
+  it('총괄은 행사 설정에서 교실 인증코드를 정하고, 부스 화면은 그 코드를 크게 보여 준다', async () => {
+    const user = userEvent.setup();
+    const repository = await adminRepository();
+    const admin = renderApp(`/teacher/${EVENT}/admin`, repository);
+
+    const field = await screen.findByRole<HTMLInputElement>('textbox', {
+      name: '각 학년 4반 교실 인증코드',
+    });
+    expect(field.value).toBe(SAMPLE_STATION_CODES.ozobot);
+    expect(screen.getByRole('button', { name: '인증코드 저장' })).toBeDisabled();
+
+    // 같은 코드를 두 교실에 쓰면 저장할 수 없다.
+    await user.clear(field);
+    await user.type(field, SAMPLE_STATION_CODES.drawing);
+    expect(await screen.findByText(/인증코드가 같아요/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '인증코드 저장' })).toBeDisabled();
+
+    await user.clear(field);
+    await user.type(field, '90 81');
+    expect(field.value).toBe('9081');
+    await user.click(screen.getByRole('button', { name: '인증코드 저장' }));
+    expect(await screen.findByText(/인증코드를 저장했어요/)).toBeInTheDocument();
+    const codes = await repository.listStationCodes(EVENT);
+    expect(codes.find((item) => item.missionId === 'ozobot')?.code).toBe('9081');
+    admin.unmount();
+
+    renderApp(`/teacher/${EVENT}/station/ozobot`, repository);
+    await waitFor(() =>
+      expect(screen.getByLabelText('4학년 4반 교실 인증코드')).toHaveTextContent('9081'),
     );
+    // 학생은 새 코드로만 들어갈 수 있다.
+    await repository.signOutTeacher();
+    await expect(
+      repository.checkInStation({
+        eventId: EVENT,
+        teamId: toTeamId(4, 2, 3),
+        stationId: 'ozobot',
+        accessCode: SAMPLE_STATION_CODES.ozobot,
+      }),
+    ).rejects.toThrow(/인증코드가 달라요/);
+  });
+
+  it('교사는 인증코드를 바꿀 수 없고 행사 설정도 열 수 없다', async () => {
+    const repository = new MockEventRepository();
+    repository.signInAs('teacher');
+    await expect(repository.saveStationCodes(EVENT, { ...SAMPLE_STATION_CODES })).rejects.toThrow(
+      /총괄 선생님만/,
+    );
+    renderApp(`/teacher/${EVENT}/admin`, repository);
+    expect(await screen.findByText(/행사 설정은 총괄 선생님만 쓸 수 있어요/)).toBeInTheDocument();
   });
 });
 

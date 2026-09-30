@@ -59,6 +59,8 @@ import type {
   Team,
   TeamMissionState,
 } from '../../domain/types';
+import { missionRoom } from '../../domain/missionRoom';
+import { isValidStationCode, normalizeStationCode } from '../../domain/stationCode';
 import { formatClock } from '../../lib/time';
 import { RepositoryError } from '../errors';
 import type {
@@ -645,7 +647,11 @@ export class FirestoreTourStore {
 
   // ---- 체크인 ----
 
-  private recordData(record: TeamMissionRecord, checkedInBy: 'team' | 'teacher' | null) {
+  private recordData(
+    record: TeamMissionRecord,
+    checkedInBy: 'team' | 'teacher',
+    accessCode: string | null = null,
+  ) {
     return {
       grade: record.grade,
       classId: record.classId,
@@ -654,24 +660,38 @@ export class FirestoreTourStore {
       roundNo: record.roundNo,
       expectedMissionId: record.expectedMissionId,
       actualMissionId: record.actualMissionId,
-      wrongStationId: record.wrongStationId,
+      wrongStationId: null,
       manualReview: record.manualReview,
       // 입장 시각은 서버가 기록한다. 기기 시계가 틀려도 미도착 판정이 흔들리지 않는다.
-      checkedInAt: record.checkedInAt === null ? null : serverTimestamp(),
+      checkedInAt: serverTimestamp(),
       checkedInBy,
+      // 학생이 넣은 인증코드. 보안 규칙이 교실 코드와 견주어 맞을 때만 기록을 받는다.
+      ...(accessCode === null ? {} : { accessCode }),
       updatedAt: serverTimestamp(),
     };
   }
 
+  /**
+   * 교실 인증코드로 입장한다. 코드는 교사만 읽을 수 있어 학생 기기는 미리 견주지 못하고,
+   * 보안 규칙이 기록을 받을 때 교실 코드와 견준다. 거부되면 코드가 다른 것으로 안내한다.
+   */
   async checkIn(input: CheckInInput): Promise<CheckInOutcome> {
-    await this.ctx.ensureUser();
-    const [team, missions, event] = await Promise.all([
+    const user = await this.ctx.ensureUser();
+    const [team, missions, event, session] = await Promise.all([
       this.ctx.getTeam(input.eventId, input.teamId),
       this.ctx.missions(input.eventId),
       this.ctx.currentEvent(input.eventId),
+      getDoc(doc(this.ctx.sub(input.eventId, 'sessions'), user.uid)),
     ]);
-    const scannedMission = missions.find((mission) => mission.id === input.stationId);
-    if (!scannedMission) throw new RepositoryError('not-found', '미션 교실을 찾을 수 없어요.');
+    // 다른 팀에 묶인 기기는 보안 규칙이 거부한다. 거부 이유를 "코드가 다르다"로 잘못 알리지 않게 먼저 확인한다.
+    if (session.data()?.teamId !== input.teamId) {
+      throw new RepositoryError(
+        'not-allowed',
+        '이 기기가 입장한 팀이 아니에요. 팀 QR로 다시 입장해 주세요.',
+      );
+    }
+    const mission = missions.find((item) => item.id === input.stationId);
+    if (!mission) throw new RepositoryError('not-found', '미션 교실을 찾을 수 없어요.');
     const roundNo = getCheckInRound(
       await this.teamEvent(input.eventId, team, missions, event),
       team.grade,
@@ -683,49 +703,47 @@ export class FirestoreTourStore {
       );
     }
     const expectedMission = this.missionForRound(missions, team, roundNo);
-    const nextMission =
-      roundNo < 5 ? this.missionForRound(missions, team, (roundNo + 1) as RoundNo) : null;
+    if (mission.id !== expectedMission.id) {
+      throw new RepositoryError(
+        'not-allowed',
+        getRoundForMission(team.teamNo, mission.no) < roundNo
+          ? `이미 지나간 미션이에요. 우리 팀은 지금 ${roundNo}라운드 ${missionRoom(expectedMission, team.grade)}으로 가요.`
+          : `아직 차례가 아닌 미션이에요. 우리 팀은 지금 ${roundNo}라운드 ${missionRoom(expectedMission, team.grade)}으로 가요.`,
+      );
+    }
     const outcome = (kind: CheckInOutcome['kind'], data: TourData): CheckInOutcome => ({
       kind,
       roundNo,
-      scannedMission,
-      expectedMission,
-      nextMission,
-      state: this.present(data, team, roundNo, expectedMission),
+      mission,
+      state: this.present(data, team, roundNo, mission),
     });
 
-    const before = await this.directData(input.eventId, event, team, roundNo, expectedMission);
-    // 이미 지나간 라운드의 교실 QR을 다시 찍은 것은 잘못된 교실로 기록하지 않는다.
-    if (getRoundForMission(team.teamNo, scannedMission.no) < roundNo) {
-      return outcome('finished', before);
+    const before = await this.directData(input.eventId, event, team, roundNo, mission);
+    const stored = this.recordOf(before, team, roundNo, mission);
+    // 이번 라운드 순위가 이미 나왔거나 이미 입장했으면 그대로 둔다.
+    if (stored.resultId !== null || stored.checkedInAt !== null) {
+      return outcome('already_checked_in', before);
     }
-    // 이번 라운드 순위가 이미 나왔다. 같은 교실의 QR이면 이미 입장한 것이고,
-    // 다른 교실의 QR이면 다음 교실이 라운드를 열 때까지 들어갈 수 없다.
-    if (this.recordOf(before, team, roundNo, expectedMission).resultId !== null) {
-      return outcome(
-        scannedMission.id === expectedMission.id ? 'already_checked_in' : 'early',
-        before,
-      );
-    }
-    if (
-      scannedMission.id === expectedMission.id &&
-      !canCheckInAtBooth(this.boothStatus(before, expectedMission, team.grade, roundNo))
-    ) {
+    if (!canCheckInAtBooth(this.boothStatus(before, mission, team.grade, roundNo))) {
       throw new RepositoryError(
         'not-allowed',
         '선생님이 라운드를 열면 들어갈 수 있어요. 교실 앞에서 잠깐 기다려 주세요.',
       );
+    }
+    const accessCode = normalizeStationCode(input.accessCode);
+    if (!isValidStationCode(accessCode)) {
+      throw new RepositoryError('invalid-input', '인증코드 숫자 네 자리를 모두 넣어 주세요.');
     }
 
     const ref = doc(
       this.ctx.sub(input.eventId, 'teamMissionStates'),
       teamMissionStateId(team.classId, team.teamNo, roundNo),
     );
-    // 고정 문서 ID + 트랜잭션이라 같은 QR을 여러 번 찍어도 기록은 하나다.
+    // 고정 문서 ID + 트랜잭션이라 같은 팀이 여러 번 넣어도 기록은 하나다.
     const attempt = runTransaction(this.ctx.db, async (transaction) => {
       const snapshot = await transaction.get(ref);
       const data = snapshot.data();
-      const stored = data
+      const current = data
         ? mapTeamMissionRecord(ref.id, data)
         : emptyTeamMissionRecord({
             grade: team.grade,
@@ -733,37 +751,34 @@ export class FirestoreTourStore {
             teamId: team.id,
             teamNo: team.teamNo,
             roundNo,
-            expectedMissionId: expectedMission.id,
+            expectedMissionId: mission.id,
           });
-      const next = applyCheckIn(stored, scannedMission.id, this.ctx.serverNow());
-      if (next.record !== stored) {
-        transaction.set(
-          ref,
-          this.recordData(next.record, next.kind === 'checked_in' ? 'team' : null),
-        );
+      const next = applyCheckIn(current, mission.id, this.ctx.serverNow());
+      if (next.kind === 'checked_in') {
+        transaction.set(ref, this.recordData(next.record, 'team', accessCode));
       }
-      return next.kind;
+      return next.kind === 'checked_in' ? 'checked_in' : 'already_checked_in';
     });
     let kind: CheckInOutcome['kind'];
     try {
       kind = await attempt;
     } catch (error) {
       if (!isPermissionDenied(error)) throw error;
-      // 거의 동시에 찍은 다른 요청이 먼저 입장을 기록했는지 확인한다.
-      const latest = await this.directData(input.eventId, event, team, roundNo, expectedMission);
-      if (this.recordOf(latest, team, roundNo, expectedMission).checkedInAt === null) throw error;
-      return outcome(
-        scannedMission.id === expectedMission.id ? 'already_checked_in' : 'wrong_station',
-        latest,
+      // 거의 동시에 넣은 다른 요청이 먼저 입장을 기록했는지 확인한다.
+      const latest = await this.directData(input.eventId, event, team, roundNo, mission);
+      if (this.recordOf(latest, team, roundNo, mission).checkedInAt !== null) {
+        return outcome('already_checked_in', latest);
+      }
+      // 부스가 열려 있는데도 거부됐으면 인증코드가 다른 것이다(총괄이 코드를 정하지 않은 때도 같다).
+      throw new RepositoryError(
+        'invalid-input',
+        '인증코드가 달라요. 교실 선생님께 인증코드를 다시 확인해 주세요.',
       );
     }
-    return outcome(
-      kind,
-      await this.directData(input.eventId, event, team, roundNo, expectedMission),
-    );
+    return outcome(kind, await this.directData(input.eventId, event, team, roundNo, mission));
   }
 
-  /** QR을 찍지 못한 팀을 교사가 직접 입장 처리한다. */
+  /** 인증코드를 넣지 못한 팀을 교사가 직접 입장 처리한다. */
   async markArrived(input: MarkArrivedInput): Promise<TeamMissionState> {
     await this.ctx.ensureUser();
     this.ctx.requireTeacher();
@@ -1034,7 +1049,7 @@ export class FirestoreTourStore {
         team: cell.team,
         mission: cell.mission,
         roundNo: cell.state.roundNo,
-        message: `${cell.team.displayName} · ${cell.state.roundNo}라운드 ${cell.mission.title}(${cell.mission.room}) ${ALERT_LABELS[code]}`,
+        message: `${cell.team.displayName} · ${cell.state.roundNo}라운드 ${cell.mission.title}(${missionRoom(cell.mission, grade)}) ${ALERT_LABELS[code]}`,
       })),
     );
 
@@ -1089,7 +1104,7 @@ export class FirestoreTourStore {
         push({
           id: `check_in__${record.id}`,
           type: 'check_in',
-          message: `${team.displayName} · ${expected.room}(${expected.title}) 입장`,
+          message: `${team.displayName} · ${missionRoom(expected, grade)}(${expected.title}) 입장`,
           classId: team.classId,
           teamId: team.id,
           missionId: expected.id,
@@ -1101,7 +1116,7 @@ export class FirestoreTourStore {
         push({
           id: `wrong__${record.id}__${record.wrongStationId}`,
           type: 'wrong_station',
-          message: `${team.displayName} · ${scanned?.room ?? '다른 교실'}에 잘못 입장(가야 할 곳: ${expected.room})`,
+          message: `${team.displayName} · ${scanned ? missionRoom(scanned, grade) : '다른 교실'}에 잘못 입장(가야 할 곳: ${missionRoom(expected, grade)})`,
           classId: team.classId,
           teamId: team.id,
           missionId: record.wrongStationId,
@@ -1115,7 +1130,7 @@ export class FirestoreTourStore {
       const mission = missionOf(booth.missionId);
       if (!mission) continue;
       const base = { classId: null, teamId: null, missionId: mission.id, roundNo: booth.roundNo };
-      const label = `${mission.title}(${mission.room}) ${booth.roundNo}라운드`;
+      const label = `${mission.title}(${missionRoom(mission, grade)}) ${booth.roundNo}라운드`;
       // 예전 문서는 연 시각이 시작 시각과 같다. 같은 시각의 기록을 두 번 남기지 않는다.
       if (booth.openedAt !== null && booth.openedAt !== booth.startedAt) {
         push({

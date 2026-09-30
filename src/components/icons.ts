@@ -11,6 +11,7 @@ import arrowUpward from '@material-symbols/svg-400/rounded/arrow_upward.svg?raw'
 import bolt from '@material-symbols/svg-400/rounded/bolt.svg?raw';
 import brush from '@material-symbols/svg-400/rounded/brush.svg?raw';
 import cameraswitch from '@material-symbols/svg-400/rounded/cameraswitch.svg?raw';
+import casino from '@material-symbols/svg-400/rounded/casino.svg?raw';
 import celebration from '@material-symbols/svg-400/rounded/celebration.svg?raw';
 import centerFocusStrong from '@material-symbols/svg-400/rounded/center_focus_strong.svg?raw';
 import check from '@material-symbols/svg-400/rounded/check.svg?raw';
@@ -46,6 +47,7 @@ import lightbulb from '@material-symbols/svg-400/rounded/lightbulb.svg?raw';
 import lineWeight from '@material-symbols/svg-400/rounded/line_weight.svg?raw';
 import lock from '@material-symbols/svg-400/rounded/lock.svg?raw';
 import lockOpen from '@material-symbols/svg-400/rounded/lock_open.svg?raw';
+import militaryTech from '@material-symbols/svg-400/rounded/military_tech.svg?raw';
 import login from '@material-symbols/svg-400/rounded/login.svg?raw';
 import logout from '@material-symbols/svg-400/rounded/logout.svg?raw';
 import meetingRoom from '@material-symbols/svg-400/rounded/meeting_room.svg?raw';
@@ -103,6 +105,7 @@ const RAW_ICONS = {
   bolt,
   brush,
   cameraswitch,
+  casino,
   celebration,
   center_focus_strong: centerFocusStrong,
   check,
@@ -138,6 +141,7 @@ const RAW_ICONS = {
   line_weight: lineWeight,
   lock,
   lock_open: lockOpen,
+  military_tech: militaryTech,
   login,
   logout,
   meeting_room: meetingRoom,

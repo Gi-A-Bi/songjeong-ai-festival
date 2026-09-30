@@ -51,7 +51,19 @@ import type { RehearsalSummary } from '../../domain/rehearsal';
 import { getRankingEntryError } from '../../domain/rewards';
 import { missionRoundStateId, presentMissionRound, teamMissionStateId } from '../../domain/tour';
 import { getRoundForMission, getTeamNoForMission } from '../../domain/rotation';
-import { resolveSubmissionScore } from '../../domain/scoring';
+import { isTeacherJudged, resolveSubmissionScore } from '../../domain/scoring';
+import { getLibraryCheckConfigError } from '../../domain/libraryCheck';
+import {
+  getMissionInfoError,
+  normalizeMissionInfo,
+  type MissionInfoInput,
+} from '../../domain/missionRoom';
+import {
+  createRandomStationCode,
+  createRandomStationCodes,
+  getStationCodesError,
+  isValidStationCode,
+} from '../../domain/stationCode';
 import type {
   CardAward,
   ClassCardProgress,
@@ -105,6 +117,7 @@ import type {
   StartClassFinalInput,
   StartStationInput,
   StationArrivals,
+  StationCodeList,
   TeacherClassCards,
   TeacherRegistry,
   TeamDevice,
@@ -476,6 +489,7 @@ export class FirestoreEventRepository implements EventRepository {
       const existing = await getDoc(this.eventRef(eventId));
       if (existing.exists()) {
         await this.ensureFinalQuestionSets(eventId);
+        await this.ensureStationCodes(eventId);
         const [classes, teams, missions] = await Promise.all([
           getDocs(this.sub(eventId, 'classes')),
           getDocs(this.sub(eventId, 'teams')),
@@ -537,6 +551,7 @@ export class FirestoreEventRepository implements EventRepository {
       await batch.commit();
       this.staticCache.clear();
       await this.ensureFinalQuestionSets(eventId);
+      await this.ensureStationCodes(eventId);
 
       return {
         created: true,
@@ -704,9 +719,32 @@ export class FirestoreEventRepository implements EventRepository {
         const error = getDrawingConfigError(config);
         if (error) throw new RepositoryError('invalid-input', error);
       }
+      if (config.type === 'library_check') {
+        const error = getLibraryCheckConfigError(config);
+        if (error) throw new RepositoryError('invalid-input', error);
+      }
       await updateDoc(doc(this.sub(eventId, 'missions'), missionId), { config });
       this.staticCache.delete(`missions|${eventId}`);
-      return { ...mission, config };
+      const next = { ...mission, config };
+      return { ...next, teacherJudged: isTeacherJudged(next) };
+    });
+  }
+
+  async updateMissionInfo(
+    eventId: string,
+    missionId: string,
+    info: MissionInfoInput,
+  ): Promise<Mission> {
+    return run(async () => {
+      await this.ensureUser();
+      this.requireTeacher();
+      const mission = await this.getMission(eventId, missionId);
+      const error = getMissionInfoError(info);
+      if (error) throw new RepositoryError('invalid-input', error);
+      const next = normalizeMissionInfo(info);
+      await updateDoc(doc(this.sub(eventId, 'missions'), missionId), { ...next });
+      this.staticCache.delete(`missions|${eventId}`);
+      return { ...mission, ...next };
     });
   }
 
@@ -1711,7 +1749,7 @@ export class FirestoreEventRepository implements EventRepository {
     };
   }
 
-  // ---- 팀 이동과 QR 체크인 ----
+  // ---- 팀 이동과 교실 입장 ----
 
   async getMyTeam(eventId: string): Promise<Team | null> {
     return run(async () => {
@@ -1728,6 +1766,76 @@ export class FirestoreEventRepository implements EventRepository {
 
   async getTeamTourStatus(eventId: string, teamId: string): Promise<TeamTourStatus> {
     return run(() => this.tour.tourStatus(eventId, teamId));
+  }
+
+  /** 교실별 인증코드 문서(교사만 읽는다). 학생 기기에는 내려가지 않는다. */
+  private stationCodeRef(eventId: string, missionId: string) {
+    return doc(this.sub(eventId, 'stationCodes'), missionId);
+  }
+
+  async listStationCodes(eventId: string): Promise<StationCodeList> {
+    return run(async () => {
+      await this.ensureUser();
+      this.requireTeacher();
+      const [missions, snapshot] = await Promise.all([
+        this.listMissions(eventId),
+        getDocs(this.sub(eventId, 'stationCodes')),
+      ]);
+      const stored = new Map(snapshot.docs.map((item) => [item.id, item.data()]));
+      return missions.map((mission) => {
+        const data = stored.get(mission.id);
+        const code = data?.code;
+        return {
+          missionId: mission.id,
+          code: isValidStationCode(code) ? code : null,
+          updatedAt: toMillis(data?.updatedAt),
+        };
+      });
+    });
+  }
+
+  async saveStationCodes(eventId: string, codes: Record<string, string>): Promise<StationCodeList> {
+    return run(async () => {
+      await this.ensureUser();
+      const admin = this.requireAdmin();
+      const missions = await this.listMissions(eventId);
+      const error = getStationCodesError(codes, missions);
+      if (error) throw new RepositoryError('invalid-input', error);
+      const batch = writeBatch(this.db);
+      for (const mission of missions) {
+        batch.set(this.stationCodeRef(eventId, mission.id), {
+          missionId: mission.id,
+          code: codes[mission.id],
+          updatedBy: admin.uid,
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      return this.listStationCodes(eventId);
+    });
+  }
+
+  /** 아직 인증코드가 없는 교실에 무작위 코드를 넣는다(총괄만). 있는 코드는 그대로 둔다. */
+  private async ensureStationCodes(eventId: string): Promise<void> {
+    if (this.teacher?.role !== 'admin') return;
+    const codes = await this.listStationCodes(eventId);
+    const missing = codes.filter((item) => item.code === null);
+    if (missing.length === 0) return;
+    const taken = new Set(codes.flatMap((item) => (item.code === null ? [] : [item.code])));
+    const fresh = createRandomStationCodes(missing.map((item) => item.missionId));
+    const batch = writeBatch(this.db);
+    for (const item of missing) {
+      let code = fresh[item.missionId];
+      while (taken.has(code)) code = createRandomStationCode();
+      taken.add(code);
+      batch.set(this.stationCodeRef(eventId, item.missionId), {
+        missionId: item.missionId,
+        code,
+        updatedBy: this.teacher.uid,
+        updatedAt: serverTimestamp(),
+      });
+    }
+    await batch.commit();
   }
 
   // ---- 실시간 운영 대시보드 ----

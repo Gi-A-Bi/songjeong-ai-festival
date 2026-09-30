@@ -24,6 +24,7 @@ import { useStageTheme } from '../../hooks/useStageTheme';
 import { createRequestId } from '../../lib/random';
 import { formatClock } from '../../lib/time';
 import { useTeacherContext } from '../teacher/teacherContext';
+import { FinalCelebration } from './FinalCelebration';
 import './Final.css';
 
 /** 전자칠판용 학급 최종 미션: 학급 전체가 한 화면으로 4지선다 10문제를 함께 푼다. */
@@ -444,6 +445,14 @@ function FinishedPanel({
 }) {
   const { state, session, canViewResults, classInfo } = view;
   const seconds = Math.round((state.durationMs ?? 0) / 1000);
+  const published = canViewResults && state.finalRank !== null;
+  const [celebrating, setCelebrating] = useState(false);
+  /** 발표를 한 번 본 뒤에는 점수와 순위를 화면에 그대로 둔다. */
+  const [announced, setAnnounced] = useState(false);
+  const closeCelebration = () => {
+    setCelebrating(false);
+    setAnnounced(true);
+  };
   return (
     <section className="final-finished" aria-labelledby="final-finished-title" role="status">
       <AssetImage
@@ -469,7 +478,12 @@ function FinishedPanel({
           </strong>{' '}
           사용
         </p>
-        {canViewResults && state.correctCount !== null ? (
+        {published && !announced ? (
+          <p className="final-finished__hidden">
+            <Icon name="celebration" /> {classInfo.grade}학년 결과가 공개됐어요. “결과 확인”을 눌러
+            우승 학급과 우리 반 순위를 발표해요!
+          </p>
+        ) : canViewResults && state.correctCount !== null ? (
           <p className="final-finished__score">
             정답 <strong className="number">{state.correctCount}</strong> / {session.questionCount}
             {state.finalRank !== null ? (
@@ -486,6 +500,16 @@ function FinishedPanel({
           </p>
         )}
         <div className="cluster">
+          {published ? (
+            <Button
+              variant="gold"
+              size="xl"
+              icon="celebration"
+              onClick={() => setCelebrating(true)}
+            >
+              {announced ? '결과 다시 보기' : '결과 확인'}
+            </Button>
+          ) : null}
           <ButtonLink to={classPath} variant="secondary" size="lg" icon="school">
             학급 화면
           </ButtonLink>
@@ -494,6 +518,14 @@ function FinishedPanel({
           </ButtonLink>
         </div>
       </div>
+      {celebrating ? (
+        <FinalCelebration
+          eventId={eventId}
+          grade={classInfo.grade}
+          highlightClassId={classInfo.id}
+          onClose={closeCelebration}
+        />
+      ) : null}
     </section>
   );
 }

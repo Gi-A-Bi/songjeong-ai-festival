@@ -1,9 +1,6 @@
-import { useCallback, useRef, useState } from 'react';
-import { Link } from 'react-router';
-import { paths } from '../../../app/paths';
+import { useCallback } from 'react';
 import { Button } from '../../../components/Button';
 import { Icon } from '../../../components/Icon';
-import { QrCode } from '../../../components/QrCode';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { InlineAlert } from '../../../components/StateViews';
 import type { StationArrivals } from '../../../data/EventRepository';
@@ -12,7 +9,6 @@ import { useRepository } from '../../../data/RepositoryContext';
 import { ALERT_LABELS, TEAM_MISSION_STATUS_LABELS } from '../../../domain/tour';
 import type { Mission, RoundNo, Team } from '../../../domain/types';
 import { useAction } from '../../../hooks/useAction';
-import { copyText } from '../../../lib/download';
 import { formatTimeOfDay } from '../../../lib/time';
 import { TEAM_STATUS_BADGES } from '../dashboard/tourBadges';
 
@@ -59,8 +55,8 @@ export function StationArrivalsPanel({
         <Icon name="meeting_room" /> {round}라운드 입장 현황 · {arrivedCount}/{rows.length}팀
       </h2>
       <p className="muted">
-        라운드를 연 뒤 팀이 교실 QR을 찍으면 “입장 완료”로 바뀌어요. QR을 찍지 못한 팀은 “입장
-        처리”로 직접 기록해요.
+        라운드를 연 뒤 팀이 미션 화면에서 이 교실의 인증코드를 넣으면 “입장 완료”로 바뀌어요. 코드를
+        넣지 못한 팀은 “입장 처리”로 직접 기록해요.
       </p>
       {actionError ? <InlineAlert tone="danger">{toUserMessage(actionError)}</InlineAlert> : null}
 
@@ -118,58 +114,6 @@ export function StationArrivalsPanel({
           </tbody>
         </table>
       </div>
-
-      <StationQrAddress eventId={eventId} mission={mission} />
     </section>
-  );
-}
-
-/** 교실 QR. 인쇄물이 없거나 떨어졌을 때는 이 화면의 QR을 학생에게 보여 줘도 된다. */
-function StationQrAddress({ eventId, mission }: { eventId: string; mission: Mission }) {
-  const fieldRef = useRef<HTMLTextAreaElement>(null);
-  const [copied, setCopied] = useState<boolean | null>(null);
-  const address = `${window.location.origin}${paths.stationQr(eventId, mission.id)}`;
-
-  return (
-    <details className="station-qr">
-      <summary>
-        <Icon name="qr_code_scanner" size="sm" /> {mission.room} 교실 QR 보기
-      </summary>
-      <div className="stack">
-        <p className="muted">
-          팀 디벗 카메라로 찍으면 도착이 기록돼요. 교실 입구에 붙일 때는 인쇄 화면을 쓰고, 급할 때는
-          이 QR을 화면에 띄워 보여 줘도 돼요.
-        </p>
-        <QrCode value={address} label={`${mission.room} 도착 QR`} className="station-qr__code" />
-        <Link to={paths.qrPrint(eventId, mission.id)} className="teacher-shortcuts__link">
-          이 교실 QR 인쇄하기 <Icon name="arrow_forward" size="sm" />
-        </Link>
-        <textarea
-          ref={fieldRef}
-          className="text-input station-qr__field"
-          readOnly
-          rows={2}
-          value={address}
-          aria-label={`${mission.room} 교실 QR 주소`}
-        />
-        <div className="cluster">
-          <Button
-            variant="secondary"
-            icon="content_copy"
-            onClick={async () => setCopied(await copyText(address, fieldRef.current))}
-          >
-            주소 복사
-          </Button>
-          {copied === true ? (
-            <StatusBadge tone="success" icon="check_circle">
-              복사했어요
-            </StatusBadge>
-          ) : null}
-          {copied === false ? (
-            <span className="muted">복사하지 못했어요. 주소를 길게 눌러 직접 복사해 주세요.</span>
-          ) : null}
-        </div>
-      </div>
-    </details>
   );
 }

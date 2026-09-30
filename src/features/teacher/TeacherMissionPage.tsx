@@ -7,21 +7,27 @@ import { EmptyView, ErrorView, InlineAlert, LoadingView } from '../../components
 import type { MissionParticipant } from '../../data/EventRepository';
 import { toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
-import { getGoldenBellQuestions } from '../../domain/goldenBell';
+import { getLiveRoundStatus } from '../../domain/boothRound';
+import { getAnswerRevealBlocker, getGoldenBellQuestions } from '../../domain/goldenBell';
+import { hasLibraryCheckAnswerKey } from '../../domain/libraryCheck';
+import { missionRoom } from '../../domain/missionRoom';
 import { ROUND_NUMBERS } from '../../domain/rotation';
 import { MISSION_ROUND_STATUS_LABELS } from '../../domain/tour';
 import type { FestivalEvent, Grade, Mission, MissionRoundState, RoundNo } from '../../domain/types';
 import { useAction } from '../../hooks/useAction';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { useOpsLive } from '../../hooks/useFinalLive';
+import { useServerNow } from '../../hooks/useServerNow';
 import { useStationLive } from '../../hooks/useStationLive';
 import { BoothRoundPanel } from './mission/BoothRoundPanel';
 import { DrawingGallery } from './mission/DrawingGallery';
 import { DrawingPromptPicker } from './mission/DrawingPromptPicker';
 import { ErrorHuntAnswerSheet } from './mission/ErrorHuntAnswerSheet';
 import { GoldenBellQuestionEditor } from './mission/GoldenBellQuestionEditor';
+import { LibraryCheckEditor } from './mission/LibraryCheckEditor';
 import { RankingEditor } from './mission/RankingEditor';
 import { StationArrivalsPanel } from './mission/StationArrivalsPanel';
+import { StationCodeCard } from './mission/StationCodeCard';
 import { useTeacherContext } from './teacherContext';
 
 type MissionTab = 'operate' | 'questions';
@@ -41,7 +47,7 @@ function resultsSignature(participants: readonly MissionParticipant[]): string {
 
 /** 부스 화면. 라운드는 이 부스의 선생님이 열고, 게임을 시작하고, 순위를 매긴 뒤 종료한다. */
 export function TeacherMissionPage() {
-  const { eventId, event } = useTeacherContext();
+  const { eventId, event, teacher } = useTeacherContext();
   // 부스 화면 주소는 /station/:stationId 이고 stationId는 미션 ID와 같다.
   const params = useParams();
   const missionId = params.stationId ?? params.missionId ?? '';
@@ -102,7 +108,7 @@ export function TeacherMissionPage() {
       <div className="teacher-title">
         <div>
           <p className="muted">
-            미션 {mission.no} · {mission.room}
+            미션 {mission.no} · {missionRoom(mission, grade)}
             {grade !== null ? ` · ${grade}학년` : ''}
           </p>
           <h1 className="page__title">{mission.title} 부스</h1>
@@ -173,6 +179,36 @@ export function TeacherMissionPage() {
           </button>
         </div>
       ) : null}
+      {config.type === 'library_check' ? (
+        <div className="segmented" role="group" aria-label="오류찾기 화면 선택">
+          <button
+            type="button"
+            className="segmented__button"
+            aria-pressed={tab === 'operate'}
+            onClick={() => setTab('operate')}
+          >
+            <Icon name="leaderboard" /> 운영·채점
+          </button>
+          <button
+            type="button"
+            className="segmented__button"
+            aria-pressed={tab === 'questions'}
+            onClick={() => setTab('questions')}
+          >
+            <Icon name="menu_book" /> 글과 정답 등록
+            {hasLibraryCheckAnswerKey(config) ? ' (자동 채점)' : ' (정답 없음)'}
+          </button>
+        </div>
+      ) : null}
+
+      {tab === 'operate' ? (
+        <StationCodeCard
+          eventId={eventId}
+          mission={mission}
+          grade={grade}
+          isAdmin={teacher.role === 'admin'}
+        />
+      ) : null}
 
       {config.type === 'golden_bell' && tab === 'questions' ? (
         <GoldenBellQuestionEditor
@@ -190,6 +226,14 @@ export function TeacherMissionPage() {
           mission={mission}
           config={config}
           event={event}
+          onSaved={refresh}
+        />
+      ) : config.type === 'library_check' && tab === 'questions' ? (
+        <LibraryCheckEditor
+          key={mission.id}
+          eventId={eventId}
+          mission={mission}
+          config={config}
           onSaved={refresh}
         />
       ) : grade === null ? (
@@ -303,6 +347,7 @@ function BoothRound({
   const repository = useRepository();
   const { liveOps } = repository.capabilities;
   const config = mission.config;
+  const now = useServerNow(1000);
   const [staleNotice, setStaleNotice] = useState(false);
   /** 다음 번 참가 팀 읽기를 서버에서 할지(확정 직전에 발견한 새 제출) */
   const freshNext = useRef(false);
@@ -353,6 +398,19 @@ function BoothRound({
     booth.resultFinalizedAt !== null ||
     (participants?.some((participant) => participant.result !== null) ?? false);
   const movements = arrivals.status === 'success' ? (arrivals.data?.movements ?? null) : null;
+  // 골든벨 정답 공개는 모든 팀이 제출했거나 게임 시간이 끝난 뒤에만 할 수 있다.
+  const revealBlocker =
+    config.type === 'golden_bell' && participants
+      ? getAnswerRevealBlocker({
+          boothStatus: getLiveRoundStatus(booth, now),
+          submittedCount: participants.filter(
+            (participant) =>
+              participant.submission !== null && participant.submission.status !== 'draft',
+          ).length,
+          expectedCount: participants.length,
+          finalized: rankingFinalized,
+        })
+      : null;
 
   return (
     <>
@@ -384,18 +442,28 @@ function BoothRound({
       />
 
       {config.type === 'golden_bell' && roundData.status === 'success' ? (
-        <div className="panel teacher-actions">
-          <Button
-            variant={roundData.data.revealed ? 'secondary' : 'accent'}
-            icon={roundData.data.revealed ? 'visibility' : 'lightbulb'}
-            loading={reveal.isPending}
-            onClick={async () => {
-              const result = await reveal.run(!roundData.data.revealed);
-              if (result?.ok) roundData.reload();
-            }}
-          >
-            {roundData.data.revealed ? '정답 숨기기' : '학생 화면에 정답 공개'}
-          </Button>
+        <div className="panel stack">
+          <div className="teacher-actions">
+            <Button
+              variant={roundData.data.revealed ? 'secondary' : 'accent'}
+              icon={roundData.data.revealed ? 'visibility' : 'lightbulb'}
+              loading={reveal.isPending}
+              disabled={!roundData.data.revealed && revealBlocker !== null}
+              onClick={async () => {
+                const result = await reveal.run(!roundData.data.revealed);
+                if (result?.ok) roundData.reload();
+              }}
+            >
+              {roundData.data.revealed ? '정답 숨기기' : '학생 화면에 정답 공개'}
+            </Button>
+            <p className="muted">
+              <Icon name="info" size="sm" />{' '}
+              {roundData.data.revealed
+                ? '학생 화면에 정답과 맞힌 문제 수, 점수가 보여요.'
+                : (revealBlocker ??
+                  '공개하면 학생 화면에 정답과 자동 채점 점수가 바로 보여요. 아래 순위표의 “정답 공개하고 순위 확정”으로 한 번에 할 수도 있어요.')}
+            </p>
+          </div>
         </div>
       ) : null}
       {reveal.status === 'error' ? (
@@ -449,6 +517,8 @@ function BoothRound({
             finalized={roundData.data.participants.some(
               (participant) => participant.result !== null,
             )}
+            // 골든벨은 순위를 확정할 때 학생 화면에 정답도 함께 공개한다.
+            revealOnFinalize={config.type === 'golden_bell' && !roundData.data.revealed}
             onChanged={(message) => {
               onNotice(`${round}라운드: ${message}`);
               setStaleNotice(false);

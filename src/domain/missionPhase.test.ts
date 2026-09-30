@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { getMissionPhase, getSubmissionBlocker, getWaitingReason } from './missionPhase';
+import {
+  getMissionPhase,
+  getSubmissionBlocker,
+  getWaitingReason,
+  isMissionContentHidden,
+} from './missionPhase';
 import type { FestivalEvent } from './types';
 
 type TeamEvent = Pick<FestivalEvent, 'status' | 'activeGrade' | 'activeRound' | 'boothStatus'>;
@@ -130,5 +135,17 @@ describe('저장소 제출 검사', () => {
     expect(
       getSubmissionBlocker({ touring: false, boothStatus: 'completed', reopened: true }),
     ).toBeNull();
+  });
+});
+
+describe('게임 시작 전 문제 가리기', () => {
+  it('기다리는 동안에는 가리고, 시간이 끝난 미션과 게임 중에는 보여 준다', () => {
+    expect(isMissionContentHidden('waiting', 'not-opened')).toBe(true);
+    expect(isMissionContentHidden('waiting', 'opened')).toBe(true);
+    expect(isMissionContentHidden('waiting', 'upcoming')).toBe(true);
+    expect(isMissionContentHidden('waiting', 'idle')).toBe(true);
+    expect(isMissionContentHidden('waiting', 'missed')).toBe(false);
+    expect(isMissionContentHidden('active', 'opened')).toBe(false);
+    expect(isMissionContentHidden('submitted', 'opened')).toBe(false);
   });
 });

@@ -11,7 +11,9 @@ import { useRepository } from '../../data/RepositoryContext';
 import { useAction } from '../../hooks/useAction';
 import { FinalQuestionUploadPanel } from './FinalQuestionUploadPanel';
 import { GameDurationPanel } from './GameDurationPanel';
+import { MissionInfoPanel } from './MissionInfoPanel';
 import { RehearsalResetPanel } from './RehearsalResetPanel';
+import { StationCodePanel } from './StationCodePanel';
 import { TeacherRegistrationPanel } from './TeacherRegistrationPanel';
 import { EVENT_STATUS_BADGES, useTeacherContext } from './teacherContext';
 
@@ -96,18 +98,22 @@ export function AdminPage() {
 
       <GameDurationPanel eventId={eventId} event={event} />
 
+      <MissionInfoPanel eventId={eventId} event={event} />
+
+      <StationCodePanel eventId={eventId} />
+
       <FinalQuestionUploadPanel eventId={eventId} />
 
       <section className="panel stack" aria-labelledby="admin-qr-title">
         <h2 id="admin-qr-title" className="section-title">
-          <Icon name="qr_code_scanner" /> QR 인쇄
+          <Icon name="qr_code_scanner" /> QR·인증코드 인쇄
         </h2>
         <p className="muted">
-          미션 교실 입구에 붙일 도착 QR 5장과 팀 입장 QR(반마다 한 장)을 A4로 인쇄합니다. QR은 이
-          기기 안에서 만들며 외부 서비스에 주소를 보내지 않습니다.
+          팀 입장 QR(반마다 한 장)과 교실 인증코드 안내문 5장을 A4로 인쇄합니다. QR은 이 기기 안에서
+          만들며 외부 서비스에 주소를 보내지 않습니다. 교실 입장은 QR이 아니라 인증코드로 합니다.
         </p>
         <ButtonLink to={paths.qrPrint(eventId)} variant="secondary" size="lg" icon="print">
-          QR 인쇄 화면 열기
+          인쇄 화면 열기
         </ButtonLink>
       </section>
 

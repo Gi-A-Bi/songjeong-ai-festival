@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { missionImageKeys } from '../assets/manifest';
 import { MISSION_TYPE_INFO } from '../domain/catalog';
+import { missionRoom } from '../domain/missionRoom';
+import { isTeacherJudged } from '../domain/scoring';
 import { getCheckInRound } from '../domain/tour';
 import type { FestivalEvent, Mission, MissionPhase, RoundNo, Team } from '../domain/types';
 import { AssetImage } from './AssetImage';
@@ -17,6 +19,8 @@ interface MissionShellProps {
   phase: MissionPhase;
   /** 제출 결과·오류 같은 상태 안내 */
   notice?: ReactNode;
+  /** 입장 전 인증코드 입력처럼 문제 위에 두는 관문 */
+  gate?: ReactNode;
   /** 화면 아래에 고정되는 대표 행동 영역 */
   actions?: ReactNode;
   children: ReactNode;
@@ -33,6 +37,7 @@ export function MissionShell({
   event,
   phase,
   notice,
+  gate,
   actions,
   children,
 }: MissionShellProps) {
@@ -56,14 +61,14 @@ export function MissionShell({
         <div className="mission-shell__heading">
           <p className="mission-shell__eyebrow">
             <Icon name={typeInfo.icon} />
-            {roundNo}라운드 · 미션 {mission.no} · {mission.room}
+            {roundNo}라운드 · 미션 {mission.no} · {missionRoom(mission, team.grade)}
           </p>
           <div className="mission-shell__titleline">
             <h1 id="mission-title" className="mission-shell__title">
               {mission.title}
             </h1>
             <MissionPhaseBadge phase={phase} />
-            {mission.teacherJudged ? (
+            {isTeacherJudged(mission) ? (
               <StatusBadge tone="accent" icon="school">
                 선생님 판정
               </StatusBadge>
@@ -86,6 +91,7 @@ export function MissionShell({
         </div>
       </section>
       {notice}
+      {gate}
       <div className="mission-shell__body">{children}</div>
       {actions ? <div className="mission-shell__actions">{actions}</div> : null}
     </div>
