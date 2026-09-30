@@ -18,6 +18,7 @@ import { useStationLive } from '../../hooks/useStationLive';
 import { BoothRoundPanel } from './mission/BoothRoundPanel';
 import { DrawingGallery } from './mission/DrawingGallery';
 import { DrawingPromptPicker } from './mission/DrawingPromptPicker';
+import { ErrorHuntAnswerSheet } from './mission/ErrorHuntAnswerSheet';
 import { GoldenBellQuestionEditor } from './mission/GoldenBellQuestionEditor';
 import { RankingEditor } from './mission/RankingEditor';
 import { StationArrivalsPanel } from './mission/StationArrivalsPanel';
@@ -132,6 +133,26 @@ export function TeacherMissionPage() {
           </button>
         </div>
       ) : null}
+      {config.type === 'error_hunt' ? (
+        <div className="segmented" role="group" aria-label="틀린그림 찾기 화면 선택">
+          <button
+            type="button"
+            className="segmented__button"
+            aria-pressed={tab === 'operate'}
+            onClick={() => setTab('operate')}
+          >
+            <Icon name="leaderboard" /> 운영·채점
+          </button>
+          <button
+            type="button"
+            className="segmented__button"
+            aria-pressed={tab === 'questions'}
+            onClick={() => setTab('questions')}
+          >
+            <Icon name="image" /> 그림과 정답
+          </button>
+        </div>
+      ) : null}
       {config.type === 'drawing' ? (
         <div className="segmented" role="group" aria-label="그리기 화면 선택">
           <button
@@ -161,6 +182,8 @@ export function TeacherMissionPage() {
           grade={grade}
           onSaved={refresh}
         />
+      ) : config.type === 'error_hunt' && tab === 'questions' ? (
+        <ErrorHuntAnswerSheet config={config} grade={grade} />
       ) : config.type === 'drawing' && tab === 'questions' ? (
         <DrawingPromptPicker
           eventId={eventId}

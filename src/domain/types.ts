@@ -98,21 +98,60 @@ export interface GoldenBellConfig {
   gradeQuestions?: Partial<Record<Grade, GoldenBellQuestion[]>>;
 }
 
-/** 정답 영역. 좌표와 반지름은 이미지 너비·높이에 대한 0~1 비율이다. */
+/** 정답 영역(원 또는 타원). 좌표와 반지름은 이미지 너비·높이에 대한 0~1 비율이다. */
 export interface CircleRegion {
   id: string;
   x: number;
   y: number;
-  /** 이미지 너비에 대한 반지름 비율 */
+  /** 가로 반지름: 이미지 너비에 대한 비율 */
   r: number;
+  /** 세로 반지름: 이미지 높이에 대한 비율. 없으면 가로 반지름과 같은 길이의 원이다. */
+  ry?: number;
   label: string;
+}
+
+/** 틀린그림 찾기의 학년 묶음. 같은 묶음은 같은 그림을 쓴다. */
+export type ErrorHuntBand = 'grade3' | 'grade4' | 'grade56';
+
+/** 틀린그림 찾기 그림(asset manifest의 키) */
+export type ErrorHuntImageKey =
+  | 'missionErrorHunt'
+  | 'huntG3_1'
+  | 'huntG3_2'
+  | 'huntG3_3'
+  | 'huntG3_4'
+  | 'huntG3_5'
+  | 'huntG4_1'
+  | 'huntG4_2'
+  | 'huntG4_3'
+  | 'huntG4_4'
+  | 'huntG4_5'
+  | 'huntG56_1'
+  | 'huntG56_2'
+  | 'huntG56_3'
+  | 'huntG56_4'
+  | 'huntG56_5';
+
+/** 틀린그림 찾기의 그림 한 장과 그 안의 이상한 곳 */
+export interface ErrorHuntPuzzle {
+  id: string;
+  /** 그림 이름(교실, 운동장 등) */
+  title: string;
+  imageKey: ErrorHuntImageKey;
+  regions: CircleRegion[];
 }
 
 export interface ErrorHuntConfig {
   type: 'error_hunt';
-  imageKey: 'missionErrorHunt';
+  /** 학년 공통 그림 한 장. 그림 묶음이 없는 학년이 쓴다. */
+  imageKey: ErrorHuntImageKey;
   instruction: string;
   regions: CircleRegion[];
+  /**
+   * 학년별 그림 묶음. 적어 둔 학년은 이 그림을 차례로 푼다.
+   * 없으면 프로그램에 든 기본 묶음(DEFAULT_ERROR_HUNT_PUZZLES)을 쓴다.
+   */
+  gradePuzzles?: Partial<Record<Grade, ErrorHuntPuzzle[]>>;
 }
 
 /** 그리기 미션의 학년군. 같은 학년군은 같은 명화 후보를 쓴다. */

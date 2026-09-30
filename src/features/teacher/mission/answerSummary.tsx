@@ -1,4 +1,5 @@
 import { formatBytes } from '../../../domain/drawingFiles';
+import { getErrorHuntRegions } from '../../../domain/errorHunt';
 import {
   getGoldenBellAnswerLabel,
   getGoldenBellKind,
@@ -56,8 +57,8 @@ export function AnswerSummary({
     }
     case 'error_hunt': {
       if (config.type !== 'error_hunt') return <>-</>;
-      const found = countErrorHuntFound(config, answer.foundRegionIds);
-      const total = config.regions.length;
+      const found = countErrorHuntFound(config, answer.foundRegionIds, submission.grade);
+      const total = getErrorHuntRegions(config, submission.grade).length;
       return (
         <>
           찾음 {found}/{total} · 오답 {answer.wrongTaps}번 · 남은 {answer.remainingSeconds}초

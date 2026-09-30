@@ -163,6 +163,7 @@
 
 - hero-main.webp: 시작 화면
 - mission-*.webp: 미션 카드와 안내
+- hunt-*.webp: 틀린그림 찾기의 학년 묶음별 그림(1600×900). 그림을 바꾸면 파일 이름도 바꾼다
 - card-*.webp: 네 조각 카드 성장과 카드 현황
 - master-chance-emblem.webp: 구버전 자산이며 신규 화면에서 사용하지 않음
 - scene-*.webp: 결승 진입과 피날레
@@ -222,6 +223,7 @@
 - `content/작성/`의 내용과 거기서 만든 파일을 커밋하지 않는다. 최종 미션 정답은 클라이언트 번들(`src/`)과 공개 저장소에 넣지 않고, 총괄 운영자만 쓸 수 있는 경로로 `finalAnswerKeys`에 넣는다.
 - 골든벨 실제 문제와 정답도 `src/`와 공개 저장소에 넣지 않는다. 원고(`content/작성/01-골든벨.md`)를 `npm run golden:build`로 `골든벨-업로드.json`으로 바꿔, 교사가 골든벨 부스의 "문제 파일 올리기"로 넣는다. 앱과 테스트에는 지어낸 샘플 문제만 둔다.
 - 골든벨 문제는 학년별(`config.gradeQuestions`)로 둘 수 있고 형식은 O/X·객관식·단답형이다. 학년별 문제가 없는 학년은 공통 문제(`config.questions`)를 푼다. 채점과 문제 고르기는 `src/domain/goldenBell.ts`의 함수를 쓴다.
+- 틀린그림 찾기는 예외다. 정답이 그림에 그대로 보이므로 교사가 그림과 정답 위치를 프로그램에 넣기로 했다(`src/domain/errorHuntPuzzles.ts`, `public/assets/festival/hunt-*.webp`). 학년 묶음(3학년, 4학년, 5·6학년)마다 그림 5장을 차례로 풀고, 그림 고르기와 채점은 `src/domain/errorHunt.ts`의 함수를 쓴다.
 - 양식에 "프로그램 확장 필요"로 표시된 요청(학년별·라운드별 내용)은 데이터 모델을 먼저 고친 뒤 반영한다.
 
 ## 하지 말아야 할 것
