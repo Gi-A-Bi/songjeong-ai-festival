@@ -2,6 +2,7 @@ import { DEFAULT_EVENT_ID, DEFAULT_GAME_DURATION_MS } from '../../config';
 import type { BoothTimes } from '../../domain/boothRound';
 import { CARD_TYPES, drawOfferedTypes } from '../../domain/cards';
 import { createDefaultDrawingConfig } from '../../domain/drawingPrompts';
+import { classroomName } from '../../domain/missionRoom';
 import { getErrorHuntRegions } from '../../domain/errorHunt';
 import { getSelectionModeForRank, OFFER_COUNT_BY_MODE } from '../../domain/rewards';
 import {
@@ -95,8 +96,10 @@ export interface MockState {
   missionRoundStates: Record<string, MockBooth>;
   /** 활동 기록. ID가 같으면 한 번만 남는다. */
   activityEvents: Record<string, ActivityEvent>;
-  /** 이 기기가 마지막으로 입장한 팀(미션 교실 QR 체크인에 쓴다) */
+  /** 이 기기가 마지막으로 입장한 팀(예전 교실 QR 주소로 들어왔을 때 쓴다) */
   deviceTeamId: string | null;
+  /** 미션 교실별 인증코드(미션 ID → 네 자리 숫자). 학생이 미션 화면에서 넣고 들어온다. */
+  stationCodes: Record<string, string>;
   /** 학년별 최종 미션 세션 */
   finalSessions: Partial<Record<Grade, FinalSession>>;
   /** 학년별 최종 미션 문제(정답·힌트 제거 대상 포함). 화면에는 문제만 보낸다. */
@@ -211,7 +214,7 @@ export function createSampleMissions(): Mission[] {
       no: 1,
       type: 'golden_bell',
       title: 'AI 골든벨',
-      room: '시청각실',
+      room: classroomName(1),
       cardType: 'thinking',
       summary: '팀이 함께 AI 퀴즈를 풀어요',
       teacherJudged: false,
@@ -226,7 +229,7 @@ export function createSampleMissions(): Mission[] {
       no: 2,
       type: 'error_hunt',
       title: 'AI 틀린그림 찾기',
-      room: '컴퓨터실',
+      room: classroomName(2),
       cardType: 'observation',
       summary: 'AI 그림 속 이상한 곳을 찾아요',
       teacherJudged: false,
@@ -248,7 +251,7 @@ export function createSampleMissions(): Mission[] {
       no: 3,
       type: 'drawing',
       title: 'AI 설명대로 그려라',
-      room: '미술실',
+      room: classroomName(3),
       cardType: 'expression',
       summary: '명화 프롬프트를 읽고 그림으로 표현해요',
       teacherJudged: true,
@@ -260,19 +263,20 @@ export function createSampleMissions(): Mission[] {
       no: 4,
       type: 'ozobot',
       title: '로봇 길찾기',
-      room: '과학실',
+      room: classroomName(4),
       cardType: 'command',
-      summary: '오조봇이 길을 완주하게 설계해요',
+      summary: '길 조각을 이어 오조봇이 지나갈 길을 만들어요',
       teacherJudged: true,
       enabled: true,
       config: {
         type: 'ozobot',
         rules: [
-          '선이 끊기지 않게 굵고 진하게 그려요.',
-          '컬러 코드는 선 위에 순서대로 칠해요.',
-          '출발선에 로봇을 올리고 준비되면 버튼을 눌러요.',
-          '완주 시간과 재시도 횟수는 선생님이 기록해요.',
+          '난이도(별 1~3개)를 고르면 도전 과제 카드가 하나 나와요.',
+          '보드판에 길 조각을 이어 출발 칸에서 도착 칸까지 길을 만들어요.',
+          '다 만들면 손을 들어 선생님을 불러요. 선생님이 오조봇으로 확인해요.',
+          '성공하면 별 1개 5점, 2개 10점, 3개 20점! 7분 동안 점수를 모아요.',
         ],
+        timeLimitMinutes: 7,
       },
     },
     {
@@ -283,17 +287,34 @@ export function createSampleMissions(): Mission[] {
       room: '도서관',
       cardType: 'verification',
       summary: 'AI 글의 틀린 곳을 책으로 확인해요',
-      teacherJudged: true,
+      // 정답을 등록해 두면 제출 즉시 자동으로 채점한다.
+      teacherJudged: false,
       enabled: true,
       config: {
         type: 'library_check',
         passageTitle: 'AI가 쓴 “꿀벌” 소개 글',
         passage:
           '꿀벌은 다리가 8개인 곤충이에요. 꿀벌은 꽃에서 꽃가루와 꿀을 모으고, 벌집에서 함께 살아요. 일벌은 춤을 추어 꽃이 있는 곳을 친구들에게 알려 줘요.',
+        answerKey: {
+          wrongPartKeywords: ['다리가 8개', '8개'],
+          correctionKeywords: ['6개', '여섯 개'],
+          bookTitles: ['신기한 곤충 백과'],
+          pageFrom: 20,
+          pageTo: 30,
+        },
       },
     },
   ];
 }
+
+/** 샘플 교실 인증코드. 실제 코드는 총괄 운영자가 행사 설정에서 정한다. */
+export const SAMPLE_STATION_CODES: Readonly<Record<string, string>> = {
+  'golden-bell': '1357',
+  'error-hunt': '2468',
+  drawing: '3579',
+  ozobot: '4680',
+  'library-check': '5791',
+};
 
 /** 순위에 맞춘 샘플 점수. 그리기는 10점 만점 심사라 점수 폭이 작다. */
 function sampleScore(mission: Mission, rank: number, teamCount: number): number {
@@ -335,7 +356,14 @@ function sampleAnswer(mission: Mission, variant: number, grade: Grade): Submissi
         height: 960,
       };
     case 'ozobot':
-      return { type: 'ozobot', ready: true };
+      // 별 1개 카드는 모두, 변형에 따라 별 2개 카드 하나를 더 성공했다.
+      return {
+        type: 'ozobot',
+        solved: [
+          { challengeId: 'card-4', level: 1, at: 0 },
+          ...(variant % 2 === 0 ? [{ challengeId: 'card-7', level: 2 as const, at: 0 }] : []),
+        ],
+      };
     case 'library_check':
       return {
         type: 'library_check',
@@ -711,8 +739,7 @@ export function createSeedState(now: number): MockState {
   // 라운드는 부스마다 선생님이 따로 진행한다.
   // 3학년: 다섯 부스가 5라운드를 모두 끝냈다.
   // 4학년: 1라운드는 모두 끝냈고, 2라운드는 네 부스가 게임 중이며 도서관(오류찾기)은 라운드만 열어 팀이 들어오는 중이다.
-  // 미도착: 4학년 2반 3팀(샘플 팀, 직접 체크인해 볼 수 있다), 4학년 4반 5팀
-  // 잘못된 교실: 4학년 5반 4팀이 도서관 대신 과학실 QR을 찍었다.
+  // 미도착: 4학년 2반 3팀(샘플 팀, 인증코드를 넣어 볼 수 있다), 4학년 4반 5팀, 4학년 5반 4팀
   const teamMissionRecords: Record<string, TeamMissionRecord> = {};
   const missionRoundStates: Record<string, MockBooth> = {};
   const seedBooth = (
@@ -755,8 +782,11 @@ export function createSeedState(now: number): MockState {
     });
   }
   const activityEvents: Record<string, ActivityEvent> = {};
-  const notArrived = new Set([DEMO_TEAM_ID, toTeamId(DEMO_GRADE, 4, 5)]);
-  const wrongStationTeamId = toTeamId(DEMO_GRADE, 5, 4);
+  const notArrived = new Set([
+    DEMO_TEAM_ID,
+    toTeamId(DEMO_GRADE, 4, 5),
+    toTeamId(DEMO_GRADE, 5, 4),
+  ]);
   const demoRound: RoundNo = 2;
   for (const mission of missions) {
     const boothStartedAt = waitingMissionIds.includes(mission.id) ? null : round2StartedAt;
@@ -777,21 +807,13 @@ export function createSeedState(now: number): MockState {
         expectedMissionId: mission.id,
       });
       const checkedInAt = round2StartedAt - 40_000 + classNo * 5_000;
-      teamMissionRecords[record.id] =
-        teamId === wrongStationTeamId
-          ? {
-              ...record,
-              actualMissionId: 'ozobot',
-              wrongStationId: 'ozobot',
-              updatedAt: checkedInAt,
-            }
-          : {
-              ...record,
-              actualMissionId: mission.id,
-              checkedInAt,
-              startedAt: boothStartedAt,
-              updatedAt: boothStartedAt ?? checkedInAt,
-            };
+      teamMissionRecords[record.id] = {
+        ...record,
+        actualMissionId: mission.id,
+        checkedInAt,
+        startedAt: boothStartedAt,
+        updatedAt: boothStartedAt ?? checkedInAt,
+      };
     }
   }
   const seedActivity = (event: ActivityEvent) => {
@@ -808,18 +830,6 @@ export function createSeedState(now: number): MockState {
     roundNo: 2,
     at: round2StartedAt,
   });
-  seedActivity({
-    id: `wrong__${toClassId(DEMO_GRADE, 5)}_4_2__ozobot`,
-    grade: DEMO_GRADE,
-    type: 'wrong_station',
-    message: `${DEMO_GRADE}학년 5반 4팀 · 과학실에 잘못 입장(가야 할 곳: 도서관)`,
-    classId: toClassId(DEMO_GRADE, 5),
-    teamId: wrongStationTeamId,
-    missionId: 'ozobot',
-    roundNo: 2,
-    at: round2StartedAt - 15_000,
-  });
-
   // ---- 3학년 최종 미션 샘플 ----
   // 총괄 운영자가 10분 전에 열었고, 반마다 따로 시작했다. 결과는 아직 공개 전이다.
   // 1반: 5종 완성(힌트 5개) · 3분 전에 시작해 4번 문제를 푸는 중 · 힌트 1개 사용
@@ -929,6 +939,7 @@ export function createSeedState(now: number): MockState {
     missionRoundStates,
     activityEvents,
     deviceTeamId: null,
+    stationCodes: { ...SAMPLE_STATION_CODES },
     finalSessions,
     finalQuestionSets,
     finalClassStates,

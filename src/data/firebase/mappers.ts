@@ -4,6 +4,7 @@ import { toGlobalEvent, type BoothTimes } from '../../domain/boothRound';
 import { CARD_TYPES } from '../../domain/cards';
 import { createDefaultDrawingConfig } from '../../domain/drawingPrompts';
 import { emptyFinalSession, finalResponseId } from '../../domain/finalMission';
+import { isTeacherJudged } from '../../domain/scoring';
 import type { TeamMissionRecord } from '../../domain/tour';
 import { RepositoryError } from '../errors';
 import type {
@@ -93,6 +94,7 @@ export function mapTeam(snapshot: DocumentSnapshot<DocumentData>): Team {
 
 export function mapMission(snapshot: DocumentSnapshot<DocumentData>): Mission {
   const data = requireData(snapshot, '미션');
+  const config = normalizeMissionConfig(data.config);
   return {
     id: snapshot.id,
     no: data.no as MissionNo,
@@ -101,10 +103,19 @@ export function mapMission(snapshot: DocumentSnapshot<DocumentData>): Mission {
     room: String(data.room ?? ''),
     cardType: data.cardType,
     summary: String(data.summary ?? ''),
-    teacherJudged: data.teacherJudged === true,
+    // 도서관 오류찾기는 정답을 등록했는지에 따라 정해진다(예전 문서의 값은 쓰지 않는다).
+    teacherJudged: isTeacherJudged({ teacherJudged: data.teacherJudged === true, config }),
     enabled: data.enabled !== false,
-    config: normalizeMissionConfig(data.config),
+    config,
   };
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
+}
+
+function positiveIntOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : null;
 }
 
 /** 예전 한 문제 골든벨을 옮길 때 쓰는 문제 ID */
@@ -125,6 +136,25 @@ export function normalizeMissionConfig(raw: unknown): MissionConfig {
       type: 'drawing',
       prompts: config.prompts as DrawingPrompt[],
       selectedPromptIds: (config.selectedPromptIds ?? {}) as DrawingConfig['selectedPromptIds'],
+    };
+  }
+  if (config.type === 'library_check') {
+    const base = {
+      type: 'library_check' as const,
+      passageTitle: String(config.passageTitle ?? ''),
+      passage: String(config.passage ?? ''),
+    };
+    const key = config.answerKey as Record<string, unknown> | undefined;
+    if (!key || typeof key !== 'object') return base;
+    return {
+      ...base,
+      answerKey: {
+        wrongPartKeywords: stringList(key.wrongPartKeywords),
+        correctionKeywords: stringList(key.correctionKeywords),
+        bookTitles: stringList(key.bookTitles),
+        pageFrom: positiveIntOrNull(key.pageFrom),
+        pageTo: positiveIntOrNull(key.pageTo),
+      },
     };
   }
   if (config.type === 'golden_bell' && !Array.isArray(config.questions)) {
@@ -157,6 +187,20 @@ export function normalizeAnswer(raw: unknown): SubmissionAnswer {
         typeof answer.choiceIndex === 'number'
           ? { [LEGACY_GOLDEN_BELL_QUESTION_ID]: answer.choiceIndex }
           : {},
+    };
+  }
+  if (answer.type === 'ozobot') {
+    const solved = Array.isArray(answer.solved) ? answer.solved : [];
+    return {
+      type: 'ozobot',
+      solved: solved.flatMap((item) => {
+        const entry = (item ?? {}) as Record<string, unknown>;
+        const level = entry.level;
+        if (typeof entry.challengeId !== 'string' || (level !== 1 && level !== 2 && level !== 3)) {
+          return [];
+        }
+        return [{ challengeId: entry.challengeId, level, at: Number(entry.at ?? 0) }];
+      }),
     };
   }
   if (answer.type === 'drawing') {

@@ -21,6 +21,20 @@
   animation: start-splash-pop 1.6s var(--ease-bounce) both;
 }
 
+/* 입장 완료는 초록빛으로 짧게 */
+.start-splash--arrival {
+  animation-duration: 1.8s;
+}
+
+.start-splash--arrival .start-splash__text {
+  color: var(--green-200);
+  font-size: clamp(3rem, 10vw, 7rem);
+  text-shadow:
+    0 0 48px var(--color-primary-glow),
+    0 6px 0 var(--stage-drop);
+  animation-duration: 1.8s;
+}
+
 @keyframes start-splash-fade {
   0% {
     opacity: 0;

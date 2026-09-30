@@ -10,6 +10,7 @@ import { toUserMessage } from '../../data/errors';
 import { useDevTools, useRepository } from '../../data/RepositoryContext';
 import { BOOTH_STEPS } from '../../domain/boothRound';
 import { MISSION_TYPE_INFO } from '../../domain/catalog';
+import { missionRoom } from '../../domain/missionRoom';
 import type { Grade } from '../../domain/types';
 import { useAction } from '../../hooks/useAction';
 import { useAsyncData } from '../../hooks/useAsyncData';
@@ -105,7 +106,7 @@ export function TeacherDashboardPage() {
                   variant="secondary"
                   icon={MISSION_TYPE_INFO[mission.type].icon}
                 >
-                  {mission.no}. {mission.title} · {mission.room}
+                  {mission.no}. {mission.title} · {missionRoom(mission, event.activeGrade)}
                 </ButtonLink>
               </li>
             ))}

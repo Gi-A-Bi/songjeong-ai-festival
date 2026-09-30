@@ -92,10 +92,26 @@ async function signInAs(
 const signInAsAdmin = () => signInAs('admin', 'admin');
 
 /** 행사 구조를 만들고 4학년을 진행 학년으로 고른다. */
+/** 시험용 교실 인증코드. 행사 구조를 만들 때 무작위로 생기는 코드를 이 값으로 바꿔 둔다. */
+const CODES: Record<string, string> = {
+  'golden-bell': '1111',
+  'error-hunt': '2222',
+  drawing: '3333',
+  ozobot: '4444',
+  'library-check': '5555',
+};
+const enter = (teamId: string, stationId: string, accessCode = CODES[stationId]) => ({
+  eventId: EVENT,
+  teamId,
+  stationId,
+  accessCode,
+});
+
 async function prepareTour() {
   await signInAsAdmin();
   await repository.setupEvent(EVENT);
   await repository.setActiveGrade(EVENT, 4);
+  await repository.saveStationCodes(EVENT, CODES);
 }
 
 function booth(missionId: string, roundNo: RoundNo = 1) {
@@ -145,9 +161,12 @@ beforeEach(async () => {
   await clearEmulators();
 });
 
-describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
+describe('교실 입장(인증코드)과 운영 대시보드 (에뮬레이터)', () => {
   it('라운드 열기 → 학생 체크인 → 게임 시작 → 결과 확정 → 라운드 종료가 대시보드에 나타난다', async () => {
     await prepareTour();
+    // 행사 구조를 만들면 교실마다 인증코드가 생기고, 총괄이 바꿀 수 있다.
+    const codes = await repository.listStationCodes(EVENT);
+    expect(codes.map((item) => item.code)).toEqual(Object.values(CODES));
 
     // 4학년 1반 1팀은 1라운드에 1번 미션(골든벨, 시청각실)으로 간다.
     const teamId = 'g4-c1-t1';
@@ -156,11 +175,13 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     expect(before.roundNo).toBe(1);
     expect(before.expectedMission?.id).toBe('golden-bell');
     expect(before.state?.status).toBe('scheduled');
+    // 학생은 인증코드를 읽을 수 없다.
+    await expect(repository.listStationCodes(EVENT)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
 
     // 선생님이 라운드를 열기 전에는 들어갈 수 없다.
-    await expect(
-      repository.checkInStation({ eventId: EVENT, teamId, stationId: 'golden-bell' }),
-    ).rejects.toSatisfy(
+    await expect(repository.checkInStation(enter(teamId, 'golden-bell'))).rejects.toSatisfy(
       (error) => isRepositoryError(error, 'not-allowed') && /라운드를 열면/.test(error.message),
     );
 
@@ -171,34 +192,31 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     expect(Math.abs(repository.serverNow() - Date.now())).toBeLessThan(5000);
     await signInAsStudent(teamId);
 
-    const wrong = await repository.checkInStation({ eventId: EVENT, teamId, stationId: 'drawing' });
-    expect(wrong.kind).toBe('wrong_station');
-    expect(wrong.expectedMission.id).toBe('golden-bell');
-    expect(wrong.state.checkedInAt).toBeNull();
-    expect(wrong.state.alertCodes).toContain('wrong_station');
+    // 다른 교실에는 들어갈 수 없고, 틀린 인증코드는 보안 규칙이 거부한다.
+    await expect(repository.checkInStation(enter(teamId, 'drawing'))).rejects.toSatisfy(
+      (error) =>
+        isRepositoryError(error, 'not-allowed') && /아직 차례가 아닌 미션/.test(error.message),
+    );
+    await expect(repository.checkInStation(enter(teamId, 'golden-bell', '9999'))).rejects.toSatisfy(
+      (error) =>
+        isRepositoryError(error, 'invalid-input') && /인증코드가 달라요/.test(error.message),
+    );
+    expect((await repository.getTeamTourStatus(EVENT, teamId)).state?.checkedInAt).toBeNull();
 
-    const arrived = await repository.checkInStation({
-      eventId: EVENT,
-      teamId,
-      stationId: 'golden-bell',
-    });
+    const arrived = await repository.checkInStation(enter(teamId, 'golden-bell'));
     expect(arrived.kind).toBe('checked_in');
     expect(arrived.state.status).toBe('checked_in');
     expect(arrived.state.alertCodes).toEqual([]);
 
-    // 같은 QR을 다시 찍어도 기록은 하나이고 입장 시각은 그대로다.
-    const again = await repository.checkInStation({
-      eventId: EVENT,
-      teamId,
-      stationId: 'golden-bell',
-    });
+    // 같은 코드를 다시 넣어도 기록은 하나이고 입장 시각은 그대로다.
+    const again = await repository.checkInStation(enter(teamId, 'golden-bell'));
     expect(again.kind).toBe('already_checked_in');
     expect(again.state.checkedInAt).toBe(arrived.state.checkedInAt);
 
-    // 다른 팀으로는 체크인할 수 없다(보안 규칙).
-    await expect(
-      repository.checkInStation({ eventId: EVENT, teamId: 'g4-c2-t1', stationId: 'golden-bell' }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+    // 다른 팀으로는 입장할 수 없다(보안 규칙).
+    await expect(repository.checkInStation(enter('g4-c2-t1', 'golden-bell'))).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed'),
+    );
 
     // 부스 교사: 입장 현황, 직접 입장 처리, 미션 시작
     await signInAs('station-bell', 'teacher');
@@ -290,20 +308,12 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
       expect(ranked.resultFinalizedAt).not.toBeNull();
     });
 
-    // 순위가 나온 뒤 라운드를 종료하기 전: 다음 교실 QR을 찍으면 기다리라고 알려 주고 기록하지 않는다.
+    // 순위가 나온 뒤 라운드를 종료하기 전: 다음 교실에는 아직 들어갈 수 없고 기록도 남지 않는다.
     await signInAsStudent(teamId);
-    const early = await repository.checkInStation({
-      eventId: EVENT,
-      teamId,
-      stationId: 'error-hunt',
-    });
-    expect(early).toMatchObject({
-      kind: 'early',
-      roundNo: 1,
-      expectedMission: { id: 'golden-bell' },
-      nextMission: { id: 'error-hunt' },
-    });
-    expect(early.state.alertCodes).not.toContain('wrong_station');
+    await expect(repository.checkInStation(enter(teamId, 'error-hunt'))).rejects.toSatisfy(
+      (error) =>
+        isRepositoryError(error, 'not-allowed') && /아직 차례가 아닌 미션/.test(error.message),
+    );
     const entered = await repository.getTeamMissionView(EVENT, teamId, 'golden-bell');
     expect(entered.checkedIn).toBe(true);
     const notYet = await repository.getTeamMissionView(EVENT, teamId, 'error-hunt');
@@ -381,7 +391,7 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     expect(view).toMatchObject({ roundStatus: 'closed', finalized: true });
   });
 
-  it('라운드를 종료한 뒤 찍은 QR은 다음 라운드 입장으로 기록된다', async () => {
+  it('라운드를 종료한 뒤 넣은 인증코드는 다음 라운드 입장으로 기록된다', async () => {
     await prepareTour();
     await startGame('golden-bell');
     const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 1);
@@ -413,11 +423,7 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     // 1팀의 2라운드 미션은 2번(틀린그림 찾기)이다.
     const teamId = 'g4-c1-t1';
     await signInAsStudent(teamId);
-    const outcome = await repository.checkInStation({
-      eventId: EVENT,
-      teamId,
-      stationId: 'error-hunt',
-    });
+    const outcome = await repository.checkInStation(enter(teamId, 'error-hunt'));
     expect(outcome.kind).toBe('checked_in');
     expect(outcome.roundNo).toBe(2);
   });
@@ -460,20 +466,15 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
       roundNo: 2,
       expectedMission: { id: 'error-hunt' },
     });
-    // 이미 지나간 교실의 QR은 잘못된 교실로 기록하지 않는다.
-    const past = await repository.checkInStation({
-      eventId: EVENT,
-      teamId,
-      stationId: 'golden-bell',
-    });
-    expect(past.kind).toBe('finished');
-    expect(past.state.alertCodes).not.toContain('wrong_station');
+    // 이미 지나간 교실에는 들어갈 수 없고 잘못된 교실로 기록하지도 않는다.
+    await expect(repository.checkInStation(enter(teamId, 'golden-bell'))).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed') && /이미 지나간 미션/.test(error.message),
+    );
+    expect((await repository.getTeamTourStatus(EVENT, teamId)).state?.alertCodes).not.toContain(
+      'wrong_station',
+    );
 
-    const entered = await repository.checkInStation({
-      eventId: EVENT,
-      teamId,
-      stationId: 'error-hunt',
-    });
+    const entered = await repository.checkInStation(enter(teamId, 'error-hunt'));
     expect(entered).toMatchObject({ kind: 'checked_in', roundNo: 2 });
 
     await signInAs('station-hunt', 'teacher');
@@ -517,15 +518,14 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     });
   });
 
-  it('같은 QR을 거의 동시에 두 번 찍어도 둘 다 성공으로 끝나고 기록은 하나다', async () => {
+  it('같은 인증코드를 거의 동시에 여러 번 넣어도 모두 성공으로 끝나고 기록은 하나다', async () => {
     await prepareTour();
     await repository.openStationRound(booth('golden-bell'));
 
     const teamId = 'g4-c1-t1';
     await signInAsStudent(teamId);
-    // 다른 교실을 먼저 찍은 뒤, 올바른 교실을 두 번 동시에 찍는다(연타·같은 팀의 두 기기).
-    await repository.checkInStation({ eventId: EVENT, teamId, stationId: 'drawing' });
-    const input = { eventId: EVENT, teamId, stationId: 'golden-bell' };
+    // 올바른 교실 코드를 세 번 동시에 넣는다(연타·같은 팀의 두 기기).
+    const input = enter(teamId, 'golden-bell');
     const outcomes = await Promise.all([
       repository.checkInStation(input),
       repository.checkInStation(input),
@@ -544,9 +544,9 @@ describe('교실 QR 체크인과 운영 대시보드 (에뮬레이터)', () => {
     await repository.setupEvent(EVENT);
     await repository.setActiveGrade(EVENT, 4);
     await signInAsStudent('g5-c1-t1');
-    await expect(
-      repository.checkInStation({ eventId: EVENT, teamId: 'g5-c1-t1', stationId: 'golden-bell' }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-allowed'));
+    await expect(repository.checkInStation(enter('g5-c1-t1', 'golden-bell'))).rejects.toSatisfy(
+      (error) => isRepositoryError(error, 'not-allowed'),
+    );
   });
 });
 
@@ -1134,7 +1134,7 @@ describe('연습 기록 지우기 (에뮬레이터)', () => {
     // 4학년 1반 1팀이 입장하고 제출한다.
     const teamId = 'g4-c1-t1';
     await signInAsStudent(teamId);
-    await repository.checkInStation({ eventId: EVENT, teamId, stationId: 'golden-bell' });
+    await repository.checkInStation(enter(teamId, 'golden-bell'));
     await repository.saveSubmission({
       eventId: EVENT,
       missionId: 'golden-bell',
@@ -1249,5 +1249,41 @@ describe('연습 기록 지우기 (에뮬레이터)', () => {
     const summary = await repository.resetRehearsal({ eventId: EVENT, grade: 6 });
     expect(countRehearsalRecords(summary.counts)).toBe(0);
     expect(summary.finalOpened).toBe(false);
+  });
+});
+
+describe('로봇 길찾기 성공 기록 (에뮬레이터)', () => {
+  it('교사가 성공을 기록·취소하면 점수가 바뀌고, 게임은 7분이며, 학생은 기록할 수 없다', async () => {
+    await prepareTour();
+    // 1라운드에 로봇 길찾기(4번 미션)는 4팀이 한다.
+    const teamId = 'g4-c1-t4';
+    const started = await startGame('ozobot');
+    expect((started.endsAt ?? 0) - (started.startedAt ?? 0)).toBe(7 * 60_000);
+
+    const input = { eventId: EVENT, missionId: 'ozobot', teamId, challengeId: 'card-12' };
+    const saved = await repository.recordOzobotSuccess(input);
+    expect(saved).toMatchObject({ status: 'submitted', roundNo: 1 });
+    await repository.recordOzobotSuccess({ ...input, challengeId: 'card-4' });
+    // 같은 카드를 다시 눌러도 한 번만 센다.
+    await repository.recordOzobotSuccess(input);
+    const scoreOf = async () => {
+      const participants = await repository.listMissionParticipants(EVENT, 'ozobot', 4, 1, {
+        fresh: true,
+      });
+      return participants.find((item) => item.team.id === teamId)?.submission?.score;
+    };
+    expect(await scoreOf()).toBe(25);
+    await repository.undoOzobotSuccess(input);
+    expect(await scoreOf()).toBe(5);
+
+    await signInAsStudent(teamId);
+    await expect(repository.recordOzobotSuccess(input)).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    const view = await repository.getTeamMissionView(EVENT, teamId, 'ozobot');
+    expect(view.submission?.answer).toMatchObject({
+      type: 'ozobot',
+      solved: [{ challengeId: 'card-4', level: 1 }],
+    });
   });
 });

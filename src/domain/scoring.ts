@@ -1,5 +1,7 @@
 import { getErrorHuntRegions, getRegionRadiusY } from './errorHunt';
 import { getGoldenBellQuestions, isGoldenBellCorrect } from './goldenBell';
+import { hasLibraryCheckAnswerKey, scoreLibraryCheck } from './libraryCheck';
+import { calculateOzobotScore, getOzobotSolved } from './ozobot';
 import type {
   CircleRegion,
   ErrorHuntConfig,
@@ -78,7 +80,21 @@ export function calculateAutoScore(
       wrongTaps: answer.wrongTaps,
     });
   }
+  if (config.type === 'ozobot' && answer.type === 'ozobot') {
+    // 선생님이 오조봇으로 확인한 카드의 별 점수를 더한다.
+    return calculateOzobotScore(getOzobotSolved(answer));
+  }
+  if (config.type === 'library_check' && answer.type === 'library_check') {
+    // 정답을 등록한 뒤에만 자동 채점한다. 등록 전에는 선생님이 직접 채점한다.
+    return scoreLibraryCheck(config, answer)?.total ?? null;
+  }
   return null;
+}
+
+/** 교사가 결과를 확인해 판정하는 미션인지. 도서관 오류찾기는 정답을 등록하면 자동 채점이 된다. */
+export function isTeacherJudged(mission: Pick<Mission, 'teacherJudged' | 'config'>): boolean {
+  if (mission.config.type === 'library_check') return !hasLibraryCheckAnswerKey(mission.config);
+  return mission.teacherJudged;
 }
 
 /**

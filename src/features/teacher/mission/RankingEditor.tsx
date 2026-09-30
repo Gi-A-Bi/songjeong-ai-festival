@@ -40,6 +40,8 @@ interface RankingEditorProps {
   round: RoundNo;
   participants: MissionParticipant[];
   finalized: boolean;
+  /** 순위를 확정할 때 학생 화면에 정답도 함께 공개한다(골든벨, 아직 공개 전일 때). */
+  revealOnFinalize?: boolean;
   /** 저장이 끝나면 화면 위쪽에 보여 줄 안내와 함께 다시 불러온다. */
   onChanged: (message: string) => void;
   /** 확정하려는 순간 화면이 아직 받지 못한 제출을 발견했을 때. 목록을 서버에서 다시 읽어야 한다. */
@@ -61,6 +63,7 @@ export function RankingEditor({
   round,
   participants,
   finalized,
+  revealOnFinalize = false,
   onChanged,
   onStale,
 }: RankingEditorProps) {
@@ -103,8 +106,11 @@ export function RankingEditor({
         fresh: true,
       });
       if (submissionSignature(latest) !== submissionSignature(participants)) return null;
+      // 골든벨: 확정과 함께 학생 화면에 정답과 점수를 공개한다(자동 채점).
+      if (revealOnFinalize)
+        await repository.setAnswerRevealed(eventId, mission.id, grade, round, true);
       return repository.finalizeRanking(buildInput());
-    }, [repository, eventId, mission.id, grade, round, participants, buildInput]),
+    }, [repository, eventId, mission.id, grade, round, participants, buildInput, revealOnFinalize]),
   );
   const revise = useAction(
     useCallback(() => repository.reviseRanking(buildInput()), [repository, buildInput]),
@@ -213,8 +219,11 @@ export function RankingEditor({
       onStale();
       return;
     }
-    onChanged(`순위를 확정했어요. 카드 보상 ${result.value.awards.length}개를 만들었어요.`);
+    onChanged(
+      `${revealOnFinalize ? '정답을 공개하고 ' : ''}순위를 확정했어요. 카드 보상 ${result.value.awards.length}개를 만들었어요.`,
+    );
   };
+  const finalizeLabel = revealOnFinalize ? '정답 공개하고 순위 확정' : '순위 확정';
 
   return (
     <section className="stack" aria-labelledby="ranking-title">
@@ -239,7 +248,9 @@ export function RankingEditor({
 
       {mission.type === 'ozobot' && editable ? (
         <InlineAlert tone="info">
-          완주 시간과 재시도 횟수를 반영한 점수를 입력한 뒤 순위를 정해 주세요.
+          위의 “도전 과제 성공 기록”에서 성공을 누르면 점수(★5 · ★★10 · ★★★20)가 여기에 바로
+          들어가요. 점수가 같으면 마지막 성공이 이른 팀이 앞서요. 필요하면 점수와 순위를 직접 고칠
+          수 있어요.
         </InlineAlert>
       ) : null}
       {mission.type === 'drawing' && editable ? (
@@ -377,7 +388,7 @@ export function RankingEditor({
                   </td>
                   {!finalized ? (
                     <td>
-                      {submitted ? (
+                      {submitted && mission.type !== 'ozobot' ? (
                         <Button
                           variant="secondary"
                           icon="restart_alt"
@@ -444,7 +455,7 @@ export function RankingEditor({
             onClick={() => setConfirmOpen(true)}
             disabled={scoreInvalid}
           >
-            {finalized ? '수정 저장' : '순위 확정'}
+            {finalized ? '수정 저장' : finalizeLabel}
           </Button>
         ) : null}
       </div>
@@ -456,7 +467,7 @@ export function RankingEditor({
             ? `${round}라운드 ${mission.title} 순위를 고칠까요?`
             : `${round}라운드 ${mission.title} 순위를 확정할까요?`
         }
-        confirmLabel={finalized ? '수정 저장' : '순위 확정'}
+        confirmLabel={finalized ? '수정 저장' : finalizeLabel}
         confirmIcon={finalized ? 'save' : 'trophy'}
         loading={finalize.isPending || revise.isPending}
         onCancel={() => setConfirmOpen(false)}
@@ -472,6 +483,7 @@ export function RankingEditor({
           <p>
             확정하면 팀마다 카드 조각 보상이 하나씩 만들어져요. 1위는 3종 중 선택, 2위는 2종 중
             선택, 나머지는 자동 배정이에요.
+            {revealOnFinalize ? ' 학생 화면에는 정답과 맞힌 문제 수, 점수가 함께 공개돼요.' : ''}
           </p>
         )}
         <ul className="confirm-list">

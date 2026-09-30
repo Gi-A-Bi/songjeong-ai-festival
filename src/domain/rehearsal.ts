@@ -10,7 +10,7 @@ export interface RehearsalRecordCounts {
   /** 확정한 순위 */
   results: number;
   cardAwards: number;
-  /** 교실 QR 입장 기록 */
+  /** 교실 입장 기록 */
   checkIns: number;
   /** 부스가 열거나 진행한 라운드 */
   boothRounds: number;

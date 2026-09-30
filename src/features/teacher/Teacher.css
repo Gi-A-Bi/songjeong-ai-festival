@@ -790,13 +790,82 @@
   color: var(--color-text);
 }
 
-/* 부스 화면: 교실 QR 주소 */
-.station-qr {
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border);
+/* 도서관 오류찾기 자동 채점 요약 */
+.answer-auto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-2);
+  font-weight: var(--font-weight-bold);
 }
 
-.station-qr summary,
+.answer-auto__item {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-size: var(--font-size-xs);
+}
+
+.answer-auto__item--ok {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+/* 부스 화면: 교실 인증코드. 들어온 팀에게 보여 주므로 멀리서도 읽히게 크게 */
+.station-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  border: 3px solid var(--gold-400);
+  border-radius: var(--radius-lg);
+  background: var(--accent-golden-bell-soft);
+}
+
+.station-code__lead {
+  display: flex;
+  flex: 1 1 320px;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.station-code__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-heavy);
+}
+
+.station-code__value {
+  padding: var(--space-2) var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--navy-900);
+  color: var(--gold-400);
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  font-weight: var(--font-weight-heavy);
+  letter-spacing: 0.3em;
+  line-height: 1.2;
+}
+
+/* 행사 설정: 교실 인증코드 입력 */
+.station-code-input {
+  width: 7em;
+  font-size: var(--font-size-xl);
+  letter-spacing: 0.25em;
+  text-align: center;
+}
+
+/* 도서관 오류찾기 정답 등록: 쪽수 두 칸 */
+.library-editor__pages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
 .teacher-login__rehearsal summary {
   display: inline-flex;
   align-items: center;
@@ -805,19 +874,6 @@
   color: var(--color-text-muted);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
-}
-
-.station-qr__code {
-  width: min(100%, 280px);
-  height: auto;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-}
-
-.station-qr__field {
-  width: 100%;
-  font-size: var(--font-size-sm);
-  resize: none;
 }
 
 /* 목업 로그인: 리허설용 역할 선택 */

@@ -12,6 +12,7 @@ import { Timer } from '../../components/Timer';
 import type { IconName } from '../../components/icons';
 import { useRepository } from '../../data/RepositoryContext';
 import { MISSION_TYPE_INFO } from '../../domain/catalog';
+import { missionRoom } from '../../domain/missionRoom';
 import { getMissionNoForRound, ROUND_NUMBERS } from '../../domain/rotation';
 import { getCheckInRound } from '../../domain/tour';
 import type {
@@ -127,9 +128,11 @@ export function TeamHomePage() {
   // 지금 안내하는 라운드의 도착(체크인) 상태
   const arrival = tour && tour.roundNo === focus.roundNo ? tour.state : null;
   const focusMission = schedule.find((item) => item.roundNo === focus.roundNo)?.mission;
-  // 미션 화면을 열어도 입장되지 않는다. 입장 전에는 버튼 이름으로도 그 점을 알린다.
+  // 미션 화면을 열어도 입장되지 않는다. 입장 전에는 버튼 이름으로 인증코드를 넣어야 함을 알린다.
   const needsCheckIn =
     arrival !== null && arrival.checkedInAt === null && arrival.resultId === null;
+  const canEnterNow =
+    needsCheckIn && (event.boothStatus === 'open' || event.boothStatus === 'active');
   // 이 라운드보다 앞선 라운드는 이미 지나갔다. 투어가 끝났으면 다섯 라운드가 모두 지나간 것이다.
   const passedBefore = isMyGrade ? (getCheckInRound(event, team.grade) ?? 6) : 1;
 
@@ -182,7 +185,7 @@ export function TeamHomePage() {
                 ) : (
                   <>
                     <Icon name="meeting_room" size="lg" />
-                    <strong>{focusMission.room}</strong>
+                    <strong>{missionRoom(focusMission, team.grade)}</strong>
                     <span>{focus.kind === 'now' ? '에서 미션 중' : '으로 이동'}</span>
                   </>
                 )}
@@ -199,10 +202,14 @@ export function TeamHomePage() {
                   <ButtonLink
                     to={paths.mission(eventId, team.id, focusMission.id)}
                     size="xl"
-                    variant={needsCheckIn ? 'secondary' : 'primary'}
-                    icon={needsCheckIn ? 'visibility' : 'play_arrow'}
+                    variant={needsCheckIn && !canEnterNow ? 'secondary' : 'primary'}
+                    icon={canEnterNow ? 'login' : needsCheckIn ? 'visibility' : 'play_arrow'}
                   >
-                    {needsCheckIn ? '미션 미리 보기' : '미션 시작'}
+                    {canEnterNow
+                      ? '인증코드 넣고 입장'
+                      : needsCheckIn
+                        ? '미션 미리 보기'
+                        : '미션 시작'}
                   </ButtonLink>
                 )}
               </div>
@@ -240,7 +247,7 @@ export function TeamHomePage() {
                     <span className="team-map__text">
                       <span className="team-map__name">{mission.title}</span>
                       <span className="team-map__room">
-                        {roundNo}라운드 · {mission.room}
+                        {roundNo}라운드 · {missionRoom(mission, team.grade)}
                       </span>
                     </span>
                     <StatusBadge tone={status.tone} icon={status.icon}>
@@ -302,7 +309,7 @@ export function TeamHomePage() {
   );
 }
 
-/** 미션 교실 QR 체크인 상태와 부스 단계. 색뿐 아니라 아이콘과 문구로 알린다. */
+/** 미션 교실 입장 상태와 부스 단계. 색뿐 아니라 아이콘과 문구로 알린다. */
 function ArrivalNotice({
   state,
   boothStatus,
@@ -310,13 +317,6 @@ function ArrivalNotice({
   state: TeamMissionState;
   boothStatus: MissionRoundStatus | null;
 }) {
-  if (state.alertCodes.includes('wrong_station')) {
-    return (
-      <p className="team-focus__arrival team-focus__arrival--warning" role="status">
-        <Icon name="warning" /> 다른 교실 QR을 찍었어요. 위 교실로 가서 다시 찍어 주세요.
-      </p>
-    );
-  }
   if (boothStatus === 'scoring') {
     return (
       <p className="team-focus__arrival" role="status">
@@ -335,17 +335,17 @@ function ArrivalNotice({
   if (boothStatus === 'ready') {
     return (
       <p className="team-focus__arrival" role="status">
-        <Icon name="hourglass_top" /> 교실 앞에서 기다려요. 선생님이 라운드를 열면 교실 입구의 QR을
-        찍어요.
+        <Icon name="hourglass_top" /> 교실 앞에서 기다려요. 선생님이 라운드를 열면 인증코드를 넣고
+        들어가요.
       </p>
     );
   }
   return (
     <p className="team-focus__arrival team-focus__arrival--warning" role="status">
-      <Icon name="qr_code_scanner" />
+      <Icon name="login" />
       <span>
-        <strong>교실 입구의 QR을 디벗 카메라로 찍어야 입장돼요.</strong> 이 화면에서 미션을 눌러도
-        입장되지 않아요.
+        <strong>미션을 눌러 교실 인증코드를 넣어야 입장돼요.</strong> 인증코드는 교실 선생님이 알려
+        줘요.
       </span>
     </p>
   );

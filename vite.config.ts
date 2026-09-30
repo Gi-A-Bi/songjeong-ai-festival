@@ -12,6 +12,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     restoreMocks: true,
-    testTimeout: 15_000,
+    // 느린 학교 PC에서도 화면 테스트가 시간 초과로 흔들리지 않게 에뮬레이터 설정과 같은 30초로 둔다.
+    testTimeout: 30_000,
   },
 });

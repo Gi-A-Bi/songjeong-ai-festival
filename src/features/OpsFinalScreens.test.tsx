@@ -4,14 +4,14 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../config';
 import { toClassId, toTeamId } from '../data/mock/keys';
 import { MockEventRepository } from '../data/mock/MockEventRepository';
-import { DEMO_TEAM_ID } from '../data/mock/seed';
+import { DEMO_TEAM_ID, SAMPLE_STATION_CODES } from '../data/mock/seed';
 import type { TeacherRole } from '../domain/types';
 import { renderApp } from '../test/renderApp';
 
 /*
  * 샘플 데이터
  * - 4학년: 2라운드. 네 부스는 게임 중이고 도서관은 라운드만 열어 두었다.
- *   2반 3팀(과학실)·4반 5팀은 미도착, 5반 4팀은 도서관 대신 다른 교실 QR을 찍었다.
+ *   2반 3팀(과학실)·4반 5팀·5반 4팀(도서관)은 아직 입장하지 않았다.
  * - 3학년: 최종 미션이 열려 있다. 1반은 4번 문제를 푸는 중(힌트 5개 중 1개 사용),
  *   2·3반은 제출 완료, 4반은 시작 전이다. 결과는 아직 공개 전이다.
  */
@@ -36,9 +36,8 @@ describe('실시간 운영 대시보드', () => {
 
     const alerts = await screen.findByRole('region', { name: /확인 필요 \(\d+건\)/ });
     expect(within(alerts).getAllByText('미도착').length).toBeGreaterThanOrEqual(2);
-    expect(within(alerts).getByText('잘못된 교실')).toBeInTheDocument();
     expect(within(alerts).getAllByText('4학년 2반 3팀').length).toBeGreaterThan(0);
-    expect(within(alerts).getAllByText('4학년 5반 4팀').length).toBeGreaterThan(0);
+    expect(within(alerts).getAllByText('4학년 4반 5팀').length).toBeGreaterThan(0);
 
     const stations = screen.getByRole('region', { name: '미션 교실별 현황' });
     expect(within(stations).getAllByRole('heading', { level: 3 })).toHaveLength(5);
@@ -79,7 +78,7 @@ describe('실시간 운영 대시보드', () => {
     expect(await screen.findByText(/라운드는 부스마다 선생님이 진행해요/)).toBeInTheDocument();
     expect(screen.getByText(/진행 학년은 총괄 선생님이 골라요/)).toBeInTheDocument();
     // 메뉴는 총괄과 같고 행사 설정만 없다.
-    expect(screen.getByRole('link', { name: 'QR 인쇄' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'QR·인증코드 인쇄' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '행사 설정' })).toBeNull();
     const booths = await screen.findByRole('navigation', { name: '부스 바로 가기' });
     expect(within(booths).getAllByRole('link')).toHaveLength(5);
@@ -111,7 +110,12 @@ describe('부스 교사 화면', () => {
     expect(status.state?.checkedInAt).toEqual(expect.any(Number));
     // 과학실은 게임 중이라 입장하면 바로 진행 중이 된다.
     await waitFor(() => expect(demoRow().getAllByText('진행 중')).toHaveLength(5));
-    expect(screen.getByText(new RegExp(`/check-in/${EVENT}/ozobot`))).toBeInTheDocument();
+    // 부스 화면은 이 교실의 인증코드를 크게 보여 준다.
+    await waitFor(() =>
+      expect(screen.getByLabelText('4학년 4반 교실 인증코드')).toHaveTextContent(
+        SAMPLE_STATION_CODES.ozobot,
+      ),
+    );
   });
 
   it('게임 중인 부스는 남은 시간을 보여 주고, 순위를 확정하기 전에는 라운드를 종료할 수 없다', async () => {
@@ -210,9 +214,10 @@ describe('부스 교사 화면', () => {
     expect(await screen.findByRole('heading', { name: /2라운드 진행/ })).toBeInTheDocument();
     expect(panel().getByRole('button', { name: '2라운드 건너뛰기' })).toBeInTheDocument();
 
-    await user.click(await screen.findByRole('button', { name: '순위 확정' }));
+    // 골든벨은 순위를 확정하면서 학생 화면에 정답도 공개한다.
+    await user.click(await screen.findByRole('button', { name: '정답 공개하고 순위 확정' }));
     const dialog = await screen.findByRole('dialog', { name: /순위를 확정할까요/ });
-    await user.click(within(dialog).getByRole('button', { name: '순위 확정' }));
+    await user.click(within(dialog).getByRole('button', { name: '정답 공개하고 순위 확정' }));
     await waitFor(() => expect(currentStep()).toMatch(/라운드 종료/));
     expect(panel().queryByRole('button', { name: '2라운드 건너뛰기' })).toBeNull();
     expect(panel().getByRole('button', { name: '2라운드 종료' })).toBeEnabled();
@@ -481,5 +486,83 @@ describe('예전 주소', () => {
   it('학생 기기의 예전 팀 결승 주소는 학급 카드 현황으로 이동한다', async () => {
     renderApp(`/team/${EVENT}/${toTeamId(3, 2, 1)}/final`);
     expect(await screen.findByRole('heading', { name: '3학년 2반 카드' })).toBeInTheDocument();
+  });
+});
+
+describe('최종 미션 결과 발표', () => {
+  /** 3학년의 남은 두 반을 마감하고 결과를 공개한 저장소 */
+  async function publishedRepository() {
+    const repository = await repositoryAs();
+    for (const classNo of [1, 4]) {
+      await repository.forceCloseClassFinal({
+        eventId: EVENT,
+        classId: toClassId(3, classNo),
+        reason: '테스트 마감',
+      });
+    }
+    await repository.publishFinalResults(EVENT, 3);
+    return repository;
+  }
+
+  it('전자칠판에서 결과 확인을 누르면 1위 학급을 발표하고 우리 반 순위를 강조한다', async () => {
+    const user = userEvent.setup();
+    const repository = await publishedRepository();
+    const board = await repository.getFinalBoard(EVENT, 3);
+    const winner = board.rows.find((row) => row.state.finalRank === 1);
+    const mine = board.rows.find((row) => row.classInfo.id === toClassId(3, 2));
+    if (!winner || !mine) throw new Error('결과가 없어요');
+
+    repository.signInAs('teacher');
+    renderApp(`/teacher/${EVENT}/class/${toClassId(3, 2)}/final`, repository);
+    // 발표 전에는 순위를 바로 보여 주지 않는다.
+    expect(await screen.findByText(/결과가 공개됐어요/)).toBeInTheDocument();
+    expect(screen.queryByText(/\d위/)).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '결과 확인' }));
+    const dialog = await screen.findByRole('dialog', { name: '결과 발표' });
+    expect(within(dialog).getByText('두구두구두구')).toBeInTheDocument();
+
+    // 두구두구 뒤에 1위 학급이 나타난다.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole('dialog', { name: winner.classInfo.displayName }),
+        ).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+    expect(screen.getByText(/3학년 최종 미션 1위/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        mine.state.finalRank === 1
+          ? /우리 반이 1위예요/
+          : new RegExp(`우리 반은 ${mine.state.finalRank}위예요`),
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '전체 순위 보기' }));
+    const ranking = await screen.findByRole('list', { name: '3학년 순위' });
+    const rows = within(ranking).getAllByRole('listitem');
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toHaveTextContent(winner.classInfo.displayName);
+    const mineRow = rows.find((row) => row.getAttribute('aria-current') === 'true');
+    expect(mineRow).toHaveTextContent('3학년 2반');
+    expect(mineRow).toHaveTextContent('우리 반');
+
+    await user.click(screen.getByRole('button', { name: '발표 끝' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // 발표를 본 뒤에는 점수와 순위가 화면에 남는다.
+    expect(screen.getByText(`${mine.state.finalRank}위`)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '결과 다시 보기' })).toBeInTheDocument();
+  });
+
+  it('총괄 현황 화면에서도 결과 발표 화면을 열 수 있다', async () => {
+    const user = userEvent.setup();
+    const repository = await publishedRepository();
+    renderApp(`/teacher/${EVENT}/final-results`, repository);
+    await user.selectOptions(await screen.findByLabelText('학년'), '3');
+    await user.click(await screen.findByRole('button', { name: '결과 발표 화면' }));
+    expect(await screen.findByRole('dialog', { name: '결과 발표' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '결과 발표 닫기' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });

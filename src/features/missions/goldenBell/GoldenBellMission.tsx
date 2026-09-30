@@ -11,6 +11,7 @@ import { EmptyView } from '../../../components/StateViews';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { useRepository } from '../../../data/RepositoryContext';
 import {
+  countGoldenBellKinds,
   getGoldenBellAnswerLabel,
   getGoldenBellKind,
   getGoldenBellQuestions,
@@ -22,6 +23,8 @@ import {
 } from '../../../domain/goldenBell';
 import { canSubmitInPhase } from '../../../domain/missionPhase';
 import type { GoldenBellConfig, GoldenBellQuestion } from '../../../domain/types';
+import { getMissionLock } from '../missionLock';
+import { MissionLockedPanel } from '../MissionLockedPanel';
 import { MissionNotice } from '../MissionNotice';
 import type { MissionScreenProps } from '../missionTypes';
 import { useMissionSubmit } from '../useMissionSubmit';
@@ -38,12 +41,14 @@ interface Answers {
 
 /**
  * 그 학년에 등록된 문제(O/X, 객관식, 단답형)를 팀이 차례로 풀고, 모두 푼 뒤 한 번에 제출한다.
+ * 게임을 시작하기 전에는 문제를 화면에 올리지 않는다.
  */
 export function GoldenBellMission({
   eventId,
   view,
   event,
   phase,
+  gate,
   onSubmitted,
   config,
 }: GoldenBellMissionProps) {
@@ -63,7 +68,8 @@ export function GoldenBellMission({
   const { submit, isPending, error } = useMissionSubmit(eventId, team.id, mission.id, onSubmitted);
 
   const answers = saved ?? draft;
-  const canAnswer = canSubmitInPhase(phase) && saved === null && !isPending;
+  const lock = getMissionLock(view, event, phase);
+  const canAnswer = canSubmitInPhase(phase) && saved === null && !isPending && lock === null;
   const answeredCount = questions.filter((question) =>
     isGoldenBellAnswered(question, answers),
   ).length;
@@ -76,12 +82,57 @@ export function GoldenBellMission({
 
   if (questions.length === 0) {
     return (
-      <MissionShell mission={mission} team={team} roundNo={roundNo} event={event} phase={phase}>
+      <MissionShell
+        mission={mission}
+        team={team}
+        roundNo={roundNo}
+        event={event}
+        phase={phase}
+        notice={notice}
+        gate={gate}
+      >
         <EmptyView
           title="아직 문제가 없어요"
           description="선생님이 문제를 등록하면 풀 수 있어요."
           mascot="mascotTimer"
         />
+      </MissionShell>
+    );
+  }
+
+  if (lock !== null) {
+    // 문제 글·보기는 화면에 올리지 않고 문제 수와 형식만 알려 준다.
+    const counts = countGoldenBellKinds(questions);
+    return (
+      <MissionShell
+        mission={mission}
+        team={team}
+        roundNo={roundNo}
+        event={event}
+        phase={phase}
+        notice={notice}
+        gate={gate}
+        actions={
+          <>
+            <p className="mission-actions__hint">
+              <Icon name="info" />
+              {lock === 'not-entered'
+                ? '인증코드를 넣고 입장하면 문제를 풀 수 있어요'
+                : '게임이 시작되면 문제를 풀 수 있어요'}
+            </p>
+            <Button size="xl" icon="send" disabled>
+              정답 제출
+            </Button>
+          </>
+        }
+      >
+        <MissionLockedPanel mission={mission} reason={lock} subject="문제가">
+          <p>
+            문제 {counts.total}개를 풀어요 · O/X {counts.ox}개 · 객관식 {counts.choice}개 · 단답형{' '}
+            {counts.short}개
+          </p>
+          <p>모두 푼 뒤 한 번에 제출해요. 제출하면 답을 바꿀 수 없어요.</p>
+        </MissionLockedPanel>
       </MissionShell>
     );
   }
@@ -117,6 +168,7 @@ export function GoldenBellMission({
       event={event}
       phase={phase}
       notice={notice}
+      gate={gate}
       actions={
         saved !== null ? (
           <>

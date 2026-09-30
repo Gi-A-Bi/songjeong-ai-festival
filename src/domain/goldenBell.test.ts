@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   changeGoldenBellKind,
   countGoldenBellKinds,
+  getAnswerRevealBlocker,
   getGoldenBellAnswerLabel,
   getGoldenBellConfigError,
   getGoldenBellQuestions,
@@ -231,5 +232,27 @@ describe('학년별 골든벨 문제', () => {
       choice: 1,
       short: 1,
     });
+  });
+});
+
+describe('정답 공개 시점', () => {
+  const base = { submittedCount: 3, expectedCount: 5, finalized: false };
+
+  it('게임을 시작하기 전에는 공개할 수 없다', () => {
+    expect(getAnswerRevealBlocker({ ...base, boothStatus: 'ready' })).toMatch(/게임을 시작한 뒤/);
+    expect(getAnswerRevealBlocker({ ...base, boothStatus: 'open' })).toMatch(/게임을 시작한 뒤/);
+  });
+
+  it('게임 중에는 모든 팀이 제출해야 공개할 수 있다', () => {
+    expect(getAnswerRevealBlocker({ ...base, boothStatus: 'active' })).toMatch(/제출 3\/5팀/);
+    expect(
+      getAnswerRevealBlocker({ ...base, boothStatus: 'active', submittedCount: 5 }),
+    ).toBeNull();
+  });
+
+  it('게임 시간이 끝났거나 순위를 확정했으면 공개할 수 있다', () => {
+    expect(getAnswerRevealBlocker({ ...base, boothStatus: 'scoring' })).toBeNull();
+    expect(getAnswerRevealBlocker({ ...base, boothStatus: 'completed' })).toBeNull();
+    expect(getAnswerRevealBlocker({ ...base, boothStatus: 'active', finalized: true })).toBeNull();
   });
 });

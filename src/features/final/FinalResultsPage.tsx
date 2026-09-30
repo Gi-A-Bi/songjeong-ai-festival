@@ -18,6 +18,7 @@ import { useFinalLive } from '../../hooks/useFinalLive';
 import { useServerNow } from '../../hooks/useServerNow';
 import { formatClock, formatTimeOfDay } from '../../lib/time';
 import { useTeacherContext } from '../teacher/teacherContext';
+import { FinalCelebration } from './FinalCelebration';
 import './Final.css';
 
 const GRADES: Grade[] = [3, 4, 5, 6];
@@ -132,7 +133,9 @@ function SessionPanel({
   const [minutes, setMinutes] = useState(String(Math.round(session.durationLimitSec / 60)));
   const [openDialog, setOpenDialog] = useState(false);
   const [publishDialog, setPublishDialog] = useState(false);
+  const [celebrating, setCelebrating] = useState(false);
   const [reason, setReason] = useState('');
+  const published = session.status === 'results_published' || session.status === 'closed';
 
   const blocked = checklist.blockers.length > 0;
   const open = useAction(
@@ -249,23 +252,48 @@ function SessionPanel({
             size="lg"
             variant="secondary"
             icon="visibility"
-            disabled={
-              !allFinished ||
-              session.status === 'results_published' ||
-              session.status === 'closed' ||
-              publish.isPending
-            }
+            disabled={!allFinished || published || publish.isPending}
             onClick={() => setPublishDialog(true)}
           >
             결과 공개
           </Button>
+          {published ? (
+            <Button
+              size="lg"
+              variant="gold"
+              icon="celebration"
+              onClick={() => setCelebrating(true)}
+            >
+              결과 발표 화면
+            </Button>
+          ) : null}
         </div>
       ) : (
-        <p className="control-bar__hint muted">
-          <Icon name="visibility" size="sm" /> 최종 미션을 열고 결과를 공개하는 것은 총괄 선생님만
-          할 수 있어요. 각 반은 학급 화면에서 시작해요.
-        </p>
+        <div className="control-bar__actions">
+          <p className="control-bar__hint muted">
+            <Icon name="visibility" size="sm" /> 최종 미션을 열고 결과를 공개하는 것은 총괄 선생님만
+            할 수 있어요. 각 반은 학급 화면에서 시작해요.
+          </p>
+          {published ? (
+            <Button
+              size="lg"
+              variant="gold"
+              icon="celebration"
+              onClick={() => setCelebrating(true)}
+            >
+              결과 발표 화면
+            </Button>
+          ) : null}
+        </div>
       )}
+      {celebrating ? (
+        <FinalCelebration
+          eventId={eventId}
+          grade={grade}
+          highlightClassId={null}
+          onClose={() => setCelebrating(false)}
+        />
+      ) : null}
       {!board.canViewResults ? (
         <InlineAlert tone="info" icon="visibility_off">
           진행 중에는 상태, 문제 번호, 경과 시간, 남은 힌트만 보여요. 점수와 순위는 모든 반이 제출한

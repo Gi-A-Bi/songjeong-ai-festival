@@ -33,11 +33,13 @@ import type {
   TeamMissionState,
 } from '../domain/types';
 import type { RehearsalSummary } from '../domain/rehearsal';
+import type { MissionInfoInput } from '../domain/missionRoom';
+import type { StationCode } from '../domain/stationCode';
 
 export type DataMode = 'mock' | 'firebase';
 
 export interface RepositoryCapabilities {
-  /** QR 체크인, 팀 이동 상태, 실시간 운영 대시보드 */
+  /** 교실 입장, 팀 이동 상태, 실시간 운영 대시보드 */
   liveOps: boolean;
   /** 학급 전체 최종 미션 */
   classFinal: boolean;
@@ -108,33 +110,31 @@ export interface TeacherClassCards {
   awards: CardAwardView[];
 }
 
-// ---- 팀 이동과 QR 체크인 ----
+// ---- 팀 이동과 교실 입장(인증코드) ----
 
 export interface CheckInInput {
   eventId: string;
   teamId: string;
-  /** 미션 교실 QR이 가리키는 미션 ID */
+  /** 들어가려는 미션 교실(미션 ID). 이번 라운드에 가야 할 교실이어야 한다. */
   stationId: string;
+  /** 교실 선생님이 알려 준 네 자리 인증코드 */
+  accessCode: string;
 }
 
 export interface CheckInOutcome {
   /**
    * checked_in: 입장함
-   * already_checked_in: 이미 입장한 교실의 QR을 다시 찍음
-   * wrong_station: 이번 라운드에 가야 할 교실이 아님
-   * early: 이번 라운드 순위는 나왔지만 다음 교실이 아직 라운드를 열지 않아 들어갈 수 없음
-   * finished: 이미 지나간 라운드의 교실 QR을 찍음
+   * already_checked_in: 이미 입장한 교실에 다시 들어옴(새로고침 등)
    */
-  kind: 'checked_in' | 'already_checked_in' | 'wrong_station' | 'early' | 'finished';
+  kind: 'checked_in' | 'already_checked_in';
   roundNo: RoundNo;
-  /** QR을 찍은 교실 */
-  scannedMission: Mission;
-  /** 이번 라운드에 가야 할 교실 */
-  expectedMission: Mission;
-  /** 이번 라운드 다음에 갈 교실. 5라운드면 null */
-  nextMission: Mission | null;
+  /** 들어간 교실 */
+  mission: Mission;
   state: TeamMissionState;
 }
+
+/** 교사가 보는 교실별 인증코드 목록(미션 번호 순) */
+export type StationCodeList = StationCode[];
 
 /** 팀 홈에 보여 줄 이동 상태. 투어 중이 아니면 roundNo가 null */
 export interface TeamTourStatus {
@@ -235,7 +235,7 @@ export interface MarkArrivedInput {
   roundNo: RoundNo;
 }
 
-/** 부스 화면의 입장 현황. 팀이 QR을 찍을 때마다 이것만 다시 읽는다(채점 자료는 다시 읽지 않는다). */
+/** 부스 화면의 입장 현황. 팀이 입장할 때마다 이것만 다시 읽는다(채점 자료는 다시 읽지 않는다). */
 export interface StationArrivals {
   booth: MissionRoundState;
   /** 이번 라운드에 이 교실로 올 팀의 상태(학급 순서) */
@@ -339,7 +339,7 @@ export interface TeamMissionView {
   roundStatus: RoundStatus;
   /** 이 미션을 하는 부스 라운드. 게임 종료 시각을 알 수 있다. */
   booth: MissionRoundState;
-  /** 이 미션 교실에 입장했는지(교실 QR을 찍었거나 교사가 입장 처리했거나 순위가 나옴) */
+  /** 이 미션 교실에 입장했는지(인증코드를 넣었거나 교사가 입장 처리했거나 순위가 나옴) */
   checkedIn: boolean;
   submission: Submission | null;
   finalized: boolean;
@@ -402,6 +402,15 @@ export interface ReopenSubmissionInput {
   eventId: string;
   missionId: string;
   teamId: string;
+}
+
+/** 로봇 길찾기: 선생님이 오조봇으로 확인한 도전 과제 성공(또는 그 취소) */
+export interface OzobotRecordInput {
+  eventId: string;
+  missionId: string;
+  teamId: string;
+  /** 도전 과제 카드 ID(src/domain/ozobot.ts) */
+  challengeId: string;
 }
 
 export interface RankingEntryInput {
@@ -577,8 +586,17 @@ export interface EventRepository {
   reviseRanking(input: FinalizeRankingInput): Promise<ReviseRankingOutcome>;
   /** 순위 확정 전 제출을 되돌려 팀이 다시 낼 수 있게 한다. */
   reopenSubmission(input: ReopenSubmissionInput): Promise<void>;
+  /**
+   * 로봇 길찾기: 선생님이 오조봇으로 확인한 성공을 그 팀의 기록에 더한다(교사).
+   * 같은 카드는 한 번만 센다. 게임을 시작한 뒤, 순위를 확정하기 전에만 할 수 있다.
+   */
+  recordOzobotSuccess(input: OzobotRecordInput): Promise<Submission>;
+  /** 로봇 길찾기: 잘못 누른 성공 기록을 지운다(교사). 순위를 확정하기 전에만 할 수 있다. */
+  undoOzobotSuccess(input: OzobotRecordInput): Promise<Submission>;
   /** 미션 문제 같은 설정을 바꾼다. 미션 종류는 바꿀 수 없다. */
   updateMissionConfig(eventId: string, missionId: string, config: MissionConfig): Promise<Mission>;
+  /** 미션 이름·교실·한 줄 소개를 바꾼다(교사). 교실 이름의 {학년}은 학년에 맞춰 보인다. */
+  updateMissionInfo(eventId: string, missionId: string, info: MissionInfoInput): Promise<Mission>;
   /** 교사가 열 때만 그림 파일을 읽는다(실시간 구독하지 않음). */
   listDrawingFiles(
     eventId: string,
@@ -594,12 +612,19 @@ export interface EventRepository {
   listClassCardBoards(eventId: string, grade: Grade): Promise<ClassCardBoard[]>;
   getTeacherClassCards(eventId: string, classId: string): Promise<TeacherClassCards>;
 
-  // 팀 이동과 QR 체크인
-  /** 이 기기가 입장한 팀. 미션 교실 QR 주소에는 팀이 없어서 기기에 묶인 팀으로 체크인한다. */
+  // 팀 이동과 교실 입장(인증코드)
+  /** 이 기기가 입장한 팀. 예전 교실 QR 주소로 들어왔을 때 그 팀의 미션 화면으로 보낸다. */
   getMyTeam(eventId: string): Promise<Team | null>;
-  /** 미션 교실 QR 체크인. 같은 QR을 다시 찍어도 기록은 하나다. */
+  /**
+   * 교실 인증코드로 입장한다. 이번 라운드에 가야 할 교실이고 선생님이 라운드를 열었을 때만,
+   * 코드가 맞아야 기록한다. 같은 팀이 다시 넣어도 기록은 하나다.
+   */
   checkInStation(input: CheckInInput): Promise<CheckInOutcome>;
   getTeamTourStatus(eventId: string, teamId: string): Promise<TeamTourStatus>;
+  /** 교실별 인증코드(교사). 아직 정하지 않은 교실은 code가 null이다. */
+  listStationCodes(eventId: string): Promise<StationCodeList>;
+  /** 교실별 인증코드를 정한다(총괄). 미션 ID → 네 자리 숫자 */
+  saveStationCodes(eventId: string, codes: Record<string, string>): Promise<StationCodeList>;
 
   // 실시간 운영 대시보드
   /** roundNo를 주지 않으면 지금 모습을 보여 준다(부스와 팀이 저마다 자기 라운드에 있다). */
@@ -626,7 +651,7 @@ export interface EventRepository {
   ): Promise<StationArrivals>;
   /** 이 부스의 1~5라운드 상태. 부스 화면이 지금 진행할 라운드를 알 때 쓴다. */
   getStationRounds(eventId: string, missionId: string, grade: Grade): Promise<MissionRoundState[]>;
-  /** 부스의 “라운드 열기”. 이때부터 팀이 교실 QR을 찍어 들어올 수 있다. */
+  /** 부스의 “라운드 열기”. 이때부터 팀이 인증코드를 넣고 들어올 수 있다. */
   openStationRound(input: StartStationInput): Promise<MissionRoundState>;
   /** 부스의 “게임 시작”. 게임 시간이 흐르기 시작하고 팀이 제출할 수 있다. */
   startStationRound(input: StartStationInput): Promise<MissionRoundState>;
@@ -637,7 +662,7 @@ export interface EventRepository {
    * 앞 라운드를 끝낸 뒤에, 순위를 확정하기 전에만 할 수 있다.
    */
   skipStationRound(input: StartStationInput): Promise<MissionRoundState>;
-  /** QR을 찍지 못한 팀을 교사가 직접 입장 처리한다(수동 복구). */
+  /** 인증코드를 넣지 못한 팀을 교사가 직접 입장 처리한다(수동 복구). */
   markTeamArrived(input: MarkArrivedInput): Promise<TeamMissionState>;
 
   // 학급 전체 최종 미션

@@ -324,3 +324,73 @@ describe('골든벨 문제 파일과 설정', () => {
     ).rejects.toThrow(/4학년, 5학년, 6학년이 풀 문제가 없어요/);
   });
 });
+
+describe('교사 골든벨 정답 공개', () => {
+  // 샘플 데이터: 4학년 2라운드 골든벨은 게임 중이고 5팀 가운데 3팀이 제출했다.
+  const stationPath = `/teacher/${EVENT}/station/golden-bell`;
+
+  async function submitAll(repository: MockEventRepository) {
+    const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 2);
+    for (const participant of participants) {
+      if (participant.submission && participant.submission.status !== 'draft') continue;
+      await repository.saveSubmission({
+        eventId: EVENT,
+        teamId: participant.team.id,
+        missionId: 'golden-bell',
+        requestId: `all-${participant.team.id}`,
+        answer: { type: 'golden_bell', selections: { q1: 1 } },
+      });
+    }
+  }
+
+  it('모든 팀이 제출하기 전에는 정답을 공개할 수 없고, 모두 제출하면 새로고침 없이 켜진다', async () => {
+    const user = userEvent.setup();
+    const repository = await teacherRepository();
+    renderApp(stationPath, repository);
+
+    const reveal = await screen.findByRole('button', { name: '학생 화면에 정답 공개' });
+    expect(reveal).toBeDisabled();
+    expect(
+      screen.getByText(/모든 팀이 제출하거나 게임 시간이 끝나면 정답을 공개할 수 있어요/),
+    ).toHaveTextContent('제출 3/5팀');
+
+    await submitAll(repository);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '학생 화면에 정답 공개' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: '학생 화면에 정답 공개' }));
+    expect(await screen.findByRole('button', { name: '정답 숨기기' })).toBeInTheDocument();
+    expect(await repository.isAnswerRevealed(EVENT, 'golden-bell', 4, 2)).toBe(true);
+    // 정답을 이미 공개했으면 순위 확정 버튼은 정답 공개를 다시 하지 않는다.
+    expect(screen.getByRole('button', { name: '순위 확정' })).toBeInTheDocument();
+  });
+
+  it('정답을 공개하면 제출한 학생 화면에 정답과 점수가 바로 보인다', async () => {
+    const repository = await teacherRepository();
+    const [first, second] = getGoldenBellQuestions(await getConfig(repository), 4);
+    await repository.signOutTeacher();
+    await repository.saveSubmission({
+      eventId: EVENT,
+      teamId: TEAM,
+      missionId: 'golden-bell',
+      requestId: 'reveal-student',
+      // 1번은 정답, 2번은 오답
+      answer: {
+        type: 'golden_bell',
+        selections: {
+          [first.id]: first.answerIndex,
+          [second.id]: (second.answerIndex + 1) % second.choices.length,
+        },
+      },
+    });
+    renderApp(`/team/${EVENT}/${TEAM}/mission/golden-bell`, repository);
+    expect(await screen.findByText('제출한 답은 바꿀 수 없어요')).toBeInTheDocument();
+    expect(screen.queryByText(/문제 정답 ·/)).toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await repository.signInTeacher();
+    await repository.setAnswerRevealed(EVENT, 'golden-bell', 4, 2, true);
+    expect(await screen.findByText(/7문제 중 1문제 정답 · 100점/)).toBeInTheDocument();
+    expect(screen.getByText('정답이에요!')).toBeInTheDocument();
+  });
+});

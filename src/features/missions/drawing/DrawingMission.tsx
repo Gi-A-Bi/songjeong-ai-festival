@@ -14,6 +14,8 @@ import {
 } from '../../../domain/drawingPrompts';
 import { canSubmitInPhase } from '../../../domain/missionPhase';
 import type { DrawingConfig } from '../../../domain/types';
+import { getMissionLock } from '../missionLock';
+import { MissionLockedPanel } from '../MissionLockedPanel';
 import { MissionNotice } from '../MissionNotice';
 import type { MissionScreenProps } from '../missionTypes';
 import { useMissionSubmit } from '../useMissionSubmit';
@@ -53,10 +55,13 @@ export function DrawingMission({
   view,
   event,
   phase,
+  gate,
   onSubmitted,
   config,
 }: DrawingMissionProps) {
   const { team, mission, submission, roundNo } = view;
+  // 게임을 시작하기 전(또는 입장 전)에는 프롬프트를 보여 주지 않는다(먼저 본 팀이 유리해지지 않게).
+  const lock = getMissionLock(view, event, phase);
   const saved =
     submission && submission.status !== 'draft' && submission.answer.type === 'drawing'
       ? submission.answer
@@ -74,7 +79,7 @@ export function DrawingMission({
   const [photoError, setPhotoError] = useState<RepositoryError | null>(null);
   const { submit, isPending, error } = useMissionSubmit(eventId, team.id, mission.id, onSubmitted);
 
-  const editable = canSubmitInPhase(phase) && saved === null && prompt !== null;
+  const editable = canSubmitInPhase(phase) && saved === null && prompt !== null && lock === null;
 
   // 제출하지 않고 바꾼 미리보기 주소는 메모리에서 정리한다.
   useEffect(
@@ -177,6 +182,7 @@ export function DrawingMission({
       event={event}
       phase={phase}
       notice={<MissionNotice phase={phase} event={event} view={view} error={error ?? photoError} />}
+      gate={gate}
       actions={
         saved ? (
           <StatusBadge tone="info" icon="lock" size="lg">
@@ -202,140 +208,148 @@ export function DrawingMission({
         )
       }
     >
-      <div className="drawing-layout">
-        <section className="drawing-prompt" aria-labelledby="drawing-prompt-title">
-          <h2 id="drawing-prompt-title" className="drawing-prompt__label">
-            <Icon name="smart_toy" />
-            그림 프롬프트
-          </h2>
-          {prompt ? (
-            <>
-              <p className="drawing-prompt__artwork">
-                <Icon name="museum" />
-                {drawingArtworkLabel(prompt)}
-              </p>
-              <p className="drawing-prompt__text">{prompt.text}</p>
-              <ul className="drawing-rubric" aria-label="AI 심사위원이 보는 것">
-                {DRAWING_RUBRIC.map((item) => (
-                  <li key={item.id} className="drawing-rubric__item">
-                    {item.name} <span className="number">{item.max}점</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="drawing-prompt__tip">
-                그림 실력이 아니라 프롬프트의 조건을 얼마나 정확하게 지켰는지 봐요.
-              </p>
-            </>
-          ) : (
-            <p className="drawing-prompt__text">
-              그림 프롬프트가 아직 없어요. 선생님께 알려 주세요.
-            </p>
-          )}
-        </section>
-
-        {saved ? (
-          <figure className="drawing-submitted">
-            {submittedPreview ? (
-              <img
-                src={submittedPreview}
-                alt="우리 팀이 제출한 그림 사진"
-                className="drawing-submitted__image"
-              />
-            ) : (
-              <AssetImage asset="mascotCorrect" decorative className="waiting-panel__mascot" />
-            )}
-            <figcaption>그림 사진을 선생님께 보냈어요 ({formatBytes(saved.byteSize)})</figcaption>
-          </figure>
-        ) : cameraOpen ? (
-          <CameraView
-            onShot={acceptPhoto}
-            onPickFile={() => {
-              setCameraOpen(false);
-              fileInputRef.current?.click();
-            }}
-            onClose={() => setCameraOpen(false)}
-          />
-        ) : (
-          <section className="photo-panel" aria-labelledby="photo-panel-title">
-            <h2 id="photo-panel-title" className="visually-hidden">
-              그림 사진
+      {lock !== null ? (
+        // 프롬프트 글은 화면에 올리지 않는다(숨기기만 하면 화면 검사로 볼 수 있다).
+        <MissionLockedPanel mission={mission} reason={lock} subject="그림 프롬프트가">
+          <p>명화를 AI 시대의 모습으로 다시 그리는 프롬프트를 읽고 종이에 그려요.</p>
+          <p>팀에서 1장을 골라 사진으로 제출해요. 이름과 얼굴이 나오지 않게 찍어요.</p>
+        </MissionLockedPanel>
+      ) : (
+        <div className="drawing-layout">
+          <section className="drawing-prompt" aria-labelledby="drawing-prompt-title">
+            <h2 id="drawing-prompt-title" className="drawing-prompt__label">
+              <Icon name="smart_toy" />
+              그림 프롬프트
             </h2>
-            {prepared ? (
-              <img src={prepared.url} alt="제출할 그림 사진" className="photo-panel__image" />
+            {prompt ? (
+              <>
+                <p className="drawing-prompt__artwork">
+                  <Icon name="museum" />
+                  {drawingArtworkLabel(prompt)}
+                </p>
+                <p className="drawing-prompt__text">{prompt.text}</p>
+                <ul className="drawing-rubric" aria-label="AI 심사위원이 보는 것">
+                  {DRAWING_RUBRIC.map((item) => (
+                    <li key={item.id} className="drawing-rubric__item">
+                      {item.name} <span className="number">{item.max}점</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="drawing-prompt__tip">
+                  그림 실력이 아니라 프롬프트의 조건을 얼마나 정확하게 지켰는지 봐요.
+                </p>
+              </>
             ) : (
-              <ol className="photo-steps">
-                <li className="photo-steps__item">
-                  <span className="photo-steps__no number">1</span>
-                  <span>
-                    <strong>종이에 그려요</strong>
-                    프롬프트의 조건을 하나도 빠뜨리지 않게 그려요.
-                  </span>
-                </li>
-                <li className="photo-steps__item">
-                  <span className="photo-steps__no number">2</span>
-                  <span>
-                    <strong>팀에서 1장을 골라요</strong>
-                    조건을 가장 잘 지킨 그림을 함께 골라요.
-                  </span>
-                </li>
-                <li className="photo-steps__item">
-                  <span className="photo-steps__no number">3</span>
-                  <span>
-                    <strong>사진을 찍어 제출해요</strong>
-                    그림만 크게, 이름과 얼굴은 나오지 않게 찍어요.
-                  </span>
-                </li>
-              </ol>
+              <p className="drawing-prompt__text">
+                그림 프롬프트가 아직 없어요. 선생님께 알려 주세요.
+              </p>
             )}
-            <div className="photo-panel__actions">
-              {cameraSupported ? (
-                <Button
-                  size="lg"
-                  variant={prepared ? 'secondary' : 'primary'}
-                  icon="photo_camera"
-                  onClick={() => setCameraOpen(true)}
-                  disabled={!editable || preparing}
-                >
-                  {prepared ? '다시 찍기' : '사진 찍기'}
-                </Button>
-              ) : null}
-              <Button
-                size="lg"
-                variant="secondary"
-                icon="image"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={!editable || preparing}
-              >
-                사진 파일 고르기
-              </Button>
+          </section>
+
+          {saved ? (
+            <figure className="drawing-submitted">
+              {submittedPreview ? (
+                <img
+                  src={submittedPreview}
+                  alt="우리 팀이 제출한 그림 사진"
+                  className="drawing-submitted__image"
+                />
+              ) : (
+                <AssetImage asset="mascotCorrect" decorative className="waiting-panel__mascot" />
+              )}
+              <figcaption>그림 사진을 선생님께 보냈어요 ({formatBytes(saved.byteSize)})</figcaption>
+            </figure>
+          ) : cameraOpen ? (
+            <CameraView
+              onShot={acceptPhoto}
+              onPickFile={() => {
+                setCameraOpen(false);
+                fileInputRef.current?.click();
+              }}
+              onClose={() => setCameraOpen(false)}
+            />
+          ) : (
+            <section className="photo-panel" aria-labelledby="photo-panel-title">
+              <h2 id="photo-panel-title" className="visually-hidden">
+                그림 사진
+              </h2>
               {prepared ? (
+                <img src={prepared.url} alt="제출할 그림 사진" className="photo-panel__image" />
+              ) : (
+                <ol className="photo-steps">
+                  <li className="photo-steps__item">
+                    <span className="photo-steps__no number">1</span>
+                    <span>
+                      <strong>종이에 그려요</strong>
+                      프롬프트의 조건을 하나도 빠뜨리지 않게 그려요.
+                    </span>
+                  </li>
+                  <li className="photo-steps__item">
+                    <span className="photo-steps__no number">2</span>
+                    <span>
+                      <strong>팀에서 1장을 골라요</strong>
+                      조건을 가장 잘 지킨 그림을 함께 골라요.
+                    </span>
+                  </li>
+                  <li className="photo-steps__item">
+                    <span className="photo-steps__no number">3</span>
+                    <span>
+                      <strong>사진을 찍어 제출해요</strong>
+                      그림만 크게, 이름과 얼굴은 나오지 않게 찍어요.
+                    </span>
+                  </li>
+                </ol>
+              )}
+              <div className="photo-panel__actions">
+                {cameraSupported ? (
+                  <Button
+                    size="lg"
+                    variant={prepared ? 'secondary' : 'primary'}
+                    icon="photo_camera"
+                    onClick={() => setCameraOpen(true)}
+                    disabled={!editable || preparing}
+                  >
+                    {prepared ? '다시 찍기' : '사진 찍기'}
+                  </Button>
+                ) : null}
                 <Button
                   size="lg"
                   variant="secondary"
-                  icon="rotate_right"
-                  onClick={rotate}
+                  icon="image"
+                  onClick={() => fileInputRef.current?.click()}
                   disabled={!editable || preparing}
                 >
-                  돌리기
+                  사진 파일 고르기
                 </Button>
-              ) : null}
-            </div>
-          </section>
-        )}
-        {/* 카메라 화면에서도 누를 수 있게 늘 그려 둔다. 찍어 둔 사진 파일도 고를 수 있게 capture는 쓰지 않는다. */}
-        {saved ? null : (
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="visually-hidden"
-            aria-label="그림 사진 파일"
-            tabIndex={-1}
-            disabled={!editable}
-            onChange={(change) => void handleFile(change)}
-          />
-        )}
-      </div>
+                {prepared ? (
+                  <Button
+                    size="lg"
+                    variant="secondary"
+                    icon="rotate_right"
+                    onClick={rotate}
+                    disabled={!editable || preparing}
+                  >
+                    돌리기
+                  </Button>
+                ) : null}
+              </div>
+            </section>
+          )}
+          {/* 카메라 화면에서도 누를 수 있게 늘 그려 둔다. 찍어 둔 사진 파일도 고를 수 있게 capture는 쓰지 않는다. */}
+          {saved ? null : (
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="visually-hidden"
+              aria-label="그림 사진 파일"
+              tabIndex={-1}
+              disabled={!editable}
+              onChange={(change) => void handleFile(change)}
+            />
+          )}
+        </div>
+      )}
 
       <Dialog
         open={confirmOpen && prepared !== null}

@@ -5,7 +5,37 @@ import type {
   GoldenBellQuestion,
   GoldenBellQuestionKind,
   Grade,
+  MissionRoundStatus,
 } from './types';
+
+export interface AnswerRevealContext {
+  /** 이 라운드 부스의 단계(시간이 끝났으면 scoring) */
+  boothStatus: MissionRoundStatus;
+  submittedCount: number;
+  expectedCount: number;
+  /** 순위를 이미 확정했는지 */
+  finalized: boolean;
+}
+
+/**
+ * 지금 학생 화면에 정답을 공개할 수 없는 이유. 공개할 수 있으면 null.
+ * 모든 팀이 제출했거나 게임 시간이 끝나야(또는 순위를 확정했어야) 공개할 수 있다.
+ * 아직 푸는 팀이 있을 때 공개하면 그 팀이 정답을 보고 낼 수 있기 때문이다.
+ */
+export function getAnswerRevealBlocker({
+  boothStatus,
+  submittedCount,
+  expectedCount,
+  finalized,
+}: AnswerRevealContext): string | null {
+  if (finalized) return null;
+  if (boothStatus === 'ready' || boothStatus === 'open') {
+    return '게임을 시작한 뒤에 정답을 공개할 수 있어요.';
+  }
+  if (boothStatus === 'scoring' || boothStatus === 'completed') return null;
+  if (expectedCount > 0 && submittedCount >= expectedCount) return null;
+  return `모든 팀이 제출하거나 게임 시간이 끝나면 정답을 공개할 수 있어요. (제출 ${submittedCount}/${expectedCount}팀)`;
+}
 
 export const GOLDEN_BELL_RECOMMENDED_QUESTIONS = 15;
 export const GOLDEN_BELL_MAX_CHOICES = 4;

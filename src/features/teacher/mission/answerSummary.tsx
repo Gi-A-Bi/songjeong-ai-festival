@@ -7,6 +7,19 @@ import {
   isGoldenBellAnswered,
   isGoldenBellCorrect,
 } from '../../../domain/goldenBell';
+import {
+  LIBRARY_CHECK_ITEM_LABELS,
+  LIBRARY_CHECK_ITEMS,
+  LIBRARY_CHECK_MAX_SCORE,
+  LIBRARY_CHECK_POINTS,
+  scoreLibraryCheck,
+} from '../../../domain/libraryCheck';
+import {
+  calculateOzobotScore,
+  findOzobotChallenge,
+  getOzobotSolved,
+  ozobotStars,
+} from '../../../domain/ozobot';
 import { countErrorHuntFound, countGoldenBellCorrect } from '../../../domain/scoring';
 import type { Mission, Submission } from '../../../domain/types';
 
@@ -68,20 +81,52 @@ export function AnswerSummary({
     }
     case 'drawing':
       return <>그림 파일 {answer.byteSize > 0 ? formatBytes(answer.byteSize) : '(샘플)'}</>;
-    case 'ozobot':
-      return <>시작 준비 완료</>;
-    case 'library_check':
+    case 'ozobot': {
+      const solved = getOzobotSolved(answer);
+      if (solved.length === 0) return <>성공 기록 없음</>;
       return (
-        <dl className="answer-list">
-          <dt>틀린 부분</dt>
-          <dd>{answer.wrongPart}</dd>
-          <dt>올바른 내용</dt>
-          <dd>{answer.correction}</dd>
-          <dt>출처</dt>
-          <dd>
-            『{answer.bookTitle}』 {answer.page}쪽
-          </dd>
-        </dl>
+        <>
+          성공 {solved.length}개 ·{' '}
+          {solved
+            .map((item) => {
+              const card = findOzobotChallenge(item.challengeId);
+              return `카드 ${card?.cardNo ?? item.challengeId} ${ozobotStars(item.level)}`;
+            })
+            .join(', ')}{' '}
+          · {calculateOzobotScore(solved)}점
+        </>
       );
+    }
+    case 'library_check': {
+      const result = config.type === 'library_check' ? scoreLibraryCheck(config, answer) : null;
+      return (
+        <>
+          {result ? (
+            <p className="answer-auto">
+              자동 채점 {result.total}/{LIBRARY_CHECK_MAX_SCORE}점 ·{' '}
+              {LIBRARY_CHECK_ITEMS.map((item) => (
+                <span
+                  key={item}
+                  className={`answer-auto__item${result.items[item] ? ' answer-auto__item--ok' : ''}`}
+                >
+                  {LIBRARY_CHECK_ITEM_LABELS[item]} {result.items[item] ? 'O' : 'X'}
+                  {result.items[item] ? ` +${LIBRARY_CHECK_POINTS[item]}` : ''}
+                </span>
+              ))}
+            </p>
+          ) : null}
+          <dl className="answer-list">
+            <dt>틀린 부분</dt>
+            <dd>{answer.wrongPart}</dd>
+            <dt>올바른 내용</dt>
+            <dd>{answer.correction}</dd>
+            <dt>출처</dt>
+            <dd>
+              『{answer.bookTitle}』 {answer.page}쪽
+            </dd>
+          </dl>
+        </>
+      );
+    }
   }
 }

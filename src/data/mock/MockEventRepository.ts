@@ -16,7 +16,15 @@ import { getSubmissionBlocker } from '../../domain/missionPhase';
 import type { RehearsalSummary } from '../../domain/rehearsal';
 import { getRankingEntryError } from '../../domain/rewards';
 import { getRoundForMission, getTeamNoForMission } from '../../domain/rotation';
-import { resolveSubmissionScore } from '../../domain/scoring';
+import { isTeacherJudged, resolveSubmissionScore } from '../../domain/scoring';
+import { getLibraryCheckConfigError } from '../../domain/libraryCheck';
+import { findOzobotChallenge, getOzobotSolved } from '../../domain/ozobot';
+import {
+  getMissionInfoError,
+  normalizeMissionInfo,
+  type MissionInfoInput,
+} from '../../domain/missionRoom';
+import { getStationCodesError } from '../../domain/stationCode';
 import { CARD_INFO } from '../../domain/catalog';
 import {
   emptyFinalSession,
@@ -72,6 +80,7 @@ import type {
   MissionParticipant,
   OpenFinalInput,
   OpsDashboard,
+  OzobotRecordInput,
   ReopenSubmissionInput,
   ResetRehearsalInput,
   ReviseRankingOutcome,
@@ -81,6 +90,7 @@ import type {
   StartClassFinalInput,
   StartStationInput,
   StationArrivals,
+  StationCodeList,
   TeacherClassCards,
   TeacherRegistry,
   TeamMissionView,
@@ -333,7 +343,28 @@ export class MockEventRepository implements EventRepository, DevTools {
       const error = getDrawingConfigError(config);
       if (error) throw new RepositoryError('invalid-input', error);
     }
+    if (config.type === 'library_check') {
+      const error = getLibraryCheckConfigError(config);
+      if (error) throw new RepositoryError('invalid-input', error);
+    }
     mission.config = clone(config);
+    // 도서관 오류찾기는 정답을 등록하면 자동 채점, 지우면 선생님 판정으로 바뀐다.
+    mission.teacherJudged = isTeacherJudged(mission);
+    return clone(mission);
+  }
+
+  async updateMissionInfo(
+    eventId: string,
+    missionId: string,
+    info: MissionInfoInput,
+  ): Promise<Mission> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    const mission = this.findMission(missionId);
+    const error = getMissionInfoError(info);
+    if (error) throw new RepositoryError('invalid-input', error);
+    Object.assign(mission, normalizeMissionInfo(info));
     return clone(mission);
   }
 
@@ -770,6 +801,74 @@ export class MockEventRepository implements EventRepository, DevTools {
     this.touchMissionState(mission.id, existing.grade, existing.roundNo, {});
   }
 
+  async recordOzobotSuccess(input: OzobotRecordInput): Promise<Submission> {
+    return this.changeOzobotRecord(input, 'add');
+  }
+
+  async undoOzobotSuccess(input: OzobotRecordInput): Promise<Submission> {
+    return this.changeOzobotRecord(input, 'remove');
+  }
+
+  private async changeOzobotRecord(
+    input: OzobotRecordInput,
+    change: 'add' | 'remove',
+  ): Promise<Submission> {
+    await this.request();
+    this.assertEvent(input.eventId);
+    this.requireTeacher();
+    const mission = this.findMission(input.missionId);
+    const team = this.findTeam(input.teamId);
+    const challenge = findOzobotChallenge(input.challengeId);
+    if (mission.type !== 'ozobot' || !challenge) {
+      throw new RepositoryError('invalid-input', '로봇 길찾기 도전 과제를 찾을 수 없어요.');
+    }
+    const roundNo = getRoundForMission(team.teamNo, mission.no);
+    if (this.tour.missionRound(mission.id, team.grade, roundNo).startedAt === null) {
+      throw new RepositoryError('not-allowed', '게임을 시작한 뒤에 성공을 기록할 수 있어요.');
+    }
+    if (this.isFinalized(mission.id, team.grade, roundNo)) {
+      throw new RepositoryError(
+        'not-allowed',
+        '순위를 확정한 뒤에는 성공 기록을 바꿀 수 없어요. 순위 수정으로 점수를 고쳐 주세요.',
+      );
+    }
+    const id = submissionId(mission.id, team.id);
+    const existing = this.state.submissions[id];
+    const previous = getOzobotSolved(
+      existing?.answer.type === 'ozobot' ? existing.answer : undefined,
+    );
+    const already = previous.some((item) => item.challengeId === challenge.id);
+    if ((change === 'add' && already) || (change === 'remove' && !already)) {
+      if (existing) return clone(existing);
+      throw new RepositoryError('not-allowed', '지울 성공 기록이 없어요.');
+    }
+    const now = this.now();
+    const solved =
+      change === 'add'
+        ? [...previous, { challengeId: challenge.id, level: challenge.level, at: now }]
+        : previous.filter((item) => item.challengeId !== challenge.id);
+    const last = solved.reduce<number | null>((max, item) => Math.max(max ?? 0, item.at), null);
+    const next: Submission = {
+      id,
+      teamId: team.id,
+      classId: team.classId,
+      missionId: mission.id,
+      grade: team.grade,
+      roundNo,
+      status: solved.length > 0 ? 'submitted' : 'draft',
+      answer: { type: 'ozobot', solved },
+      score: null,
+      reopened: false,
+      // 점수가 같으면 마지막 성공이 이른 팀이 앞선다.
+      submittedAt: solved.length > 0 ? last : null,
+      updatedAt: now,
+    };
+    this.state.submissions[id] = next;
+    this.touchMissionState(mission.id, team.grade, roundNo, {});
+    this.notifyOps(team.grade);
+    return clone(next);
+  }
+
   async listDrawingFiles(
     eventId: string,
     missionId: string,
@@ -880,7 +979,7 @@ export class MockEventRepository implements EventRepository, DevTools {
     });
   }
 
-  // ---- 팀 이동과 QR 체크인 ----
+  // ---- 팀 이동과 교실 입장 ----
 
   async getMyTeam(eventId: string): Promise<Team | null> {
     await this.request();
@@ -892,13 +991,41 @@ export class MockEventRepository implements EventRepository, DevTools {
   async checkInStation(input: CheckInInput): Promise<CheckInOutcome> {
     await this.request();
     this.assertEvent(input.eventId);
-    return clone(this.tour.checkIn(this.findTeam(input.teamId), input.stationId));
+    return clone(this.tour.checkIn(this.findTeam(input.teamId), input.stationId, input.accessCode));
   }
 
   async getTeamTourStatus(eventId: string, teamId: string): Promise<TeamTourStatus> {
     await this.request();
     this.assertEvent(eventId);
     return clone(this.tour.tourStatus(this.findTeam(teamId)));
+  }
+
+  async listStationCodes(eventId: string): Promise<StationCodeList> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireTeacher();
+    return this.stationCodeList();
+  }
+
+  async saveStationCodes(eventId: string, codes: Record<string, string>): Promise<StationCodeList> {
+    await this.request();
+    this.assertEvent(eventId);
+    this.requireAdmin();
+    const missions = [...this.state.missions].sort((a, b) => a.no - b.no);
+    const error = getStationCodesError(codes, missions);
+    if (error) throw new RepositoryError('invalid-input', error);
+    for (const mission of missions) this.state.stationCodes[mission.id] = codes[mission.id];
+    return this.stationCodeList();
+  }
+
+  private stationCodeList(): StationCodeList {
+    return [...this.state.missions]
+      .sort((a, b) => a.no - b.no)
+      .map((mission) => ({
+        missionId: mission.id,
+        code: this.state.stationCodes[mission.id] ?? null,
+        updatedAt: null,
+      }));
   }
 
   // ---- 실시간 운영 대시보드 ----

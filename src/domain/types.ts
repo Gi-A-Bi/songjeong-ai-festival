@@ -187,12 +187,32 @@ export interface DrawingConfig {
 export interface OzobotConfig {
   type: 'ozobot';
   rules: string[];
+  /** 제한 시간(분). 없으면 7분. 다른 부스의 게임 시간과 따로 정한다. */
+  timeLimitMinutes?: number;
+}
+
+/**
+ * 도서관 오류찾기의 정답. 학생 답에 인정하는 말이 들어 있으면 그 항목을 맞은 것으로 본다.
+ * 골든벨 문제처럼 미션 설정에 들어가므로 실제 정답은 행사 사이트에서 교사가 등록한다.
+ */
+export interface LibraryCheckAnswerKey {
+  /** 틀린 부분으로 인정하는 말(하나라도 들어 있으면 정답) */
+  wrongPartKeywords: string[];
+  /** 올바른 내용으로 인정하는 말 */
+  correctionKeywords: string[];
+  /** 확인할 수 있는 책 제목(부제가 붙어도 인정) */
+  bookTitles: string[];
+  /** 인정하는 쪽수 범위. pageTo가 없으면 pageFrom 한 쪽만 */
+  pageFrom: number | null;
+  pageTo: number | null;
 }
 
 export interface LibraryCheckConfig {
   type: 'library_check';
   passageTitle: string;
   passage: string;
+  /** 정답을 등록하면 제출 즉시 자동으로 채점한다. 없으면 선생님이 직접 채점한다. */
+  answerKey?: LibraryCheckAnswerKey;
 }
 
 export type MissionConfig =
@@ -238,9 +258,24 @@ export interface DrawingAnswer {
   height: number;
 }
 
+/** 선생님이 오조봇으로 확인한 성공 한 건 */
+export interface OzobotSolve {
+  /** 도전 과제 카드 ID(src/domain/ozobot.ts) */
+  challengeId: string;
+  /** 별 수. 점수는 별 1개 5점, 2개 10점, 3개 20점 */
+  level: 1 | 2 | 3;
+  /** 선생님이 성공을 기록한 시각(epoch ms) */
+  at: number;
+}
+
+/**
+ * 로봇 길찾기 기록. 학생은 쓰지 않고 선생님이 성공을 기록한다.
+ * 예전에는 학생이 "시작 준비 완료"만 알렸다(ready).
+ */
 export interface OzobotAnswer {
   type: 'ozobot';
-  ready: true;
+  solved?: OzobotSolve[];
+  ready?: true;
 }
 
 export interface LibraryCheckAnswer {
