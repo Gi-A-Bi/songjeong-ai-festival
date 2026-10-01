@@ -278,7 +278,7 @@ export function TeamHomePage() {
                 </span>
               </p>
             ) : (
-              <p className="muted">미션 순위가 확정되면 카드 조각을 하나씩 받아요.</p>
+              <p className="muted">미션에서 3위 안에 들면 카드 조각을 받아요.</p>
             )}
           </div>
           <ClassProgressStrip progress={rewards.progress} compact />

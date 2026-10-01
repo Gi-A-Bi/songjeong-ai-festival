@@ -220,7 +220,7 @@ export function LibraryCheckMission({
                     ))}
                   </ul>
                   <p className="library-result__note">
-                    점수는 선생님이 확인한 뒤 고칠 수 있어요. 순위가 확정되면 카드 조각을 받아요.
+                    점수는 선생님이 확인한 뒤 고칠 수 있어요. 3위 안에 들면 카드 조각을 받아요.
                   </p>
                 </div>
               </section>

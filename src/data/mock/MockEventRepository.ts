@@ -2,6 +2,7 @@ import {
   CardAwardError,
   claimCardAward as applyCardClaim,
   computeClassCardProgress,
+  canReofferAward,
   createCardAward,
   reconcileCardProgress,
   reofferCardAward,
@@ -758,7 +759,7 @@ export class MockEventRepository implements EventRepository, DevTools {
       } else {
         const previous = this.state.cardAwards[awardIndex];
         const next = reofferCardAward(previous, entry.rank, now, this.random);
-        if (next.changed && previous.status === 'pending') reoffered += 1;
+        if (next.changed && canReofferAward(previous)) reoffered += 1;
         if (next.keptClaimed) keptClaimed += 1;
         this.state.cardAwards[awardIndex] = next.award;
         awards.push(next.award);

@@ -31,6 +31,7 @@ import {
   CardAwardError,
   claimCardAward as applyCardClaim,
   computeClassCardProgress,
+  canReofferAward,
   createCardAward,
   reofferCardAward,
 } from '../../domain/cards';
@@ -1479,12 +1480,14 @@ export class FirestoreEventRepository implements EventRepository {
               selectedType: next.award.selectedType,
               status: next.award.status,
               claimedAt:
-                current.status === 'pending' && next.award.status === 'claimed'
-                  ? serverTimestamp()
-                  : (awardSnapshot.data().claimedAt ?? null),
+                next.award.status === 'pending'
+                  ? null
+                  : canReofferAward(current)
+                    ? serverTimestamp()
+                    : (awardSnapshot.data().claimedAt ?? null),
             });
           }
-          if (next.changed && current.status === 'pending') reoffered += 1;
+          if (next.changed && canReofferAward(current)) reoffered += 1;
           if (next.keptClaimed) keptClaimed += 1;
         }
 

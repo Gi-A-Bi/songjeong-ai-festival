@@ -9,7 +9,7 @@ import { ErrorView, InlineAlert, LoadingView } from '../../components/StateViews
 import type { ClassOpsDetail } from '../../data/EventRepository';
 import { toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
-import { CARD_TYPES } from '../../domain/cards';
+import { CARD_TYPES, isNoCardAward } from '../../domain/cards';
 import { CARD_INFO } from '../../domain/catalog';
 import { FINAL_CLASS_STATUS_LABELS } from '../../domain/finalMission';
 import { SELECTION_MODE_LABELS } from '../../domain/rewards';
@@ -127,20 +127,25 @@ export function TeacherClassPage() {
                   <td>{teamNoOf(award.teamId)}팀</td>
                   <td>{SELECTION_MODE_LABELS[award.selectionMode]}</td>
                   <td>
-                    {award.offeredTypes.map((cardType) => CARD_INFO[cardType].name).join(', ')}
+                    {award.offeredTypes.map((cardType) => CARD_INFO[cardType].name).join(', ') ||
+                      '-'}
                   </td>
                   <td>
                     {award.status === 'claimed' && award.selectedType ? (
                       <StatusBadge tone="success" icon="check_circle">
                         {CARD_INFO[award.selectedType].name}
                       </StatusBadge>
+                    ) : isNoCardAward(award) ? (
+                      <span className="muted">없음</span>
                     ) : (
                       <StatusBadge tone="warning" icon="hourglass_top">
                         선택 대기
                       </StatusBadge>
                     )}
                   </td>
-                  <td className="number">{formatTimeOfDay(award.claimedAt)}</td>
+                  <td className="number">
+                    {isNoCardAward(award) ? '-' : formatTimeOfDay(award.claimedAt)}
+                  </td>
                 </tr>
               ))}
             </tbody>

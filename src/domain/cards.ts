@@ -65,12 +65,14 @@ interface CreateCardAwardInput {
 
 /**
  * 순위 결과 하나로 카드 보상 하나를 만든다. ID는 결과 ID와 같아 중복 생성되지 않는다.
- * 자동 배정(3위 이하)은 만들 때 바로 종류를 정하고 받은 상태가 된다.
+ * 무작위 배정(3위)은 만들 때 바로 종류를 정하고 받은 상태가 된다.
+ * 보상 없음(4위 이하)은 후보 없이 받은 상태로 남겨, 카드가 열리지 않는다.
  */
 export function createCardAward({ result, team, now, random }: CreateCardAwardInput): CardAward {
   const selectionMode = getSelectionModeForRank(result.rank);
   const offeredTypes = drawOfferedTypes(OFFER_COUNT_BY_MODE[selectionMode], random);
-  const automatic = selectionMode === 'automatic';
+  // 고를 것이 없는 보상(무작위 배정·보상 없음)은 만들 때 바로 끝난 상태가 된다.
+  const automatic = selectionMode === 'automatic' || selectionMode === 'none';
   return {
     id: result.id,
     resultId: result.id,
@@ -82,7 +84,7 @@ export function createCardAward({ result, team, now, random }: CreateCardAwardIn
     rank: result.rank,
     selectionMode,
     offeredTypes,
-    selectedType: automatic ? offeredTypes[0] : null,
+    selectedType: automatic ? (offeredTypes[0] ?? null) : null,
     status: automatic ? 'claimed' : 'pending',
     createdAt: now,
     claimedAt: automatic ? now : null,
@@ -106,10 +108,21 @@ export interface ReofferResult {
   keptClaimed: boolean;
 }
 
+/** 카드를 받지 않은 보상(보상 없음)인지. 카드가 열리지 않았으므로 순위를 고치면 다시 정할 수 있다. */
+export function isNoCardAward(award: Pick<CardAward, 'selectionMode'>): boolean {
+  return award.selectionMode === 'none';
+}
+
+/** 순위를 고치면 새 순위에 맞춰 다시 정하는 보상: 고르기 전이거나 보상 없음 */
+export function canReofferAward(award: Pick<CardAward, 'status' | 'selectionMode'>): boolean {
+  return award.status === 'pending' || isNoCardAward(award);
+}
+
 /**
  * 교사가 순위를 고쳤을 때 보상을 새 순위에 맞춘다.
- * 이미 받은 보상은 학급 카드가 열린 뒤라 바꾸지 않는다.
- * 아직 고르지 않은 보상은 기존 후보를 최대한 유지하며 개수만 맞춘다.
+ * 이미 받은 카드는 학급 카드가 열린 뒤라 바꾸지 않는다.
+ * 아직 고르지 않은 보상은 기존 후보를 최대한 유지하며 개수만 맞추고,
+ * 보상 없음이던 팀이 3위 안에 들면 새 보상이 생긴다(4위 이하로 내려가면 고르기 전 보상은 없어진다).
  */
 export function reofferCardAward(
   award: CardAward,
@@ -118,7 +131,7 @@ export function reofferCardAward(
   random: () => number,
 ): ReofferResult {
   const selectionMode = getSelectionModeForRank(rank);
-  if (award.status === 'claimed') {
+  if (!canReofferAward(award)) {
     const changed = award.rank !== rank;
     return {
       award: changed ? { ...award, rank } : award,
@@ -132,14 +145,14 @@ export function reofferCardAward(
   const count = OFFER_COUNT_BY_MODE[selectionMode];
   const kept = award.offeredTypes.slice(0, count);
   const offeredTypes = [...kept, ...drawOfferedTypes(count - kept.length, random, kept)];
-  const automatic = selectionMode === 'automatic';
+  const automatic = selectionMode === 'automatic' || selectionMode === 'none';
   return {
     award: {
       ...award,
       rank,
       selectionMode,
       offeredTypes,
-      selectedType: automatic ? offeredTypes[0] : null,
+      selectedType: automatic ? (offeredTypes[0] ?? null) : null,
       status: automatic ? 'claimed' : 'pending',
       claimedAt: automatic ? now : null,
     },

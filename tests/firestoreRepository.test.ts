@@ -349,7 +349,15 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
         rank: index + 1,
       })),
     });
-    expect(outcome.awards.map((award) => award.offeredTypes.length)).toEqual([3, 2, 1, 1, 1]);
+    // 1위 3종 중 선택, 2위 2종 중 선택, 3위 무작위 1장, 4·5위는 보상 없음
+    expect(outcome.awards.map((award) => award.offeredTypes.length)).toEqual([3, 2, 1, 0, 0]);
+    expect(outcome.awards.map((award) => award.selectionMode)).toEqual([
+      'choose_three',
+      'choose_two',
+      'automatic',
+      'none',
+      'none',
+    ]);
 
     // 다시 확정해도 보상이 늘지 않는다
     const again = await repository.finalizeRanking({
@@ -579,6 +587,27 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
     expect(after[0].award?.offeredTypes).toHaveLength(2);
     expect(after[1].award?.offeredTypes).toHaveLength(3);
     expect(after[0].result?.rank).toBe(2);
+
+    // 보상이 없던 5위 팀이 1위가 되면 보상이 생기고, 고르기 전이던 1위 팀이 5위가 되면 보상이 없어진다.
+    const second = await repository.reviseRanking({
+      ...base,
+      requestId: 'revise-2',
+      entries: participants.map((participant, index) => ({
+        teamId: participant.team.id,
+        score: 500 - index * 100,
+        rank: [2, 5, 3, 4, 1][index],
+      })),
+    });
+    expect(second).toMatchObject({ reoffered: 2, keptClaimed: 0 });
+    const last = await repository.listMissionParticipants(DEFAULT_EVENT_ID, 'golden-bell', 4, 1);
+    expect(last[4].award).toMatchObject({ selectionMode: 'choose_three', status: 'pending' });
+    expect(last[4].award?.offeredTypes).toHaveLength(3);
+    expect(last[1].award).toMatchObject({
+      selectionMode: 'none',
+      status: 'claimed',
+      offeredTypes: [],
+      selectedType: null,
+    });
   });
 
   it('그림 파일은 제출과 함께 저장되고 교사가 불러올 수 있다', async () => {

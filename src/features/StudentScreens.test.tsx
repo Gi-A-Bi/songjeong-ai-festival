@@ -44,7 +44,7 @@ describe('학생 화면', () => {
     const teamId = toTeamId(4, 2, 5);
     renderApp(`/team/${DEFAULT_EVENT_ID}/${teamId}`, repository);
     expect(
-      await screen.findByText('미션 순위가 확정되면 카드 조각을 하나씩 받아요.'),
+      await screen.findByText('미션에서 3위 안에 들면 카드 조각을 받아요.'),
     ).toBeInTheDocument();
 
     // 화면의 실시간 구독이 등록될 때까지 한 틱 기다린다.
@@ -271,15 +271,15 @@ describe('학생 화면', () => {
     expect(within(strip).getAllByRole('img')).toHaveLength(5);
     expect(screen.getAllByRole('button', { name: /고르기, 지금/ })).toHaveLength(3);
 
-    await user.click(screen.getByRole('button', { name: '생각 카드 고르기, 지금 2/4' }));
+    await user.click(screen.getByRole('button', { name: '생각 카드 고르기, 지금 1/4' }));
     const dialog = await screen.findByRole('dialog', { name: '생각 카드를 받을까요?' });
-    expect(within(dialog).getByText('2/4 → 3/4')).toBeInTheDocument();
+    expect(within(dialog).getByText('1/4 → 2/4')).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: /이 카드 받기/ }));
 
     expect(
-      await screen.findByRole('heading', { name: '생각 카드 조각 3/4가 열렸어요!' }),
+      await screen.findByRole('heading', { name: '생각 카드 조각 2/4가 열렸어요!' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: '생각 카드 조각 3/4' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: '생각 카드 조각 2/4' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /고르기, 지금/ })).not.toBeInTheDocument();
     const view = await repository.getTeamRewardView(DEFAULT_EVENT_ID, DEMO_TEAM_ID);
     expect(view.awards.every((award) => award.status === 'claimed')).toBe(true);

@@ -380,25 +380,27 @@ function sampleAnswer(mission: Mission, variant: number, grade: Grade): Submissi
  * 표현 카드를 고르면 2/4, 생각 카드를 고르면 3/4로 다음 조각이 열린다.
  */
 const DEMO_CLASS_AWARDS: Record<string, { offered: CardType[]; selected: CardType | null }> = {
-  [toTeamId(4, 2, 1)]: { offered: ['thinking'], selected: 'thinking' },
-  [toTeamId(4, 2, 2)]: { offered: ['observation'], selected: 'observation' },
+  // 1팀(4위)·2팀(5위)은 카드 보상이 없다.
+  [toTeamId(4, 2, 1)]: { offered: [], selected: null },
+  [toTeamId(4, 2, 2)]: { offered: [], selected: null },
   [toTeamId(4, 2, 3)]: { offered: ['expression', 'command', 'thinking'], selected: null },
   [toTeamId(4, 2, 4)]: { offered: ['thinking', 'verification'], selected: 'thinking' },
   [toTeamId(4, 2, 5)]: { offered: ['expression'], selected: 'expression' },
 };
 
 /**
- * 최종 미션 샘플 학년(3학년)의 반별 카드 획득 수(생각·관찰·표현·명령·검증 순, 합계 25).
+ * 최종 미션 샘플 학년(3학년)의 반별 카드 획득 수(생각·관찰·표현·명령·검증 순).
+ * 3위 안에 든 미션만 카드를 받는다(finalDemoRank): 1반 25장, 2반 16장, 3·4반 17장.
  * - 1반: 5종 모두 완성, 종류마다 중복 +1 → 힌트 5개(중복은 힌트를 늘리지 않는다)
- * - 2반: 표현 카드 3/4 → 완성 4종, 힌트 4개
- * - 3반: 관찰 카드 2/4 → 완성 4종, 힌트 4개
- * - 4반: 검증 카드 0/4, 생각 카드 중복 +4 → 완성 4종, 힌트 4개
+ * - 2반: 표현 카드 0/4 → 완성 4종, 힌트 4개
+ * - 3반: 관찰 카드 1/4 → 완성 4종, 힌트 4개
+ * - 4반: 검증 카드 0/4, 생각 카드 중복 +1 → 완성 4종, 힌트 4개
  */
 const FINAL_DEMO_CARD_COUNTS: Record<number, [number, number, number, number, number]> = {
   1: [5, 5, 5, 5, 5],
-  2: [6, 4, 3, 7, 5],
-  3: [7, 2, 4, 6, 6],
-  4: [8, 7, 6, 4, 0],
+  2: [4, 4, 0, 4, 4],
+  3: [4, 1, 4, 4, 4],
+  4: [5, 4, 4, 4, 0],
 };
 
 export interface MockDevice {
@@ -437,7 +439,7 @@ function interleaveCardTypes(counts: readonly number[]): CardType[] {
   return order;
 }
 
-/** 샘플용 카드 보상. selected가 있으면 받은 상태, 없으면 고르기 전 상태다. */
+/** 샘플용 카드 보상. selected가 있거나 보상 없음(4위 이하)이면 받은 상태, 아니면 고르기 전 상태다. */
 function seedAward(
   result: MissionResult,
   classId: string,
@@ -449,6 +451,7 @@ function seedAward(
   if (offered.length !== OFFER_COUNT_BY_MODE[selectionMode]) {
     throw new Error(`샘플 카드 보상 후보 수가 순위와 맞지 않아요: ${result.id}`);
   }
+  const done = selected !== null || selectionMode === 'none';
   return {
     id: result.id,
     resultId: result.id,
@@ -461,9 +464,9 @@ function seedAward(
     selectionMode,
     offeredTypes: offered,
     selectedType: selected,
-    status: selected ? 'claimed' : 'pending',
+    status: done ? 'claimed' : 'pending',
     createdAt: result.finalizedAt,
-    claimedAt: selected ? claimedAt : null,
+    claimedAt: done ? claimedAt : null,
   };
 }
 
@@ -471,6 +474,18 @@ function seedAward(
 function offersIncluding(selected: CardType, rank: number, random: () => number): CardType[] {
   const count = OFFER_COUNT_BY_MODE[getSelectionModeForRank(rank)];
   return [selected, ...drawOfferedTypes(count - 1, random, [selected])];
+}
+
+/**
+ * 최종 미션 샘플 학년(3학년, 4개 반)의 미션 순위. 1반은 늘 3위 안에 들고,
+ * 4위(카드 보상 없음)는 미션·라운드마다 2~4반이 돌아가며 맡는다.
+ */
+function finalDemoRank(classNo: number, missionNo: number, roundNo: number): number {
+  const turn = missionNo + roundNo;
+  const fourth = 2 + (turn % 3);
+  if (classNo === fourth) return 4;
+  const others = [1, 2, 3, 4].filter((no) => no !== fourth);
+  return ((others.indexOf(classNo) + turn) % 3) + 1;
 }
 
 export interface SampleEventStructure {
@@ -645,7 +660,7 @@ export function createSeedState(now: number): MockState {
           random,
         );
         cardAwards.push(
-          seedAward(result1, classId, offered, offered[0], round1FinalizedAt + MINUTE),
+          seedAward(result1, classId, offered, offered[0] ?? null, round1FinalizedAt + MINUTE),
         );
       }
 
@@ -691,7 +706,7 @@ export function createSeedState(now: number): MockState {
           classNo,
           getTeamNoForMission(mission.no, roundNo),
         );
-        const rank = ((classNo + mission.no + roundNo) % finalClassCount) + 1;
+        const rank = finalDemoRank(classNo, mission.no, roundNo);
         const score = sampleScore(mission, rank, finalClassCount);
         const id = submissionId(mission.id, teamId);
         submissions[id] = {
@@ -720,6 +735,10 @@ export function createSeedState(now: number): MockState {
           finalizedAt,
         };
         results.push(result);
+        if (getSelectionModeForRank(rank) === 'none') {
+          cardAwards.push(seedAward(result, classId, [], null, finalizedAt + MINUTE));
+          continue;
+        }
         const selected = cardOrder[awardIndex];
         awardIndex += 1;
         cardAwards.push(
