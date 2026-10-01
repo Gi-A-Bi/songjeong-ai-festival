@@ -589,8 +589,8 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     expect(dashboard.summary.completedTeams).toBe(5);
     const types = dashboard.activity.map((event) => event.type);
     expect(types.filter((type) => type === 'result_finalized')).toHaveLength(1);
-    // 자동 배정된 3팀의 카드 획득이 기록된다.
-    expect(types.filter((type) => type === 'card_earned')).toHaveLength(3);
+    // 무작위 배정된 3위 팀의 카드 획득만 기록된다(4·5위는 보상 없음).
+    expect(types.filter((type) => type === 'card_earned')).toHaveLength(1);
 
     await repository.closeStationRound({
       eventId: EVENT,
@@ -692,8 +692,9 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
     expect(detail.teams).toHaveLength(5);
     expect(detail.teams[0].completedCount).toBe(5);
     expect(detail.teams[0].results.every((result) => result.rank !== null)).toBe(true);
-    expect(detail.teams[0].earnedTypes).toHaveLength(5);
-    // 3학년 2반은 표현 카드만 3/4라 완성 4종, 힌트 4개
+    // 1팀은 다섯 미션 가운데 한 번 4위라 카드를 4장 받았다.
+    expect(detail.teams[0].earnedTypes).toHaveLength(4);
+    // 3학년 2반은 표현 카드만 0/4라 완성 4종, 힌트 4개
     expect(detail.progress.completedCount).toBe(4);
     expect(detail.hintPreview).toBe(4);
   });

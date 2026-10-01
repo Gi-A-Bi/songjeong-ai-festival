@@ -283,7 +283,9 @@ export function mapCardAward(snapshot: DocumentSnapshot<DocumentData>): CardAwar
     roundNo: data.roundNo as RoundNo,
     rank: Number(data.rank ?? 0),
     selectionMode:
-      data.selectionMode === 'choose_three' || data.selectionMode === 'choose_two'
+      data.selectionMode === 'choose_three' ||
+      data.selectionMode === 'choose_two' ||
+      data.selectionMode === 'none'
         ? data.selectionMode
         : 'automatic',
     offeredTypes,

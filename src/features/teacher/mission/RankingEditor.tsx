@@ -7,6 +7,7 @@ import { StatusBadge } from '../../../components/StatusBadge';
 import type { FinalizeRankingInput, MissionParticipant } from '../../../data/EventRepository';
 import { toUserMessage } from '../../../data/errors';
 import { useRepository } from '../../../data/RepositoryContext';
+import { canReofferAward, isNoCardAward } from '../../../domain/cards';
 import { CARD_INFO } from '../../../domain/catalog';
 import {
   DRAWING_MAX_SCORE,
@@ -180,10 +181,12 @@ export function RankingEditor({
   const modeChanged = (participant: MissionParticipant) =>
     participant.award !== null && participant.award.selectionMode !== modeOf(participant);
   const reofferCount = participants.filter(
-    (participant) => modeChanged(participant) && participant.award?.status === 'pending',
+    (participant) =>
+      modeChanged(participant) && participant.award !== null && canReofferAward(participant.award),
   ).length;
   const keptCount = participants.filter(
-    (participant) => modeChanged(participant) && participant.award?.status === 'claimed',
+    (participant) =>
+      modeChanged(participant) && participant.award !== null && !canReofferAward(participant.award),
   ).length;
 
   const submittedCount = participants.filter(isSubmitted).length;
@@ -368,7 +371,8 @@ export function RankingEditor({
                     {!finalized ? (
                       <span className="award-chip award-chip--planned">
                         <Icon name="playing_cards" size="sm" />
-                        {SELECTION_MODE_LABELS[modeOf(participant)]} 예정
+                        {SELECTION_MODE_LABELS[modeOf(participant)]}
+                        {modeOf(participant) === 'none' ? '' : ' 예정'}
                       </span>
                     ) : editing && participant.award ? (
                       <span className="award-chip">
@@ -376,8 +380,8 @@ export function RankingEditor({
                         {SELECTION_MODE_LABELS[modeOf(participant)]}
                         {modeChanged(participant) ? (
                           <span className="award-chip__note">
-                            {participant.award.status === 'pending'
-                              ? ' (후보 다시 정함)'
+                            {canReofferAward(participant.award)
+                              ? ' (다시 정함)'
                               : ' (이미 받아 그대로 둠)'}
                           </span>
                         ) : null}
@@ -475,14 +479,14 @@ export function RankingEditor({
       >
         {finalized ? (
           <p>
-            아직 고르지 않은 카드 보상은 새 순위에 맞춰 후보를 다시 정해요({reofferCount}개). 이미
-            받은 보상은 학급 카드가 열린 뒤라 그대로 둬요
+            아직 고르지 않은 보상과 보상이 없던 팀은 새 순위에 맞춰 다시 정해요({reofferCount}개).
+            이미 받은 카드는 학급 카드가 열린 뒤라 그대로 둬요
             {keptCount > 0 ? <strong> · 그대로 둘 보상 {keptCount}개</strong> : null}.
           </p>
         ) : (
           <p>
-            확정하면 팀마다 카드 조각 보상이 하나씩 만들어져요. 1위는 3종 중 선택, 2위는 2종 중
-            선택, 나머지는 자동 배정이에요.
+            확정하면 카드 조각 보상이 만들어져요. 1위는 3종 중 선택, 2위는 2종 중 선택, 3위는 무작위
+            1장이고 4위부터는 보상이 없어요.
             {revealOnFinalize ? ' 학생 화면에는 정답과 맞힌 문제 수, 점수가 함께 공개돼요.' : ''}
           </p>
         )}
@@ -537,6 +541,9 @@ function AwardSummary({ award }: { award: CardAward | null }) {
         </span>
       </span>
     );
+  }
+  if (isNoCardAward(award)) {
+    return <span className="muted">보상 없음</span>;
   }
   return (
     <span className="award-chip">

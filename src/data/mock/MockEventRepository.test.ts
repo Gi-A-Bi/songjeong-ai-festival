@@ -40,10 +40,11 @@ describe('MockEventRepository', () => {
       selectedType: null,
       sourceLabel: '1라운드 AI 설명대로 그려라 1위',
     });
-    expect(view.progress.cards.thinking.pieces).toBe(2);
+    // 1·2팀은 1라운드 4·5위라 카드가 없고, 4팀(2위)이 생각 카드를 골랐다.
+    expect(view.progress.cards.thinking.pieces).toBe(1);
   });
 
-  it('순위 확정 시 결과 하나당 카드 보상 하나를 만들고 1위 3개·2위 2개·나머지 1개 후보를 준다', async () => {
+  it('순위 확정 시 결과 하나당 보상 기록 하나를 만들고 1위 3개·2위 2개·3위 1개 후보, 4위부터는 보상 없음', async () => {
     await repository.signInTeacher();
     const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 2);
     expect(participants).toHaveLength(5);
@@ -60,7 +61,14 @@ describe('MockEventRepository', () => {
       })),
     };
     const outcome = await repository.finalizeRanking(input);
-    expect(outcome.awards.map((award) => award.offeredTypes.length)).toEqual([3, 2, 1, 1, 1]);
+    expect(outcome.awards.map((award) => award.offeredTypes.length)).toEqual([3, 2, 1, 0, 0]);
+    expect(outcome.awards.map((award) => award.selectionMode)).toEqual([
+      'choose_three',
+      'choose_two',
+      'automatic',
+      'none',
+      'none',
+    ]);
     expect(outcome.awards.map((award) => award.status)).toEqual([
       'pending',
       'pending',
@@ -101,19 +109,19 @@ describe('MockEventRepository', () => {
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'not-found'));
 
     const outcome = await repository.claimCardAward({ ...claim, selectedType: 'thinking' });
-    expect(outcome.before).toMatchObject({ pieces: 2 });
-    expect(outcome.after).toMatchObject({ pieces: 3, complete: false });
+    expect(outcome.before).toMatchObject({ pieces: 1 });
+    expect(outcome.after).toMatchObject({ pieces: 2, complete: false });
     expect(outcome.award.status).toBe('claimed');
 
     // 같은 요청의 재시도는 같은 결과, 새 요청은 거부
     const retry = await repository.claimCardAward({ ...claim, selectedType: 'thinking' });
-    expect(retry.after.earned).toBe(3);
+    expect(retry.after.earned).toBe(2);
     await expect(
       repository.claimCardAward({ ...claim, requestId: 'claim-2', selectedType: 'expression' }),
     ).rejects.toSatisfy((error) => isRepositoryError(error, 'already-claimed'));
 
     const view = await repository.getTeamRewardView(EVENT, DEMO_TEAM_ID);
-    expect(view.progress.cards.thinking.earned).toBe(3);
+    expect(view.progress.cards.thinking.earned).toBe(2);
     expect(view.progress.cards.expression.earned).toBe(1);
   });
 
@@ -124,9 +132,11 @@ describe('MockEventRepository', () => {
     );
     expect(byClass[1].allComplete).toBe(true);
     expect(byClass[1].cards.command).toMatchObject({ pieces: 4, duplicates: 1 });
-    expect(byClass[2].cards.expression).toMatchObject({ pieces: 3, complete: false });
+    expect(byClass[2].cards.expression).toMatchObject({ pieces: 0, complete: false });
+    expect(byClass[2].completedCount).toBe(4);
+    expect(byClass[3].cards.observation).toMatchObject({ pieces: 1, complete: false });
     expect(byClass[4].cards.verification.pieces).toBe(0);
-    expect(byClass[4].cards.thinking.duplicates).toBe(4);
+    expect(byClass[4].cards.thinking.duplicates).toBe(1);
 
     await repository.signInTeacher();
     const detail = await repository.getTeacherClassCards(EVENT, 'g3-c1');
@@ -327,7 +337,7 @@ describe('MockEventRepository', () => {
         rank: index + 1,
       })),
     });
-    // 1위 팀은 3종 중 선택 대기, 3위 팀은 자동 배정으로 이미 받았다.
+    // 1위 팀은 3종 중 선택 대기, 3위 팀은 무작위 배정으로 이미 받았다.
     const outcome = await repository.reviseRanking({
       ...base,
       requestId: 'rev',

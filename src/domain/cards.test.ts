@@ -30,8 +30,8 @@ function claimed(cardType: CardType, classId = 'g4-c2') {
 }
 
 describe('순위별 카드 보상 후보', () => {
-  it('1위 3개, 2위 2개, 3위 이하 1개의 후보를 만든다', () => {
-    expect([1, 2, 3, 5].map((rank) => award(rank).offeredTypes.length)).toEqual([3, 2, 1, 1]);
+  it('1위 3개, 2위 2개, 3위 1개의 후보를 만들고 4위부터는 후보가 없다', () => {
+    expect([1, 2, 3, 4, 5].map((rank) => award(rank).offeredTypes.length)).toEqual([3, 2, 1, 0, 0]);
   });
 
   it('한 보상 안의 후보 종류는 중복되지 않는다', () => {
@@ -57,8 +57,8 @@ describe('순위별 카드 보상 후보', () => {
     }
   });
 
-  it('자동 배정은 만들 때 종류가 정해지고 받은 상태가 된다', () => {
-    const automatic = award(4);
+  it('3위 무작위 배정은 만들 때 종류가 정해지고 받은 상태가 된다', () => {
+    const automatic = award(3);
     expect(automatic).toMatchObject({
       selectionMode: 'automatic',
       status: 'claimed',
@@ -66,6 +66,17 @@ describe('순위별 카드 보상 후보', () => {
       claimedAt: 100,
     });
     expect(award(1)).toMatchObject({ selectionMode: 'choose_three', status: 'pending' });
+  });
+
+  it('4위부터는 카드 없이 끝난 보상 기록만 남아 학급 카드가 열리지 않는다', () => {
+    const none = award(4);
+    expect(none).toMatchObject({
+      selectionMode: 'none',
+      status: 'claimed',
+      offeredTypes: [],
+      selectedType: null,
+    });
+    expect(computeClassCardProgress(none.classId, [none]).cards.thinking.earned).toBe(0);
   });
 
   it('보상 ID는 순위 결과 ID와 같아 결과 하나당 하나만 생긴다', () => {
@@ -108,6 +119,30 @@ describe('순위 수정과 카드 보상', () => {
     expect(up.keptClaimed).toBe(true);
     expect(up.award.status).toBe('claimed');
     expect(up.award.offeredTypes).toHaveLength(1);
+  });
+
+  it('보상이 없던 팀이 3위 안에 들면 보상이 생기고, 고르기 전 보상은 4위로 내려가면 없어진다', () => {
+    const none = award(4);
+    const toFirst = reofferCardAward(none, 1, 500, () => 0);
+    expect(toFirst.award).toMatchObject({ selectionMode: 'choose_three', status: 'pending' });
+    expect(toFirst.award.offeredTypes).toHaveLength(3);
+    expect(toFirst.keptClaimed).toBe(false);
+
+    const toThird = reofferCardAward(none, 3, 500, () => 0);
+    expect(toThird.award).toMatchObject({ status: 'claimed', selectedType: 'thinking' });
+
+    const down = reofferCardAward(award(2), 5, 500, () => 0);
+    expect(down.award).toMatchObject({
+      selectionMode: 'none',
+      status: 'claimed',
+      offeredTypes: [],
+      selectedType: null,
+    });
+
+    // 이미 받은 카드(3위)는 4위로 내려가도 그대로 둔다.
+    const kept = reofferCardAward(award(3), 4, 500, () => 0);
+    expect(kept.keptClaimed).toBe(true);
+    expect(kept.award.selectedType).not.toBeNull();
   });
 
   it('2위에서 1위로 올라가면 겹치지 않는 후보를 하나 더한다', () => {

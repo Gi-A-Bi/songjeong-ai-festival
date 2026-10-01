@@ -30,7 +30,7 @@ import { CardPieces } from './CardPieces';
 import { ClassProgressStrip } from './ClassProgressStrip';
 import './CardPages.css';
 
-/** 순위 보상: 1·2위는 제시된 후보 중 하나를 고르고, 3위 이하는 자동 배정 결과를 본다. */
+/** 순위 보상: 1·2위는 제시된 후보 중 하나를 고르고, 3위는 무작위로 받은 카드를 본다. 4위부터는 보상이 없다. */
 export function RewardPage() {
   const { eventId, team } = useTeamContext();
   const repository = useRepository();
@@ -71,7 +71,8 @@ export function RewardPage() {
 
   const { awards, progress, classInfo } = data.data;
   const pending = awards.filter((award) => award.status === 'pending');
-  const claimed = awards.filter((award) => award.status === 'claimed');
+  // 받은 카드. 보상 없음(4위 이하) 기록은 카드가 없어 빼고 본다.
+  const claimed = awards.filter((award) => award.status === 'claimed' && award.selectedType);
   const current = earned ? null : (pending[0] ?? null);
 
   const confirmChoice = async () => {
@@ -148,8 +149,8 @@ export function RewardPage() {
             }
             description={
               claimed.length > 0
-                ? '3위부터는 카드가 자동으로 정해져요. 받은 카드는 아래 목록에서 확인해요.'
-                : '미션 순위가 확정되면 팀마다 카드 조각을 하나씩 받아요. 1위는 3종, 2위는 2종 중에서 고르고, 3위부터는 자동으로 정해져요.'
+                ? '3위는 카드가 무작위로 정해지고, 4위부터는 카드 보상이 없어요. 받은 카드는 아래 목록에서 확인해요.'
+                : '미션 순위가 확정되면 1위는 3종, 2위는 2종 중에서 카드를 고르고, 3위는 무작위로 한 장 받아요. 4위부터는 카드 보상이 없어요.'
             }
             action={
               <ButtonLink to={paths.cards(eventId, team.id)} size="lg" icon="style">

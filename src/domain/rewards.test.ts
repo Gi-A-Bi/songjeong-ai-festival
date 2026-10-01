@@ -3,21 +3,21 @@ import { getSelectionModeForRank, OFFER_COUNT_BY_MODE, rankByScore } from './rew
 import { calculateErrorHuntScore } from './scoring';
 
 describe('순위에 따른 카드 종류 선택권', () => {
-  it('1위는 3종 중 선택, 2위는 2종 중 선택, 3위 이하는 자동 배정', () => {
+  it('1위는 3종 중 선택, 2위는 2종 중 선택, 3위는 무작위, 4위부터는 보상 없음', () => {
     expect(getSelectionModeForRank(1)).toBe('choose_three');
     expect(getSelectionModeForRank(2)).toBe('choose_two');
     expect([3, 4, 5, 6].map(getSelectionModeForRank)).toEqual([
       'automatic',
-      'automatic',
-      'automatic',
-      'automatic',
+      'none',
+      'none',
+      'none',
     ]);
   });
 
-  it('선택 방식별 후보 개수는 3·2·1개이고, 4~6팀 어디서나 팀마다 조각은 하나다', () => {
-    expect([1, 2, 3, 6].map((rank) => OFFER_COUNT_BY_MODE[getSelectionModeForRank(rank)])).toEqual([
-      3, 2, 1, 1,
-    ]);
+  it('선택 방식별 후보 개수는 3·2·1·0개다', () => {
+    expect(
+      [1, 2, 3, 4, 6].map((rank) => OFFER_COUNT_BY_MODE[getSelectionModeForRank(rank)]),
+    ).toEqual([3, 2, 1, 0, 0]);
   });
 
   it('잘못된 순위는 거부한다', () => {

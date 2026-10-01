@@ -84,7 +84,7 @@ describe('팀 홈의 미션 지도', () => {
     renderApp(`/team/${EVENT}/${DEMO_TEAM_ID}`);
     const strip = await screen.findByRole('list', { name: '우리 반 카드 진행도' });
     expect(within(strip).getAllByRole('listitem')).toHaveLength(5);
-    expect(within(strip).getByRole('img', { name: '생각 카드 조각 2/4' })).toBeInTheDocument();
+    expect(within(strip).getByRole('img', { name: '생각 카드 조각 1/4' })).toBeInTheDocument();
   });
 });
 

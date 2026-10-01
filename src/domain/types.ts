@@ -333,8 +333,11 @@ export interface MissionResult {
   finalizedAt: number;
 }
 
-/** 순위에 따른 카드 종류 결정 방식: 1위 3종 중 선택, 2위 2종 중 선택, 3위 이하 자동 배정 */
-export type CardSelectionMode = 'choose_three' | 'choose_two' | 'automatic';
+/**
+ * 순위에 따른 카드 종류 결정 방식: 1위 3종 중 선택, 2위 2종 중 선택, 3위 무작위 배정, 4위 이하 보상 없음.
+ * 보상 없음(none)도 결과 하나당 기록 하나를 남긴다(후보 0개, 받은 상태). 순위를 고쳐 3위 안에 들면 보상이 생긴다.
+ */
+export type CardSelectionMode = 'choose_three' | 'choose_two' | 'automatic' | 'none';
 export type CardAwardStatus = 'pending' | 'claimed';
 
 /**
