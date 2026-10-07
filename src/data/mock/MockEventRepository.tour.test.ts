@@ -203,10 +203,7 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
       teamId: DEMO_TEAM_ID,
       answer: {
         type: 'library_check',
-        wrongPart: '틀린 부분',
-        correction: '고친 내용',
-        bookTitle: '책',
-        page: 1,
+        answers: { q1: { wrongPart: '틀린 부분', correction: '고친 내용' } },
       },
       requestId: 'moved-on',
     });
@@ -294,10 +291,7 @@ describe('MockEventRepository 팀 이동과 운영 대시보드', () => {
         teamId,
         answer: {
           type: 'library_check',
-          wrongPart: '틀린 부분',
-          correction: '고친 내용',
-          bookTitle: '책',
-          page: 1,
+          answers: { q1: { wrongPart: '틀린 부분', correction: '고친 내용' } },
         },
         requestId: 'skipped-round',
       }),

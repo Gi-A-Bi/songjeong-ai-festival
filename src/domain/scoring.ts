@@ -86,7 +86,7 @@ export function calculateAutoScore(
   }
   if (config.type === 'library_check' && answer.type === 'library_check') {
     // 정답을 등록한 뒤에만 자동 채점한다. 등록 전에는 선생님이 직접 채점한다.
-    return scoreLibraryCheck(config, answer)?.total ?? null;
+    return scoreLibraryCheck(config, answer, grade)?.total ?? null;
   }
   return null;
 }

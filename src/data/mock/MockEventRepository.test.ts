@@ -179,10 +179,7 @@ describe('MockEventRepository', () => {
         teamId: toTeamId(4, 1, 4),
         answer: {
           type: 'library_check',
-          wrongPart: '틀린 부분',
-          correction: '고친 내용',
-          bookTitle: '책',
-          page: 1,
+          answers: { q1: { wrongPart: '틀린 부분', correction: '고친 내용' } },
         },
         requestId: 'not-started',
       }),

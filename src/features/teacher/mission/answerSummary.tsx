@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { formatBytes } from '../../../domain/drawingFiles';
 import { getErrorHuntRegions } from '../../../domain/errorHunt';
 import {
@@ -7,11 +8,15 @@ import {
   isGoldenBellAnswered,
   isGoldenBellCorrect,
 } from '../../../domain/goldenBell';
+import { Icon } from '../../../components/Icon';
 import {
-  LIBRARY_CHECK_ITEM_LABELS,
+  circledNumber,
+  getLibraryItemLabel,
+  getLibraryPrompt,
+  getScoredLibraryQuestions,
+  isLibraryPickOne,
   LIBRARY_CHECK_ITEMS,
-  LIBRARY_CHECK_MAX_SCORE,
-  LIBRARY_CHECK_POINTS,
+  LIBRARY_QUESTION_POINTS,
   scoreLibraryCheck,
 } from '../../../domain/libraryCheck';
 import {
@@ -98,32 +103,59 @@ export function AnswerSummary({
       );
     }
     case 'library_check': {
-      const result = config.type === 'library_check' ? scoreLibraryCheck(config, answer) : null;
+      if (config.type !== 'library_check') return <>-</>;
+      // 하나만 고르는 방식이면 고른 문제만 보여 준다.
+      const questions = getScoredLibraryQuestions(config, answer, submission.grade);
+      const chosen =
+        isLibraryPickOne(config, submission.grade) && questions.length === 1 ? questions[0] : null;
+      const result = scoreLibraryCheck(config, answer, submission.grade);
       return (
         <>
+          {chosen ? (
+            <p className="answer-chosen">
+              <Icon name="format_quote" /> 고른 질문: {getLibraryPrompt(chosen)}
+              {chosen.subject ? ` (${chosen.subject})` : ''}
+            </p>
+          ) : null}
           {result ? (
             <p className="answer-auto">
-              자동 채점 {result.total}/{LIBRARY_CHECK_MAX_SCORE}점 ·{' '}
-              {LIBRARY_CHECK_ITEMS.map((item) => (
-                <span
-                  key={item}
-                  className={`answer-auto__item${result.items[item] ? ' answer-auto__item--ok' : ''}`}
-                >
-                  {LIBRARY_CHECK_ITEM_LABELS[item]} {result.items[item] ? 'O' : 'X'}
-                  {result.items[item] ? ` +${LIBRARY_CHECK_POINTS[item]}` : ''}
-                </span>
-              ))}
+              자동 채점 {result.total}/{result.max}점 ·{' '}
+              {questions.map((question, index) =>
+                LIBRARY_CHECK_ITEMS.map((item) => {
+                  const ok = result.questions[question.id].items[item];
+                  return (
+                    <span
+                      key={`${question.id}-${item}`}
+                      className={`answer-auto__item${ok ? ' answer-auto__item--ok' : ''}`}
+                    >
+                      {index + 1}번 {getLibraryItemLabel(question.type, item)} {ok ? 'O' : 'X'}
+                      {ok ? ` +${LIBRARY_QUESTION_POINTS[item]}` : ''}
+                    </span>
+                  );
+                }),
+              )}
             </p>
           ) : null}
           <dl className="answer-list">
-            <dt>틀린 부분</dt>
-            <dd>{answer.wrongPart}</dd>
-            <dt>올바른 내용</dt>
-            <dd>{answer.correction}</dd>
-            <dt>출처</dt>
-            <dd>
-              『{answer.bookTitle}』 {answer.page}쪽
-            </dd>
+            {questions.map((question, index) => {
+              const item = answer.answers[question.id];
+              const chosen =
+                question.type === 'choose' && typeof item?.choice === 'number' && item.choice >= 0
+                  ? `${circledNumber(item.choice)} ${question.sentences[item.choice] ?? ''}`
+                  : null;
+              return (
+                <Fragment key={question.id}>
+                  <dt>
+                    {index + 1}번 {question.type === 'choose' ? '틀린 문장' : '틀린 부분'}
+                  </dt>
+                  <dd>{(question.type === 'choose' ? chosen : item?.wrongPart) || '-'}</dd>
+                  <dt>{index + 1}번 고친 내용</dt>
+                  <dd>{item?.correction || '-'}</dd>
+                  <dt>{index + 1}번 참고한 책</dt>
+                  <dd>{item?.bookTitle || '-'}</dd>
+                </Fragment>
+              );
+            })}
           </dl>
         </>
       );

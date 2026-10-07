@@ -164,7 +164,7 @@ describe('학생 화면', () => {
     expect(
       await screen.findByText(/입장했어요! 선생님이 게임을 시작하면 문제가 나타나요/),
     ).toBeInTheDocument();
-    expect(screen.getByText('게임이 시작되면 AI가 찾은 정보가 나타나요')).toBeInTheDocument();
+    expect(screen.getByText('게임이 시작되면 AI가 쓴 글이 나타나요')).toBeInTheDocument();
     expect(screen.queryByText(/꿀벌은 다리가 8개인/)).toBeNull();
     expect(screen.queryByLabelText('교실 인증코드')).toBeNull();
     entered.unmount();

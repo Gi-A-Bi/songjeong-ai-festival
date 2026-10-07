@@ -195,24 +195,58 @@ export interface OzobotConfig {
  * 도서관 오류찾기의 정답. 학생 답에 인정하는 말이 들어 있으면 그 항목을 맞은 것으로 본다.
  * 골든벨 문제처럼 미션 설정에 들어가므로 실제 정답은 행사 사이트에서 교사가 등록한다.
  */
-export interface LibraryCheckAnswerKey {
-  /** 틀린 부분으로 인정하는 말(하나라도 들어 있으면 정답) */
-  wrongPartKeywords: string[];
-  /** 올바른 내용으로 인정하는 말 */
-  correctionKeywords: string[];
-  /** 확인할 수 있는 책 제목(부제가 붙어도 인정) */
-  bookTitles: string[];
-  /** 인정하는 쪽수 범위. pageTo가 없으면 pageFrom 한 쪽만 */
-  pageFrom: number | null;
-  pageTo: number | null;
+export type LibraryQuestionType = 'find' | 'choose';
+
+/** 도서관 오류찾기 문제의 공통 항목 */
+interface LibraryQuestionBase {
+  id: string;
+  /** 글 제목(예: AI가 쓴 "꿀벌" 소개 글) */
+  title: string;
+  /** AI에게 한 질문(예: 꿀벌에 대해 알려 줘). 학생이 조사할 답을 고를 때 카드에 보인다. */
+  prompt?: string;
+  /** 주제 배지(예: 과학, 역사, 우리말, 예술) */
+  subject?: string;
 }
+
+/** 서술형: 글에서 틀린 부분을 찾아 적고 바르게 고친다. */
+export interface LibraryFindQuestion extends LibraryQuestionBase {
+  type: 'find';
+  /** AI가 쓴 글(일부러 틀린 내용을 넣은 글) */
+  passage: string;
+  /** 정답을 등록하면 자동으로 채점한다. */
+  answerKey?: {
+    /** 틀린 부분으로 인정하는 말(하나라도 들어 있으면 정답) */
+    wrongPartKeywords: string[];
+    /** 바르게 고친 내용으로 인정하는 말 */
+    correctionKeywords: string[];
+  };
+}
+
+/** 선택형: 번호가 붙은 문장 가운데 틀린 문장을 고르고 바르게 고친다. */
+export interface LibraryChooseQuestion extends LibraryQuestionBase {
+  type: 'choose';
+  /** 번호 순서대로 보여 줄 문장. 그중 하나가 틀린 문장이다. */
+  sentences: string[];
+  answerKey?: {
+    /** 틀린 문장의 차례(0부터) */
+    wrongIndex: number;
+    correctionKeywords: string[];
+  };
+}
+
+export type LibraryQuestion = LibraryFindQuestion | LibraryChooseQuestion;
 
 export interface LibraryCheckConfig {
   type: 'library_check';
-  passageTitle: string;
-  passage: string;
-  /** 정답을 등록하면 제출 즉시 자동으로 채점한다. 없으면 선생님이 직접 채점한다. */
-  answerKey?: LibraryCheckAnswerKey;
+  /** 학년 공통 문제. 학년별 문제가 없는 학년이 쓴다. 모든 문제에 정답이 있어야 자동 채점한다. */
+  questions: LibraryQuestion[];
+  /** 학년별 문제. 등록한 학년은 공통 문제 대신 이 문제를 쓴다. */
+  gradeQuestions?: Partial<Record<Grade, LibraryQuestion[]>>;
+  /**
+   * 학생이 그 학년 문제 가운데 하나만 골라 푼다(AI에게 한 질문 가운데 조사할 답 고르기).
+   * 한 번 고르면 바꿀 수 없고, 점수는 고른 문제 하나로 100점 만점이다.
+   */
+  pickOne?: boolean;
 }
 
 export type MissionConfig =
@@ -278,12 +312,24 @@ export interface OzobotAnswer {
   ready?: true;
 }
 
+/** 도서관 오류찾기 한 문제의 답. 서술형은 wrongPart, 선택형은 choice를 쓴다. */
+export interface LibraryQuestionAnswer {
+  /** 서술형: 학생이 적은 틀린 부분 */
+  wrongPart?: string;
+  /** 선택형: 고른 문장의 차례(0부터) */
+  choice?: number;
+  /** 바르게 고친 내용 */
+  correction: string;
+  /** 참고한 책 이름. 채점에는 넣지 않고 교사가 확인만 한다. */
+  bookTitle?: string;
+}
+
 export interface LibraryCheckAnswer {
   type: 'library_check';
-  wrongPart: string;
-  correction: string;
-  bookTitle: string;
-  page: number;
+  /** 문제 ID별 답 */
+  answers: Record<string, LibraryQuestionAnswer>;
+  /** 하나만 고르는 방식에서 학생이 고른 문제 */
+  chosenQuestionId?: string;
 }
 
 export type SubmissionAnswer =

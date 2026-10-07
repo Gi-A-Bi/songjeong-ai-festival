@@ -223,6 +223,7 @@
 - `content/작성/`의 내용과 거기서 만든 파일을 커밋하지 않는다. 최종 미션 정답은 클라이언트 번들(`src/`)과 공개 저장소에 넣지 않고, 총괄 운영자만 쓸 수 있는 경로로 `finalAnswerKeys`에 넣는다.
 - 골든벨 실제 문제와 정답도 `src/`와 공개 저장소에 넣지 않는다. 원고(`content/작성/01-골든벨.md`)를 `npm run golden:build`로 `골든벨-업로드.json`으로 바꿔, 교사가 골든벨 부스의 "문제 파일 올리기"로 넣는다. 앱과 테스트에는 지어낸 샘플 문제만 둔다.
 - 골든벨 문제는 학년별(`config.gradeQuestions`)로 둘 수 있고 형식은 O/X·객관식·단답형이다. 학년별 문제가 없는 학년은 공통 문제(`config.questions`)를 푼다. 채점과 문제 고르기는 `src/domain/goldenBell.ts`의 함수를 쓴다.
+- 도서관 오류찾기는 학년별 문제(`LibraryCheckConfig.gradeQuestions[학년]`, 없는 학년은 공통 `questions`)를 교사가 부스의 "문제와 정답 등록"에서 학년 탭을 골라 직접 넣는다. `pickOne`이 켜지면 학생은 "AI에게 한 질문"(`prompt`·`subject`) 카드 가운데 하나를 골라 그 글만 풀고(`chosenQuestionId`, 기기 localStorage에도 기억해 못 바꿈), 점수는 고른 문제로 100점이다. 화면에 "문제 유형" 같은 말은 쓰지 않는다. 유형은 선택형(번호 문장 중 틀린 문장 고르고 고치기)과 서술형(글에서 틀린 부분 찾아 고치기)이고 책 제목·쪽수는 받지 않는다. 채점은 `src/domain/libraryCheck.ts`(문제마다 찾기 40점 + 고치기 60점, `getLibraryQuestions(config, grade)`로 학년 문제를 고른다). 학생·교사 화면의 이야기와 부정행위 경고 문구는 `LIBRARY_STORY`에 둔다. 앱에는 샘플 문제만 둔다.
 - 틀린그림 찾기는 예외다. 정답이 그림에 그대로 보이므로 교사가 그림과 정답 위치를 프로그램에 넣기로 했다(`src/domain/errorHuntPuzzles.ts`, `public/assets/festival/hunt-*.webp`). 학년 묶음(3학년, 4학년, 5·6학년)마다 그림 5장을 차례로 풀고, 그림 고르기와 채점은 `src/domain/errorHunt.ts`의 함수를 쓴다.
 - 양식에 "프로그램 확장 필요"로 표시된 요청(학년별·라운드별 내용)은 데이터 모델을 먼저 고친 뒤 반영한다.
 

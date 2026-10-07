@@ -859,11 +859,55 @@
   text-align: center;
 }
 
-/* 도서관 오류찾기 정답 등록: 쪽수 두 칸 */
-.library-editor__pages {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+/* 도서관 오류찾기 문제 등록: 문제 카드 머리글, 문장 미리보기, 문제 추가 버튼 */
+.library-editor__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.library-editor__preview {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.library-editor__add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* 하나만 고르기 설정과 문제마다의 질문·주제 칸 */
+.library-editor__toggle {
+  display: flex;
+  align-items: flex-start;
   gap: var(--space-3);
+  cursor: pointer;
+}
+
+.library-editor__toggle input {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  flex: none;
+}
+
+.library-editor__meta {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+/* 순위표: 학생이 고른 질문 */
+.answer-chosen {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+  font-weight: var(--font-weight-bold);
 }
 
 .teacher-login__rehearsal summary {
