@@ -1,4 +1,4 @@
-import { useId, useState, type ChangeEvent, type FormEvent } from 'react';
+import { Fragment, useId, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useSettings } from '../../../app/SettingsContext';
 import { AssetImage } from '../../../components/AssetImage';
 import { Button } from '../../../components/Button';
@@ -8,7 +8,6 @@ import { Icon } from '../../../components/Icon';
 import { MissionShell } from '../../../components/MissionShell';
 import { StatusBadge } from '../../../components/StatusBadge';
 import {
-  circledNumber,
   getLibraryCheckMaxScore,
   getLibraryItemLabel,
   getLibraryPrompt,
@@ -18,7 +17,6 @@ import {
   isLibraryPickOne,
   LIBRARY_CHECK_ITEMS,
   LIBRARY_QUESTION_POINTS,
-  LIBRARY_QUESTION_TYPE_LABELS,
   LIBRARY_STORY,
   scoreLibraryCheck,
   type LibraryCheckItem,
@@ -131,6 +129,11 @@ function storeChoice(key: string, questionId: string) {
   } catch {
     // 저장이 막힌 기기에서는 화면 상태로만 유지한다.
   }
+}
+
+/** 형광펜으로 표시한 문장을 답 칸에 짧게 보여 준다. */
+function shorten(text: string, max = 22): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
 /** 이야기와 부정행위 경고. 게임 전 가림막과 게임 중 화면에 같이 보여 준다. */
@@ -322,7 +325,7 @@ export function LibraryCheckMission({
             {(pickOne ? questions.slice(0, 1) : questions)
               .map(
                 (question, index) =>
-                  `${single || pickOne ? '' : `${index + 1}번 `}${question.type === 'choose' ? '틀린 문장 번호' : '틀린 부분'}, 바르게 고친 내용, 참고한 책 이름`,
+                  `${single || pickOne ? '' : `${index + 1}번 `}${question.type === 'choose' ? '틀린 문장(형광펜 표시)' : '틀린 부분'}, 바르게 고친 내용, 참고한 책 이름`,
               )
               .join(' · ')}
           </p>
@@ -442,71 +445,78 @@ export function LibraryCheckMission({
                 <div className="library__passage">
                   <p className="library__label">
                     <Icon name="smart_toy" />
-                    {single ? 'AI가 답한 글' : `${index + 1}번`} ·{' '}
-                    {LIBRARY_QUESTION_TYPE_LABELS[question.type]}
+                    {single ? 'AI가 답한 글' : `${index + 1}번`}
                     {question.subject ? (
                       <span className="library__subject">{question.subject}</span>
                     ) : null}
                     <span className="library__task">
                       {question.type === 'choose'
-                        ? '틀린 문장 하나를 고르고 바르게 고쳐요'
+                        ? '틀린 문장을 짚어 형광펜을 칠하고 바르게 고쳐요'
                         : '틀린 부분을 찾아 적고 바르게 고쳐요'}
                     </span>
                   </p>
-                  {question.prompt ? (
-                    <p className="library__prompt">
-                      <Icon name="format_quote" /> 질문: {question.prompt}
+                  {/* 실제 AI 대화처럼 보여 준다: 내가 한 질문(오른쪽)과 AI의 답(왼쪽 말풍선, 번호 없는 줄글) */}
+                  <div className="chat">
+                    {question.prompt ? (
+                      <div className="chat__row chat__row--me">
+                        <p className="chat__bubble chat__bubble--me">{question.prompt}</p>
+                      </div>
+                    ) : null}
+                    <div className="chat__row chat__row--ai">
+                      <Icon name="smart_toy" className="chat__avatar" />
+                      <div className="chat__bubble chat__bubble--ai">
+                        <h2 id={titleId} className="library__title">
+                          {question.title}
+                        </h2>
+                        {question.type === 'find' ? (
+                          <p className="library__text">{question.passage}</p>
+                        ) : (
+                          // 문장은 글 속에 그대로 있고, 짚으면 형광펜을 칠한 것처럼 보인다.
+                          <p
+                            id={fieldId(question.id, 'locate')}
+                            className="library__text library-prose"
+                            role="radiogroup"
+                            aria-label={
+                              single ? '틀린 문장 고르기' : `${index + 1}번 틀린 문장 고르기`
+                            }
+                            aria-invalid={questionErrors.locate ? true : undefined}
+                            tabIndex={-1}
+                          >
+                            {question.sentences.map((sentence, sentenceIndex) => {
+                              const isChosen = value.choice === sentenceIndex;
+                              return (
+                                <Fragment key={`${question.id}-${sentenceIndex}`}>
+                                  <button
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={isChosen}
+                                    className={`library-sentence${
+                                      isChosen ? ' library-sentence--marked' : ''
+                                    }`}
+                                    disabled={!editable}
+                                    onClick={() => choose(question.id, sentenceIndex)}
+                                  >
+                                    {sentence}
+                                  </button>{' '}
+                                </Fragment>
+                              );
+                            })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {questionErrors.locate ? (
+                    <p className="form-field__error" role="alert">
+                      <Icon name="error" size="sm" />
+                      {questionErrors.locate}
                     </p>
                   ) : null}
-                  <h2 id={titleId} className="library__title">
-                    {question.title}
-                  </h2>
-                  {question.type === 'find' ? (
-                    <p className="library__text">{question.passage}</p>
-                  ) : (
-                    <div
-                      id={fieldId(question.id, 'locate')}
-                      className="library-choices"
-                      role="radiogroup"
-                      aria-label={single ? '틀린 문장 고르기' : `${index + 1}번 틀린 문장 고르기`}
-                      aria-invalid={questionErrors.locate ? true : undefined}
-                      tabIndex={-1}
-                    >
-                      {question.sentences.map((sentence, sentenceIndex) => {
-                        const isChosen = value.choice === sentenceIndex;
-                        return (
-                          <button
-                            key={`${question.id}-${sentenceIndex}`}
-                            type="button"
-                            role="radio"
-                            aria-checked={isChosen}
-                            className={`library-choice${isChosen ? ' library-choice--chosen' : ''}`}
-                            disabled={!editable}
-                            onClick={() => choose(question.id, sentenceIndex)}
-                          >
-                            <span className="library-choice__no" aria-hidden="true">
-                              {circledNumber(sentenceIndex)}
-                            </span>
-                            <span className="library-choice__text">{sentence}</span>
-                            {isChosen ? (
-                              <StatusBadge tone="info" icon="check">
-                                우리 답
-                              </StatusBadge>
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                      {questionErrors.locate ? (
-                        <p className="form-field__error" role="alert">
-                          <Icon name="error" size="sm" />
-                          {questionErrors.locate}
-                        </p>
-                      ) : null}
-                    </div>
-                  )}
                   <p className="library__tip">
                     <Icon name="menu_book" />
-                    인터넷 말고 도서관 책에서 사실을 확인해요.
+                    {question.type === 'choose'
+                      ? '틀린 문장을 손가락으로 짚으면 형광펜이 칠해져요. 인터넷 말고 도서관 책에서 사실을 확인해요.'
+                      : '인터넷 말고 도서관 책에서 사실을 확인해요.'}
                   </p>
                 </div>
 
@@ -532,8 +542,12 @@ export function LibraryCheckMission({
                     <p className="library__chosen">
                       <Icon name={value.choice === null ? 'touch_app' : 'check_circle'} />
                       {value.choice === null
-                        ? label(index, 1, '왼쪽에서 틀린 문장을 골라요')
-                        : label(index, 1, `고른 문장: ${circledNumber(value.choice)}`)}
+                        ? label(index, 1, '왼쪽 글에서 틀린 문장을 짚어 형광펜을 칠해요')
+                        : label(
+                            index,
+                            1,
+                            `형광펜 표시: “${shorten(question.sentences[value.choice] ?? '')}”`,
+                          )}
                     </p>
                   )}
                   <FormField
