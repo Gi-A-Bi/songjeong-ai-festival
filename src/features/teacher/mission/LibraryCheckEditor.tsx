@@ -462,7 +462,7 @@ export function LibraryCheckEditor({ eventId, mission, config, onSaved }: Librar
                 <FormField
                   id={field(index, 'sentences')}
                   label={`${no}번 문장(한 줄에 한 문장, 그중 하나가 틀린 문장)`}
-                  hint="학생 화면에는 ①②③… 번호가 붙어 보여요."
+                  hint="학생 화면에는 번호 없이 AI 답변 말풍선 속 줄글로 보이고, 학생이 문장을 짚어 형광펜을 칠해요. 한 줄에 한 문장씩 적으면 그 단위로 짚어요."
                   error={
                     showErrors && sentences.length < 2
                       ? '문장을 두 개 이상 적어 주세요(한 줄에 한 문장).'

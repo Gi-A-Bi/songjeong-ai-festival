@@ -51,33 +51,37 @@ describe('학생 도서관 오류찾기: 조사할 답 고르기와 제출 즉�
     expect(screen.queryByText(/꿀벌은 다리가 8개인 곤충이에요/)).toBeNull();
     expect(screen.getByText(/조사할 답을 먼저 골라요/)).toBeInTheDocument();
 
-    // 카드를 고르면 한 번 더 묻고, 확인하면 그 글만 펼쳐진다.
-    await user.click(screen.getByRole('button', { name: /꿀벌에 대해 알려 줘/ }));
+    // 카드를 고르면 한 번 더 묻고, 확인하면 그 글만 AI 답변 말풍선(번호 없는 줄글)으로 펼쳐진다.
+    await user.click(screen.getByRole('button', { name: /달에 대해 알려 줘/ }));
     const dialog = await screen.findByRole('dialog', { name: '이 답을 조사할까요?' });
     await user.click(within(dialog).getByRole('button', { name: '이 답을 조사할래요' }));
-    expect(await screen.findByText(/꿀벌은 다리가 8개인 곤충이에요/)).toBeInTheDocument();
+    expect(await screen.findByText(/달은 지구 둘레를 도는 위성이에요/)).toBeInTheDocument();
     expect(screen.queryByText(/어느 답을 조사할까요\?/)).toBeNull();
-    expect(screen.queryByText(/달은 지구 둘레를 도는 위성이에요/)).toBeNull();
+    expect(screen.queryByText(/꿀벌은 다리가 8개인 곤충이에요/)).toBeNull();
+    expect(screen.queryByText('①')).toBeNull();
     expect(screen.getByText(/제출하면 바로 채점돼요/)).toBeInTheDocument();
 
     // 화면을 다시 열어도 고른 질문은 그대로다(한 번 고르면 못 바꿈).
     first.unmount();
     renderApp(`/team/${EVENT}/${TEAM}/mission/library-check`, repository);
-    expect(await screen.findByText(/꿀벌은 다리가 8개인 곤충이에요/)).toBeInTheDocument();
+    expect(await screen.findByText(/달은 지구 둘레를 도는 위성이에요/)).toBeInTheDocument();
     expect(screen.queryByText(/어느 답을 조사할까요\?/)).toBeNull();
 
-    // 빈 채로 내면 알려 주고, 적어서 내면 바로 채점된다.
+    // 빈 채로 내면 알려 주고, 문장을 짚어 형광펜을 칠한 뒤 적어서 내면 바로 채점된다.
     await user.click(screen.getByRole('button', { name: '확인 내용 제출' }));
-    expect(await screen.findByText('AI 글에서 틀린 부분을 적어 주세요.')).toBeInTheDocument();
-    await user.type(screen.getByLabelText('1. 틀린 부분'), '다리가 8개라고 한 것');
+    expect(await screen.findByText('틀린 문장을 하나 골라 주세요.')).toBeInTheDocument();
+    const prose = screen.getByRole('radiogroup', { name: '틀린 문장 고르기' });
+    await user.click(within(prose).getByRole('radio', { name: /달 표면의 둥근 구덩이는/ }));
+    expect(within(prose).getByRole('radio', { name: /달 표면의 둥근 구덩이는/ })).toBeChecked();
+    expect(screen.getByText(/형광펜 표시: “달 표면의 둥근 구덩이는/)).toBeInTheDocument();
     await user.type(
       screen.getByLabelText('2. 책에서 찾은 바른 내용으로 고치기'),
-      '꿀벌 다리는 6개',
+      '운석이 부딪혀서 생긴 구덩이예요',
     );
     // 참고한 책 이름은 채점하지 않지만 적어야 낼 수 있다.
     await user.click(screen.getByRole('button', { name: '확인 내용 제출' }));
     expect(await screen.findByText('참고한 책 이름을 적어 주세요.')).toBeInTheDocument();
-    await user.type(screen.getByLabelText('3. 참고한 책 이름'), '딩동~ 곤충 도감');
+    await user.type(screen.getByLabelText('3. 참고한 책 이름'), '지구와 달');
     await user.click(screen.getByRole('button', { name: '확인 내용 제출' }));
 
     expect(await screen.findByText(/제출 완료 · 자동 채점 100점 \/ 100점/)).toBeInTheDocument();
@@ -85,7 +89,7 @@ describe('학생 도서관 오류찾기: 조사할 답 고르기와 제출 즉�
     const result = screen.getByRole('region', { name: /자동 채점 결과/ });
     const items = within(result).getAllByRole('listitem');
     expect(items.map((item) => item.textContent)).toEqual([
-      '틀린 부분 40점',
+      '틀린 문장 40점',
       '바르게 고친 내용 60점',
     ]);
 
@@ -96,8 +100,8 @@ describe('학생 도서관 오류찾기: 조사할 답 고르기와 제출 즉�
     expect(mine?.score).toBe(100);
     expect(mine?.answer).toMatchObject({
       type: 'library_check',
-      chosenQuestionId: 'q1',
-      answers: { q1: { bookTitle: '딩동~ 곤충 도감' } },
+      chosenQuestionId: 'q2',
+      answers: { q2: { choice: 2, bookTitle: '지구와 달' } },
     });
   });
 
