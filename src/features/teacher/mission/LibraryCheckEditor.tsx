@@ -29,6 +29,7 @@ import type {
   Mission,
 } from '../../../domain/types';
 import { useAction } from '../../../hooks/useAction';
+import { LibraryUploadPanel } from './LibraryUploadPanel';
 
 interface LibraryCheckEditorProps {
   eventId: string;
@@ -291,6 +292,20 @@ export function LibraryCheckEditor({ eventId, mission, config, onSaved }: Librar
         자동으로 채점돼요. 자동 점수는 순위표에서 언제든 고칠 수 있어요. 학생 화면에는 “
         {LIBRARY_STORY.title}” 이야기와 부정행위 경고가 함께 나와요.
       </InlineAlert>
+
+      <LibraryUploadPanel
+        eventId={eventId}
+        mission={mission}
+        disabled={dirty}
+        onUploaded={(uploadedConfig) => {
+          // 올린 파일의 내용으로 편집 칸을 다시 채운다.
+          setDraft(toDraft(uploadedConfig));
+          setDirty(false);
+          setShowErrors(false);
+          setSaved(false);
+          onSaved();
+        }}
+      />
 
       <div className="panel">
         <label className="library-editor__toggle">

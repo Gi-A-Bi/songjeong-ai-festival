@@ -201,6 +201,66 @@ describe('교사 도서관 오류찾기: 문제와 정답 등록', () => {
     expect(config.gradeQuestions?.[4]).toBeUndefined();
   });
 
+  it('문제 파일을 올리면 학년별 문제와 하나만 고르기 설정이 한 번에 바뀐다', async () => {
+    const user = userEvent.setup();
+    const repository = new MockEventRepository();
+    await repository.signInTeacher();
+    renderApp(`/teacher/${EVENT}/station/library-check`, repository);
+    await user.click(await screen.findByRole('button', { name: /문제와 정답 등록 \(자동 채점\)/ }));
+
+    // 지어낸 문제 파일. 공통 문제가 없으니 네 학년 모두 들어 있어야 한다.
+    const magnet = {
+      type: 'choose',
+      prompt: '자석에 대해 알려 줘',
+      subject: '과학',
+      title: 'AI가 쓴 “자석” 소개 글',
+      sentences: ['자석은 철을 끌어당겨요.', '나침반 바늘의 N극은 남쪽을 가리켜요.'],
+      wrong: '②',
+      accept: ['북쪽'],
+    };
+    const proverb = {
+      ...magnet,
+      prompt: '속담에 대해 알려 줘',
+      subject: '우리말',
+      title: 'AI가 쓴 “속담” 소개 글',
+    };
+    const raw = {
+      format: 'songjeong-library-questions',
+      version: 1,
+      pickOne: true,
+      sets: [
+        { grades: [3], questions: [magnet, proverb] },
+        { grades: [4, 5, 6], questions: [magnet] },
+      ],
+    };
+    const file = new File([JSON.stringify(raw)], '도서관-업로드.json', {
+      type: 'application/json',
+    });
+    await user.upload(screen.getByLabelText('도서관 문제 파일(JSON) 고르기'), file);
+
+    const preview = await screen.findByRole('list', { name: '올릴 문제 미리보기' });
+    expect(within(preview).getByText('3학년 · 2문제')).toBeInTheDocument();
+    expect(within(preview).getByText(/\[우리말\] 속담에 대해 알려 줘 → /)).toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: '문제 올리기 (3학년 2문제, 4·5·6학년 1문제)' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: '도서관 문제를 올릴까요?' });
+    await user.click(within(dialog).getByRole('button', { name: '올리기' }));
+    expect(
+      await screen.findByText(/문제를 올렸어요\. 3학년 2문제, 4·5·6학년 1문제/),
+    ).toBeInTheDocument();
+
+    const config = await getConfig(repository);
+    expect(config.pickOne).toBe(true);
+    expect(config.questions).toEqual([]);
+    expect(config.gradeQuestions?.[3]?.map((question) => question.id)).toEqual(['g3q1', 'g3q2']);
+    expect(config.gradeQuestions?.[6]?.[0]).toMatchObject({ id: 'g6q1', subject: '과학' });
+    // 편집 칸도 올린 내용으로 바뀐다.
+    expect(screen.getByRole('button', { name: '공통 (없음)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '3학년 (2문제)' })).toBeInTheDocument();
+    expect(screen.getByText('자동 채점')).toBeInTheDocument();
+  });
+
   it('순위표는 고른 질문과 자동 채점 항목을 보여 주고 점수는 고칠 수 있다', async () => {
     const repository = await startedRepository();
     await repository.saveSubmission({
