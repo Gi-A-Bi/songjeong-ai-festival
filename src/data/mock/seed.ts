@@ -290,18 +290,43 @@ export function createSampleMissions(): Mission[] {
       // 정답을 등록해 두면 제출 즉시 자동으로 채점한다.
       teacherJudged: false,
       enabled: true,
+      // 샘플 문제. 실제 문제와 정답은 교사가 부스의 "문제와 정답 등록"에서 넣는다.
+      // 학생은 AI에게 한 질문 두 개 가운데 하나를 골라 조사한다(한 번 고르면 못 바꿈).
       config: {
         type: 'library_check',
-        passageTitle: 'AI가 쓴 “꿀벌” 소개 글',
-        passage:
-          '꿀벌은 다리가 8개인 곤충이에요. 꿀벌은 꽃에서 꽃가루와 꿀을 모으고, 벌집에서 함께 살아요. 일벌은 춤을 추어 꽃이 있는 곳을 친구들에게 알려 줘요.',
-        answerKey: {
-          wrongPartKeywords: ['다리가 8개', '8개'],
-          correctionKeywords: ['6개', '여섯 개'],
-          bookTitles: ['신기한 곤충 백과'],
-          pageFrom: 20,
-          pageTo: 30,
-        },
+        pickOne: true,
+        questions: [
+          {
+            id: 'q1',
+            type: 'find',
+            title: 'AI가 쓴 “꿀벌” 소개 글',
+            prompt: '꿀벌에 대해 알려 줘',
+            subject: '과학',
+            passage:
+              '꿀벌은 다리가 8개인 곤충이에요. 꿀벌은 꽃에서 꽃가루와 꿀을 모으고, 벌집에서 함께 살아요. 일벌은 춤을 추어 꽃이 있는 곳을 친구들에게 알려 줘요.',
+            answerKey: {
+              wrongPartKeywords: ['다리가 8개', '8개'],
+              correctionKeywords: ['6개', '여섯 개'],
+            },
+          },
+          {
+            id: 'q2',
+            type: 'choose',
+            title: 'AI가 쓴 “달” 소개 글',
+            prompt: '달에 대해 알려 줘',
+            subject: '과학',
+            sentences: [
+              '달은 지구 둘레를 도는 위성이에요.',
+              '달은 스스로 빛을 내지 못하고 햇빛을 반사해서 밝게 보여요.',
+              '달 표면의 둥근 구덩이는 화산이 터져서 생긴 거예요.',
+              '달에는 공기가 거의 없어서 소리가 전해지지 않아요.',
+            ],
+            answerKey: {
+              wrongIndex: 2,
+              correctionKeywords: ['운석', '충돌', '부딪'],
+            },
+          },
+        ],
       },
     },
   ];
@@ -365,13 +390,30 @@ function sampleAnswer(mission: Mission, variant: number, grade: Grade): Submissi
         ],
       };
     case 'library_check':
-      return {
-        type: 'library_check',
-        wrongPart: '꿀벌은 다리가 8개인 곤충이에요.',
-        correction: '곤충인 꿀벌의 다리는 6개예요.',
-        bookTitle: '신기한 곤충 백과',
-        page: 20 + variant,
-      };
+      // 짝수 팀은 "달" 글을 골라 틀린 문장을 잘못 짚고, 홀수 팀은 "꿀벌" 글을 골라 다 맞힌다.
+      return variant % 2 === 0
+        ? {
+            type: 'library_check',
+            chosenQuestionId: 'q2',
+            answers: {
+              q2: {
+                choice: 3,
+                correction: '달의 구덩이는 운석이 부딪혀서 생긴 거예요.',
+                bookTitle: '지구와 달',
+              },
+            },
+          }
+        : {
+            type: 'library_check',
+            chosenQuestionId: 'q1',
+            answers: {
+              q1: {
+                wrongPart: '꿀벌은 다리가 8개인 곤충이에요.',
+                correction: '곤충인 꿀벌의 다리는 6개예요.',
+                bookTitle: '딩동~ 곤충 도감',
+              },
+            },
+          };
   }
 }
 

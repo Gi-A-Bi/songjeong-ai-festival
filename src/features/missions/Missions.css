@@ -460,12 +460,212 @@
   font-weight: var(--font-weight-heavy);
 }
 
-/* AI 오류찾기 */
+/* AI 오류찾기: 문제마다 글(왼쪽)과 답 칸(오른쪽). 문제는 세로로 쌓인다. */
 .library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.library__question {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   gap: var(--space-4);
   align-items: start;
+}
+
+/* 이야기 띠: AI 정보에 오류가 있었다는 설정과 부정행위 경고 */
+.library-story {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border: 3px solid var(--accent);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+}
+
+.library-story__icon {
+  flex: none;
+  margin-top: var(--space-1);
+  color: var(--accent-ink);
+}
+
+.library-story__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  line-height: 1.6;
+}
+
+.library-story__title {
+  font-size: var(--font-size-xl);
+}
+
+.library-story__warning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-danger);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 조사할 답 고르기: AI에게 한 질문 카드. 한 번 고르면 바꿀 수 없다. */
+.library-pick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 3px dashed var(--accent);
+  border-radius: var(--radius-xl);
+  background: var(--accent-soft);
+}
+
+.library-pick__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xl);
+}
+
+.library-pick__lock {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.library-pick__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3);
+}
+
+.library-pick__card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-height: 120px;
+  padding: var(--space-4) var(--space-5);
+  border: 3px solid transparent;
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+
+.library-pick__card:hover:not(:disabled),
+.library-pick__card:focus-visible {
+  border-color: var(--accent);
+}
+
+.library-pick__card:disabled {
+  cursor: default;
+}
+
+.library-pick__subject,
+.library__subject {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.library__subject {
+  margin-left: var(--space-2);
+}
+
+.library-pick__prompt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-heavy);
+  line-height: 1.4;
+}
+
+.library-pick__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.library__prompt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.library__task {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+/* 선택형: 번호가 붙은 문장 가운데 하나를 고른다. 번호와 글이 함께 있어 색 없이도 구분된다. */
+.library-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.library-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--touch-min);
+  padding: var(--space-3) var(--space-4);
+  border: 3px solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-lg);
+  line-height: 1.6;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.library-choice:disabled {
+  cursor: default;
+}
+
+.library-choice--chosen {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 4px var(--glow-white),
+    var(--shadow-md);
+}
+
+.library-choice__no {
+  flex: none;
+  color: var(--accent-ink);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-heavy);
+}
+
+.library-choice__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.library__chosen {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--font-weight-bold);
 }
 
 .library__passage {
@@ -509,13 +709,7 @@
   gap: var(--space-4);
 }
 
-.library__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px;
-  gap: var(--space-3);
-}
-
-/* 제출 즉시 자동 채점 결과. 항목마다 맞음·틀림을 아이콘과 점수로 보여 준다. */
+/* 제출 즉시 자동 채점 결과. 문제마다 항목의 맞음·틀림을 아이콘과 점수로 보여 준다. */
 .library-result {
   display: flex;
   align-items: center;
@@ -550,6 +744,17 @@
 .library-result__title strong {
   color: var(--accent-golden-bell-ink);
   font-size: var(--font-size-2xl);
+}
+
+.library-result__question {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.library-result__no {
+  font-weight: var(--font-weight-heavy);
 }
 
 .library-result__items {
@@ -725,7 +930,7 @@
 @media (max-width: 960px), (orientation: portrait) {
   .gb-choices,
   .ozobot,
-  .library {
+  .library__question {
     grid-template-columns: minmax(0, 1fr);
   }
 

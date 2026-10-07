@@ -164,7 +164,7 @@ describe('학생 화면', () => {
     expect(
       await screen.findByText(/입장했어요! 선생님이 게임을 시작하면 문제가 나타나요/),
     ).toBeInTheDocument();
-    expect(screen.getByText('게임이 시작되면 AI가 찾은 정보가 나타나요')).toBeInTheDocument();
+    expect(screen.getByText('게임이 시작되면 AI가 쓴 글이 나타나요')).toBeInTheDocument();
     expect(screen.queryByText(/꿀벌은 다리가 8개인/)).toBeNull();
     expect(screen.queryByLabelText('교실 인증코드')).toBeNull();
     entered.unmount();
@@ -342,7 +342,7 @@ describe('학생 화면', () => {
     expect(screen.queryByRole('group', { name: '난이도 고르기' })).toBeNull();
   });
 
-  it('골든벨은 여러 문제를 풀고 확인한 뒤 한 번에 제출한다', async () => {
+  it('골든벨은 모든 문제를 푼 뒤에만 제출 버튼이 나오고, 한 번에 제출한다', async () => {
     const user = userEvent.setup();
     // 2라운드 골든벨은 5팀이 한다.
     renderApp(`/team/${DEFAULT_EVENT_ID}/${toTeamId(4, 2, 5)}/mission/golden-bell`);
@@ -350,13 +350,23 @@ describe('학생 화면', () => {
     await user.click(
       screen.getByRole('radio', { name: /책이나 믿을 만한 자료로 사실인지 확인한다/ }),
     );
-    await user.click(screen.getByRole('button', { name: /다음 문제/ }));
-    expect(screen.getByText('문제 2 / 7')).toBeInTheDocument();
-    await user.click(screen.getByRole('radio', { name: /우리 집 주소와 전화번호/ }));
+    // 덜 풀었을 때는 제출 버튼이 없고 남은 문제 수만 알려 준다.
+    expect(screen.queryByRole('button', { name: /정답 제출/ })).toBeNull();
+    expect(screen.getByText(/아직 6문제가 남았어요/)).toBeInTheDocument();
+
+    // 나머지 문제는 형식에 맞춰 아무 답이나 적는다(보기가 있으면 첫 보기, 단답형이면 글자).
+    for (let no = 2; no <= 7; no += 1) {
+      await user.click(screen.getByRole('button', { name: /다음 문제/ }));
+      expect(screen.getByText(`문제 ${no} / 7`)).toBeInTheDocument();
+      const radios = screen.queryAllByRole('radio');
+      if (radios.length > 0) await user.click(radios[0]);
+      else await user.type(screen.getByLabelText(/답을 적어요/), '답');
+    }
+    expect(screen.getByText(/7문제 모두 답했어요/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /정답 제출/ }));
     const dialog = await screen.findByRole('dialog', { name: '답을 제출할까요?' });
-    expect(within(dialog).getByText(/5개/)).toBeInTheDocument();
+    expect(within(dialog).getByText('7문제 모두 답했어요.')).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: /제출하기/ }));
     expect(await screen.findByText(/제출했어요!/)).toBeInTheDocument();
     expect(screen.getByText('제출한 답은 바꿀 수 없어요')).toBeInTheDocument();

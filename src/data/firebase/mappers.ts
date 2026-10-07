@@ -4,6 +4,7 @@ import { toGlobalEvent, type BoothTimes } from '../../domain/boothRound';
 import { CARD_TYPES } from '../../domain/cards';
 import { createDefaultDrawingConfig } from '../../domain/drawingPrompts';
 import { emptyFinalSession, finalResponseId } from '../../domain/finalMission';
+import { LEGACY_LIBRARY_QUESTION_ID, LIBRARY_GRADES } from '../../domain/libraryCheck';
 import { isTeacherJudged } from '../../domain/scoring';
 import type { TeamMissionRecord } from '../../domain/tour';
 import { RepositoryError } from '../errors';
@@ -19,6 +20,11 @@ import type {
   FinalResponse,
   FinalSession,
   Grade,
+  LibraryCheckConfig,
+  LibraryChooseQuestion,
+  LibraryFindQuestion,
+  LibraryQuestion,
+  LibraryQuestionAnswer,
   Mission,
   MissionConfig,
   MissionNo,
@@ -114,8 +120,47 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
 }
 
-function positiveIntOrNull(value: unknown): number | null {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : null;
+/** 저장된 도서관 문제 하나를 읽는다. 형식이 맞지 않으면 뺀다. */
+function normalizeLibraryQuestion(raw: unknown): LibraryQuestion[] {
+  const item = (raw ?? {}) as Record<string, unknown>;
+  if (typeof item.id !== 'string' || !item.id) return [];
+  const key = item.answerKey as Record<string, unknown> | undefined;
+  const hasKey = key !== undefined && key !== null && typeof key === 'object';
+  const extras = {
+    ...(typeof item.prompt === 'string' && item.prompt ? { prompt: item.prompt } : {}),
+    ...(typeof item.subject === 'string' && item.subject ? { subject: item.subject } : {}),
+  };
+  if (item.type === 'choose') {
+    const question: LibraryChooseQuestion = {
+      id: item.id,
+      type: 'choose',
+      title: String(item.title ?? ''),
+      ...extras,
+      sentences: stringList(item.sentences),
+    };
+    if (hasKey) {
+      question.answerKey = {
+        wrongIndex: typeof key.wrongIndex === 'number' ? key.wrongIndex : -1,
+        correctionKeywords: stringList(key.correctionKeywords),
+      };
+    }
+    return [question];
+  }
+  if (item.type !== 'find') return [];
+  const question: LibraryFindQuestion = {
+    id: item.id,
+    type: 'find',
+    title: String(item.title ?? ''),
+    ...extras,
+    passage: String(item.passage ?? ''),
+  };
+  if (hasKey) {
+    question.answerKey = {
+      wrongPartKeywords: stringList(key.wrongPartKeywords),
+      correctionKeywords: stringList(key.correctionKeywords),
+    };
+  }
+  return [question];
 }
 
 /** 예전 한 문제 골든벨을 옮길 때 쓰는 문제 ID */
@@ -139,23 +184,40 @@ export function normalizeMissionConfig(raw: unknown): MissionConfig {
     };
   }
   if (config.type === 'library_check') {
-    const base = {
-      type: 'library_check' as const,
-      passageTitle: String(config.passageTitle ?? ''),
+    if (Array.isArray(config.questions)) {
+      const next: LibraryCheckConfig = {
+        type: 'library_check',
+        questions: config.questions.flatMap((item) => normalizeLibraryQuestion(item)),
+      };
+      const byGrade = config.gradeQuestions as Record<string, unknown> | undefined;
+      if (byGrade && typeof byGrade === 'object') {
+        const gradeQuestions: Partial<Record<Grade, LibraryQuestion[]>> = {};
+        for (const grade of LIBRARY_GRADES) {
+          const list = byGrade[String(grade)];
+          if (!Array.isArray(list)) continue;
+          const questions = list.flatMap((item) => normalizeLibraryQuestion(item));
+          if (questions.length > 0) gradeQuestions[grade] = questions;
+        }
+        if (Object.keys(gradeQuestions).length > 0) next.gradeQuestions = gradeQuestions;
+      }
+      if (config.pickOne === true) next.pickOne = true;
+      return next;
+    }
+    // 예전 구조: 글 하나에 책 제목·쪽수까지 적어 내던 때. 서술형 한 문제로 옮긴다.
+    const question: LibraryFindQuestion = {
+      id: LEGACY_LIBRARY_QUESTION_ID,
+      type: 'find',
+      title: String(config.passageTitle ?? ''),
       passage: String(config.passage ?? ''),
     };
     const key = config.answerKey as Record<string, unknown> | undefined;
-    if (!key || typeof key !== 'object') return base;
-    return {
-      ...base,
-      answerKey: {
+    if (key && typeof key === 'object') {
+      question.answerKey = {
         wrongPartKeywords: stringList(key.wrongPartKeywords),
         correctionKeywords: stringList(key.correctionKeywords),
-        bookTitles: stringList(key.bookTitles),
-        pageFrom: positiveIntOrNull(key.pageFrom),
-        pageTo: positiveIntOrNull(key.pageTo),
-      },
-    };
+      };
+    }
+    return { type: 'library_check', questions: [question] };
   }
   if (config.type === 'golden_bell' && !Array.isArray(config.questions)) {
     const hasLegacyQuestion = typeof config.question === 'string' && Array.isArray(config.choices);
@@ -201,6 +263,42 @@ export function normalizeAnswer(raw: unknown): SubmissionAnswer {
         }
         return [{ challengeId: entry.challengeId, level, at: Number(entry.at ?? 0) }];
       }),
+    };
+  }
+  if (answer.type === 'library_check') {
+    if (answer.answers && typeof answer.answers === 'object') {
+      const answers: Record<string, LibraryQuestionAnswer> = {};
+      for (const [id, raw] of Object.entries(answer.answers as Record<string, unknown>)) {
+        const item = (raw ?? {}) as Record<string, unknown>;
+        answers[id] = {
+          ...(typeof item.wrongPart === 'string' ? { wrongPart: item.wrongPart } : {}),
+          ...(typeof item.choice === 'number' ? { choice: item.choice } : {}),
+          correction: String(item.correction ?? ''),
+          ...(typeof item.bookTitle === 'string' && item.bookTitle
+            ? { bookTitle: item.bookTitle }
+            : {}),
+        };
+      }
+      return {
+        type: 'library_check',
+        answers,
+        ...(typeof answer.chosenQuestionId === 'string' && answer.chosenQuestionId
+          ? { chosenQuestionId: answer.chosenQuestionId }
+          : {}),
+      };
+    }
+    // 예전 구조: 틀린 부분·올바른 내용·책 제목·쪽수를 한 번에 적어 냈다.
+    return {
+      type: 'library_check',
+      answers: {
+        [LEGACY_LIBRARY_QUESTION_ID]: {
+          wrongPart: String(answer.wrongPart ?? ''),
+          correction: String(answer.correction ?? ''),
+          ...(typeof answer.bookTitle === 'string' && answer.bookTitle
+            ? { bookTitle: answer.bookTitle }
+            : {}),
+        },
+      },
     };
   }
   if (answer.type === 'drawing') {

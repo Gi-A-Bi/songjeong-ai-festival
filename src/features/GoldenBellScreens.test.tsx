@@ -89,6 +89,9 @@ describe('학생 골든벨: O/X, 객관식, 단답형', () => {
     expect(screen.getAllByRole('radio')).toHaveLength(2);
     await user.click(screen.getByRole('radio', { name: 'X 아니에요' }));
     expect(screen.getByRole('radio', { name: 'X 아니에요' })).toBeChecked();
+    // 덜 풀었을 때는 제출 버튼이 없고 남은 문제 수만 알려 준다.
+    expect(screen.queryByRole('button', { name: /정답 제출/ })).toBeNull();
+    expect(screen.getByText(/답한 문제 1\/3 · 아직 2문제가 남았어요/)).toBeInTheDocument();
 
     // 2번: 객관식
     await user.click(screen.getByRole('button', { name: /다음 문제/ }));
@@ -100,7 +103,7 @@ describe('학생 골든벨: O/X, 객관식, 단답형', () => {
     expect(screen.getByText('문제 3 / 3')).toBeInTheDocument();
     expect(screen.getByText(/힌트: 초성 ㅋㅂㄷ/)).toBeInTheDocument();
     await user.type(screen.getByLabelText(/답을 적어요/), '키 보드');
-    expect(screen.getByText(/답한 문제 3\/3/)).toBeInTheDocument();
+    expect(screen.getByText(/3문제 모두 답했어요/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /정답 제출/ }));
     const dialog = await screen.findByRole('dialog', { name: '답을 제출할까요?' });

@@ -458,10 +458,7 @@ describe('FirestoreEventRepository (에뮬레이터)', () => {
         teamId: TEAM_ID,
         answer: {
           type: 'library_check',
-          wrongPart: '다리 8개',
-          correction: '다리 6개',
-          bookTitle: '곤충 백과',
-          page: 12,
+          answers: { q1: { wrongPart: '다리 8개', correction: '다리 6개' } },
         },
         requestId: 'early-1',
       }),

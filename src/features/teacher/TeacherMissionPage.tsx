@@ -9,7 +9,7 @@ import { toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
 import { getLiveRoundStatus } from '../../domain/boothRound';
 import { getAnswerRevealBlocker, getGoldenBellQuestions } from '../../domain/goldenBell';
-import { hasLibraryCheckAnswerKey } from '../../domain/libraryCheck';
+import { hasLibraryCheckAnswerKey, LIBRARY_STORY } from '../../domain/libraryCheck';
 import { missionRoom } from '../../domain/missionRoom';
 import { getMissionGameDurationMs } from '../../domain/ozobot';
 import { ROUND_NUMBERS } from '../../domain/rotation';
@@ -217,7 +217,7 @@ export function TeacherMissionPage() {
             aria-pressed={tab === 'questions'}
             onClick={() => setTab('questions')}
           >
-            <Icon name="menu_book" /> 글과 정답 등록
+            <Icon name="menu_book" /> 문제와 정답 등록
             {hasLibraryCheckAnswerKey(config) ? ' (자동 채점)' : ' (정답 없음)'}
           </button>
         </div>
@@ -230,6 +230,14 @@ export function TeacherMissionPage() {
           grade={grade}
           isAdmin={teacher.role === 'admin'}
         />
+      ) : null}
+      {config.type === 'library_check' && tab === 'operate' ? (
+        // 학생 화면과 같은 이야기·경고. 부정행위 탈락은 순위표에서 점수를 0점으로 고쳐 처리한다.
+        <InlineAlert tone="warning">
+          <strong>학생 안내 · {LIBRARY_STORY.title}</strong> {LIBRARY_STORY.intro}{' '}
+          {LIBRARY_STORY.task} {LIBRARY_STORY.warning} 부정행위가 적발된 팀은 순위표에서 점수를
+          0점으로 고쳐 탈락 처리해요.
+        </InlineAlert>
       ) : null}
 
       {config.type === 'golden_bell' && tab === 'questions' ? (

@@ -58,10 +58,7 @@ describe('로봇 길찾기 도전 과제', () => {
       getMissionGameDurationMs({ config: { type: 'ozobot', rules: [], timeLimitMinutes: 5 } }, ten),
     ).toBe(5 * 60_000);
     expect(
-      getMissionGameDurationMs(
-        { config: { type: 'library_check', passageTitle: '', passage: '' } },
-        ten,
-      ),
+      getMissionGameDurationMs({ config: { type: 'library_check', questions: [] } }, ten),
     ).toBe(ten);
     expect(getOzobotMinutes({ timeLimitMinutes: 0 })).toBe(7);
   });

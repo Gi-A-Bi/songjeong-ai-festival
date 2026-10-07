@@ -181,16 +181,23 @@ export function GoldenBellMission({
               </StatusBadge>
             ) : null}
           </>
+        ) : unanswered > 0 ? (
+          // 덜 풀고 실수로 내지 않도록, 모든 문제에 답하기 전에는 제출 버튼을 보여 주지 않는다.
+          <p className="mission-actions__hint">
+            <Icon name="info" />
+            답한 문제 {answeredCount}/{questions.length} · 아직 {unanswered}문제가 남았어요. 모두
+            풀면 제출 버튼이 나와요
+          </p>
         ) : (
           <>
             <p className="mission-actions__hint">
-              <Icon name="info" />
-              답한 문제 {answeredCount}/{questions.length} · 제출하면 답을 바꿀 수 없어요
+              <Icon name="task_alt" />
+              {questions.length}문제 모두 답했어요 · 제출하면 답을 바꿀 수 없어요
             </p>
             <Button
               size="xl"
               icon="send"
-              disabled={!canSubmitInPhase(phase) || answeredCount === 0}
+              disabled={!canSubmitInPhase(phase)}
               loading={isPending}
               loadingLabel="제출하는 중"
               onClick={() => setConfirmOpen(true)}
@@ -396,14 +403,7 @@ export function GoldenBellMission({
         onCancel={() => setConfirmOpen(false)}
         onConfirm={() => void handleSubmit()}
       >
-        {unanswered > 0 ? (
-          <p>
-            아직 풀지 않은 문제가 <strong>{unanswered}개</strong> 있어요. 풀지 않은 문제는
-            0점이에요.
-          </p>
-        ) : (
-          <p>{questions.length}문제 모두 답했어요.</p>
-        )}
+        <p>{questions.length}문제 모두 답했어요.</p>
         <p className="muted">제출하면 답을 바꿀 수 없어요.</p>
       </ConfirmDialog>
     </MissionShell>
