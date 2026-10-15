@@ -47,4 +47,14 @@ describe('학생 홈 버튼과 순위 공개', () => {
     expect(screen.getByText('1위')).toBeInTheDocument();
     expect(screen.queryByText('2위')).toBeNull();
   });
+
+  it('이미 받은 카드는 이름을 한 번만 적어 알린다', async () => {
+    // 샘플 순위에서 4학년 4반 3팀은 1라운드 그리기 3위라 카드 한 장을 무작위로 받았다.
+    const teamId = toTeamId(4, 4, 3);
+    renderApp(`/team/${DEFAULT_EVENT_ID}/${teamId}/mission/drawing`);
+    const reveal = await screen.findByRole('status', { name: /우리 팀 3위/ });
+    expect(within(reveal).getByText(/ 카드를 받았어요\./)).toBeInTheDocument();
+    expect(within(reveal).queryByText(/카드 카드/)).toBeNull();
+    expect(within(reveal).queryByRole('link', { name: /카드 고르기|카드 받기/ })).toBeNull();
+  });
 });
