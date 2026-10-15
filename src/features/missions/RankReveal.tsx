@@ -81,7 +81,7 @@ export function RankReveal({ eventId, view }: RankRevealProps) {
         </p>
         <p className="rank-reveal__reward">
           <Icon name={rewarded ? 'playing_cards' : 'info'} size="sm" />
-          {claimedType ? `${CARD_INFO[claimedType].name} 카드를 받았어요.` : REWARD_TEXT[mode]}
+          {claimedType ? `${CARD_INFO[claimedType].name}를 받았어요.` : REWARD_TEXT[mode]}
         </p>
         <div className="cluster">
           {canPick ? (
