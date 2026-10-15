@@ -10,17 +10,24 @@ import './AppHeader.css';
 interface AppHeaderProps {
   /** 뒤로 가기 목적지. 없으면 뒤로 가기 버튼을 숨긴다. */
   backTo?: string;
+  /** 학생 화면의 홈(팀 홈) 버튼 목적지. 미션·카드 화면 어디서든 팀 홈으로 돌아간다. */
+  homeTo?: string;
   subtitle?: string;
   variant?: 'student' | 'teacher';
   /** 교사용 탭 같은 추가 메뉴 */
   nav?: ReactNode;
 }
 
-export function AppHeader({ backTo, subtitle, variant = 'student', nav }: AppHeaderProps) {
+export function AppHeader({ backTo, homeTo, subtitle, variant = 'student', nav }: AppHeaderProps) {
   return (
     <header className={`app-header app-header--${variant}`}>
       <div className="app-header__inner">
         <div className="app-header__start">
+          {homeTo ? (
+            <ButtonLink to={homeTo} variant="secondary" icon="home" className="app-header__back">
+              홈
+            </ButtonLink>
+          ) : null}
           {backTo ? (
             <ButtonLink
               to={backTo}

@@ -23,7 +23,7 @@ export function CardBoardPage() {
   const data = useAsyncData(load);
 
   const header = (
-    <AppHeader backTo={paths.teamHome(eventId, team.id)} subtitle={team.displayName} />
+    <AppHeader homeTo={paths.teamHome(eventId, team.id)} subtitle={team.displayName} />
   );
 
   if (data.status !== 'success') {

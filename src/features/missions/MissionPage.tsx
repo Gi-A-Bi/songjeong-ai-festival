@@ -83,7 +83,7 @@ export function MissionPage() {
 
   return (
     <>
-      <AppHeader backTo={paths.teamHome(eventId, team.id)} subtitle={team.displayName} />
+      <AppHeader homeTo={paths.teamHome(eventId, team.id)} subtitle={team.displayName} />
       <main className="page page--mission">
         {view.status === 'loading' ? <LoadingView label="미션을 준비하고 있어요" /> : null}
         {view.status === 'error' ? <ErrorView error={view.error} onRetry={view.reload} /> : null}

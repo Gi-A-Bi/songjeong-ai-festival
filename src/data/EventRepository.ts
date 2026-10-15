@@ -344,6 +344,10 @@ export interface TeamMissionView {
   submission: Submission | null;
   finalized: boolean;
   answerRevealed: boolean;
+  /** 순위가 확정된 뒤 우리 팀의 등수와 점수. 확정 전에는 null */
+  result: Pick<MissionResult, 'rank' | 'score'> | null;
+  /** 이 순위로 생긴 카드 보상(고르기 전·받음·보상 없음). 확정 전에는 null */
+  award: CardAward | null;
 }
 
 /**

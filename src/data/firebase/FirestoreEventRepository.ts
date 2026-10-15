@@ -876,20 +876,25 @@ export class FirestoreEventRepository implements EventRepository {
         this.getMission(eventId, missionId),
       ]);
       const roundNo = getRoundForMission(team.teamNo, mission.no);
-      const [booth, recordSnap, submissionSnap, resultSnap, revealSnap] = await Promise.all([
-        this.boothOf(eventId, mission.id, team.grade, roundNo),
-        getDoc(
-          doc(
-            this.sub(eventId, 'teamMissionStates'),
-            teamMissionStateId(team.classId, team.teamNo, roundNo),
+      const teamResultId = resultId(mission.id, team.grade, roundNo, team.id);
+      const [booth, recordSnap, submissionSnap, resultSnap, revealSnap, awardSnap] =
+        await Promise.all([
+          this.boothOf(eventId, mission.id, team.grade, roundNo),
+          getDoc(
+            doc(
+              this.sub(eventId, 'teamMissionStates'),
+              teamMissionStateId(team.classId, team.teamNo, roundNo),
+            ),
           ),
-        ),
-        getDoc(doc(this.sub(eventId, 'submissions'), submissionId(mission.id, team.id))),
-        getDoc(
-          doc(this.sub(eventId, 'results'), resultId(mission.id, team.grade, roundNo, team.id)),
-        ),
-        getDoc(doc(this.sub(eventId, 'missionStates'), resultKey(mission.id, team.grade, roundNo))),
-      ]);
+          getDoc(doc(this.sub(eventId, 'submissions'), submissionId(mission.id, team.id))),
+          getDoc(doc(this.sub(eventId, 'results'), teamResultId)),
+          getDoc(
+            doc(this.sub(eventId, 'missionStates'), resultKey(mission.id, team.grade, roundNo)),
+          ),
+          // 카드 보상 문서의 ID는 순위 결과 ID와 같다.
+          getDoc(doc(this.sub(eventId, 'cardAwards'), teamResultId)),
+        ]);
+      const result = resultSnap.exists() ? mapResult(resultSnap) : null;
       return {
         team,
         mission,
@@ -902,6 +907,8 @@ export class FirestoreEventRepository implements EventRepository {
           : null,
         finalized: resultSnap.exists(),
         answerRevealed: revealSnap.data()?.answerRevealed === true,
+        result: result ? { rank: result.rank, score: result.score } : null,
+        award: awardSnap.exists() ? mapCardAward(awardSnap) : null,
       };
     });
   }

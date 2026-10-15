@@ -454,6 +454,8 @@ export class MockEventRepository implements EventRepository, DevTools {
     const key = resultKey(mission.id, team.grade, roundNo);
     const booth = this.tour.missionRound(mission.id, team.grade, roundNo);
     const record = this.tour.recordOf(team, roundNo);
+    const teamResultId = resultId(key, team.id);
+    const result = this.state.results.find((item) => item.id === teamResultId) ?? null;
     return clone({
       team,
       mission,
@@ -464,6 +466,9 @@ export class MockEventRepository implements EventRepository, DevTools {
       submission: this.state.submissions[submissionId(mission.id, team.id)] ?? null,
       finalized: this.isFinalized(mission.id, team.grade, roundNo),
       answerRevealed: this.state.missionStates[key]?.answerRevealed ?? false,
+      result: result ? { rank: result.rank, score: result.score } : null,
+      // 카드 보상 ID는 순위 결과 ID와 같다.
+      award: this.state.cardAwards.find((award) => award.id === teamResultId) ?? null,
     });
   }
 
