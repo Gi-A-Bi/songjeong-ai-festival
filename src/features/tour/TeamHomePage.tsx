@@ -121,7 +121,11 @@ export function TeamHomePage() {
     const submission = mission
       ? submissions.find((item) => item.missionId === mission.id && item.status !== 'draft')
       : undefined;
-    return { roundNo, mission, done: submission !== undefined };
+    // 순위가 확정된 미션은 카드 보상 기록(보상 없음 포함)에 등수가 적혀 있다.
+    const award = mission
+      ? rewards.awards.find((item) => item.missionId === mission.id)
+      : undefined;
+    return { roundNo, mission, done: submission !== undefined, rank: award?.rank ?? null };
   });
   const doneCount = schedule.filter((item) => item.done).length;
   const focus = getFocus(event, team, doneCount === ROUND_NUMBERS.length);
@@ -224,10 +228,11 @@ export function TeamHomePage() {
             미션 지도 <span className="team-progress__count number">{doneCount}/5</span>
           </h2>
           <ol className="team-map__list">
-            {schedule.map(({ roundNo, mission, done }) => {
+            {schedule.map(({ roundNo, mission, done, rank }) => {
               if (!mission) return null;
               const status = getRowStatus({
                 done,
+                rank,
                 roundNo,
                 focus,
                 passedBefore,
@@ -353,6 +358,8 @@ function ArrivalNotice({
 
 function getRowStatus(input: {
   done: boolean;
+  /** 순위가 확정된 미션의 등수. 아직이면 null */
+  rank: number | null;
   roundNo: RoundNo;
   focus: { roundNo: RoundNo; kind: FocusKind };
   /** 이 번호보다 앞선 라운드는 이미 지나갔다 */
@@ -360,6 +367,13 @@ function getRowStatus(input: {
   /** 부스가 건너뛴 라운드인지 */
   skipped: boolean;
 }): { tone: StatusTone; icon: IconName; label: string } {
+  if (input.rank !== null) {
+    return {
+      tone: input.rank <= 3 ? 'success' : 'neutral',
+      icon: input.rank <= 3 ? 'trophy' : 'check_circle',
+      label: `${input.rank}위`,
+    };
+  }
   if (input.done) return { tone: 'success', icon: 'check_circle', label: '완료' };
   if (input.skipped) return { tone: 'neutral', icon: 'arrow_forward', label: '건너뜀' };
   if (input.focus.kind === 'now' && input.focus.roundNo === input.roundNo) {

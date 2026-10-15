@@ -975,3 +975,94 @@
     font-size: var(--font-size-xl);
   }
 }
+
+/* rank reveal: shown in the notice slot when the teacher finalizes the ranking */
+.rank-reveal {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-xl);
+  background: var(--color-info-soft);
+  color: var(--color-text);
+  overflow: hidden;
+}
+
+.rank-reveal--rewarded {
+  background: var(--color-success-soft);
+  box-shadow: 0 0 0 3px var(--accent-golden-bell) inset;
+}
+
+.rank-reveal__mascot {
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  animation: cheer-pop calc(var(--duration-slow) * 2) var(--ease-bounce);
+}
+
+.rank-reveal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.rank-reveal__kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-muted);
+}
+
+.rank-reveal__title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  line-height: 1.2;
+}
+
+.rank-reveal__rank {
+  font-size: 2.2em;
+  color: var(--color-primary);
+  animation: pop-in var(--duration-slow) var(--ease-bounce);
+}
+
+.rank-reveal--rewarded .rank-reveal__rank {
+  color: var(--accent-golden-bell-ink);
+}
+
+.rank-reveal__score {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.rank-reveal__reward {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-weight: var(--font-weight-bold);
+}
+
+@media (max-width: 640px) {
+  .rank-reveal {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .rank-reveal__kicker,
+  .rank-reveal__reward,
+  .rank-reveal .cluster {
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rank-reveal__mascot,
+  .rank-reveal__rank {
+    animation: none;
+  }
+}

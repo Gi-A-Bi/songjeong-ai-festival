@@ -1,5 +1,3 @@
-import { Link } from 'react-router';
-import { paths } from '../../app/paths';
 import type { AssetKey } from '../../assets/manifest';
 import { AssetImage } from '../../components/AssetImage';
 import { Icon } from '../../components/Icon';
@@ -10,6 +8,7 @@ import { getWaitingReason } from '../../domain/missionPhase';
 import { missionRoom } from '../../domain/missionRoom';
 import { isTeacherJudged } from '../../domain/scoring';
 import type { FestivalEvent, MissionPhase } from '../../domain/types';
+import { RankReveal } from './RankReveal';
 import './Missions.css';
 
 interface MissionNoticeProps {
@@ -45,12 +44,8 @@ export function MissionNotice({ phase, event, view, error }: MissionNoticeProps)
         </NoticeBox>
       );
     case 'closed':
-      return (
-        <NoticeBox tone="success" icon="trophy" mascot="mascotCardEarned">
-          순위가 확정됐어요.{' '}
-          <Link to={paths.reward(event.id, view.team.id)}>카드 보상을 확인해요</Link>
-        </NoticeBox>
-      );
+      // 등수와 카드 보상 안내를 크게 보여 준다.
+      return <RankReveal eventId={event.id} view={view} />;
     case 'active':
       if (view.submission?.reopened) {
         return (

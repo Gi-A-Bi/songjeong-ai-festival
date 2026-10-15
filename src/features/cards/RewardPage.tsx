@@ -51,7 +51,7 @@ export function RewardPage() {
   const [earned, setEarned] = useState<ClaimCardAwardOutcome | null>(null);
 
   const header = (
-    <AppHeader backTo={paths.teamHome(eventId, team.id)} subtitle={team.displayName} />
+    <AppHeader homeTo={paths.teamHome(eventId, team.id)} subtitle={team.displayName} />
   );
 
   if (data.status !== 'success') {
