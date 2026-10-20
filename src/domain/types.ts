@@ -154,34 +154,37 @@ export interface ErrorHuntConfig {
   gradePuzzles?: Partial<Record<Grade, ErrorHuntPuzzle[]>>;
 }
 
-/** 그리기 미션의 학년군. 같은 학년군은 같은 명화 후보를 쓴다. */
-export type DrawingGradeBand = 'grade34' | 'grade56';
-
 /** 교사 화면에 띄우는 원작 명화 이미지(asset manifest의 키) */
 export type ArtworkImageKey =
   'artworkStarryNight' | 'artworkGleaners' | 'artworkSsireum' | 'artworkGrandeJatte';
 
-/** 명화를 AI 시대의 모습으로 재해석한 그림 프롬프트 */
+/** 그리기 심사 영역(요소·수량, 위치·구도, 화풍 표현, 색채 조건, 재해석) */
+export type DrawingRubricId = 'elements' | 'layout' | 'style' | 'color' | 'reinterpretation';
+
+/** 심사 영역마다 그 그림에서 확인할 조건 */
+export type DrawingCriteria = Record<DrawingRubricId, string>;
+
+/** 명화를 AI 시대의 모습으로 재해석한 그림 프롬프트. 학년마다 하나로 정해져 있다. */
 export interface DrawingPrompt {
   id: string;
-  gradeBand: DrawingGradeBand;
-  /** 학년군 안에서의 번호(①, ②) */
-  optionNo: number;
+  grade: Grade;
   artist: string;
   artwork: string;
   /** 감상할 때 함께 확인할 화가의 표현 기법 */
   technique: string;
+  /** 이 학년에서 특히 어려운 점(선생님 안내용) */
+  focus: string;
   /** 학생에게 보여 주는 그림 프롬프트 */
   text: string;
+  /** 심사 영역별로 확인할 조건 */
+  criteria: DrawingCriteria;
   /** 원작 이미지가 없으면 제목만 보여 준다. */
   imageKey: ArtworkImageKey | null;
 }
 
+/** 그리기 미션 설정. 프롬프트와 심사 기준은 프로그램에 고정되어 있어 저장하는 값이 없다. */
 export interface DrawingConfig {
   type: 'drawing';
-  prompts: DrawingPrompt[];
-  /** 학년별로 고른 프롬프트 ID. 같은 학년은 모든 라운드에서 같은 프롬프트로 그린다. */
-  selectedPromptIds: Partial<Record<Grade, string>>;
 }
 
 export interface OzobotConfig {

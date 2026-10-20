@@ -22,7 +22,7 @@ import { useServerNow } from '../../hooks/useServerNow';
 import { useStationLive } from '../../hooks/useStationLive';
 import { BoothRoundPanel } from './mission/BoothRoundPanel';
 import { DrawingGallery } from './mission/DrawingGallery';
-import { DrawingPromptPicker } from './mission/DrawingPromptPicker';
+import { DrawingPromptOverview } from './mission/DrawingPromptOverview';
 import { ErrorHuntAnswerSheet } from './mission/ErrorHuntAnswerSheet';
 import { GoldenBellQuestionEditor } from './mission/GoldenBellQuestionEditor';
 import { LibraryCheckEditor } from './mission/LibraryCheckEditor';
@@ -177,7 +177,7 @@ export function TeacherMissionPage() {
             aria-pressed={tab === 'questions'}
             onClick={() => setTab('questions')}
           >
-            <Icon name="museum" /> 프롬프트 고르기
+            <Icon name="museum" /> 학년별 그림
           </button>
         </div>
       ) : null}
@@ -251,13 +251,7 @@ export function TeacherMissionPage() {
       ) : config.type === 'error_hunt' && tab === 'questions' ? (
         <ErrorHuntAnswerSheet config={config} grade={grade} />
       ) : config.type === 'drawing' && tab === 'questions' ? (
-        <DrawingPromptPicker
-          eventId={eventId}
-          mission={mission}
-          config={config}
-          event={event}
-          onSaved={refresh}
-        />
+        <DrawingPromptOverview grade={grade} />
       ) : config.type === 'ozobot' && tab === 'questions' ? (
         <OzobotChallengeGallery />
       ) : config.type === 'library_check' && tab === 'questions' ? (
@@ -545,7 +539,6 @@ function BoothRound({
               key={`${grade}-${round}`}
               eventId={eventId}
               mission={mission}
-              config={config}
               grade={grade}
               round={round}
               roundMinutes={Math.round(event.gameDurationMs / 60_000)}

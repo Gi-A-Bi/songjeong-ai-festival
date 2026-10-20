@@ -651,7 +651,7 @@
   text-align: center;
 }
 
-/* 그리기: 학년별 프롬프트 고르기 */
+/* 그리기: 학년별로 정해진 그림 프롬프트 */
 .prompt-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -689,34 +689,16 @@
   font-size: var(--font-size-lg);
 }
 
-.prompt-grade {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.prompt-grade__name {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 120px;
-  font-weight: var(--font-weight-heavy);
-}
-
-.prompt-grade__choice {
-  min-height: var(--touch-min);
-  padding: 0 var(--space-4);
-  border: 2px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  font-weight: var(--font-weight-bold);
-}
-
-.prompt-grade__choice[aria-checked='true'] {
+/* 지금 진행하는 학년의 그림 */
+.prompt-option[aria-current='true'] {
   border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  color: var(--color-primary-active);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.prompt-option .rubric-list,
+.artwork-view__criteria {
+  grid-template-columns: minmax(0, 1fr);
+  line-height: 1.6;
 }
 
 /* 그리기: 전자칠판에 띄우는 원작 명화 */

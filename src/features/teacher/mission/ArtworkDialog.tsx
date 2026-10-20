@@ -2,7 +2,7 @@ import { AssetImage } from '../../../components/AssetImage';
 import { Button } from '../../../components/Button';
 import { Dialog } from '../../../components/Dialog';
 import { Icon } from '../../../components/Icon';
-import { drawingArtworkLabel } from '../../../domain/drawingPrompts';
+import { drawingArtworkLabel, listDrawingCriteria } from '../../../domain/drawingPrompts';
 import type { DrawingPrompt } from '../../../domain/types';
 
 interface ArtworkDialogProps {
@@ -43,6 +43,19 @@ export function ArtworkDialog({ prompt, onClose }: ArtworkDialogProps) {
               <Icon name="smart_toy" /> 그림 프롬프트
             </h3>
             <p className="artwork-view__prompt">{prompt.text}</p>
+            <h3 className="artwork-view__label">
+              <Icon name="task_alt" /> 심사위원이 확인하는 것
+            </h3>
+            <ul className="rubric-list artwork-view__criteria" aria-label="심사 기준">
+              {listDrawingCriteria(prompt.criteria).map(({ item, text }) => (
+                <li key={item.id}>
+                  <strong>
+                    {item.name} {item.max}점
+                  </strong>{' '}
+                  {text}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       ) : null}

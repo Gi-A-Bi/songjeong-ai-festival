@@ -15,12 +15,11 @@ import {
 } from '../../../domain/drawingFiles';
 import {
   drawingArtworkLabel,
-  drawingOptionMark,
   DRAWING_MAX_SCORE,
-  DRAWING_RUBRIC,
-  resolveDrawingPrompt,
+  getDrawingPrompt,
+  listDrawingCriteria,
 } from '../../../domain/drawingPrompts';
-import type { DrawingConfig, DrawingFile, Grade, Mission, RoundNo } from '../../../domain/types';
+import type { DrawingFile, Grade, Mission, RoundNo } from '../../../domain/types';
 import { useAction } from '../../../hooks/useAction';
 import { bytesToDataUrl, copyText, downloadBytes } from '../../../lib/download';
 import { labelPhoto, type LabeledPhoto } from '../../../lib/photoLabel';
@@ -31,7 +30,6 @@ import { ArtworkDialog } from './ArtworkDialog';
 interface DrawingGalleryProps {
   eventId: string;
   mission: Mission;
-  config: DrawingConfig;
   grade: Grade;
   round: RoundNo;
   /** 한 라운드의 활동 시간(분). 운영 순서 안내에 쓴다. */
@@ -47,7 +45,6 @@ interface DrawingGalleryProps {
 export function DrawingGallery({
   eventId,
   mission,
-  config,
   grade,
   round,
   roundMinutes,
@@ -55,7 +52,8 @@ export function DrawingGallery({
 }: DrawingGalleryProps) {
   const repository = useRepository();
   const promptRef = useRef<HTMLTextAreaElement>(null);
-  const drawingPrompt = resolveDrawingPrompt(config, grade);
+  // 프롬프트와 심사 기준은 학년마다 프로그램에 정해져 있다.
+  const drawingPrompt = getDrawingPrompt(grade);
   const [artworkOpen, setArtworkOpen] = useState(false);
   const [files, setFiles] = useState<DrawingFile[] | null>(null);
   /** 팀 이름표를 붙인 사진(팀 ID별). 만들지 못한 팀은 원래 사진을 쓴다. */
@@ -107,7 +105,8 @@ export function DrawingGallery({
   // 사진을 불러온 뒤에는 실제로 내려받는 사진만 요청문에 적어, 첨부하는 장수와 요청문이 어긋나지 않게 한다.
   const judged = files === null ? cards : downloadable;
   const prompt = buildDrawingEvaluationPrompt({
-    description: drawingPrompt?.text ?? '',
+    description: drawingPrompt.text,
+    criteria: drawingPrompt.criteria,
     teams: judged.map((card) => ({
       name: card.participant.team.displayName,
       fileName: card.fileName,
@@ -155,27 +154,15 @@ export function DrawingGallery({
           <h2 className="section-title">
             <Icon name="museum" /> {grade}학년 그림 프롬프트
           </h2>
-          <Button
-            variant="accent"
-            icon="fullscreen"
-            disabled={drawingPrompt === null}
-            onClick={() => setArtworkOpen(true)}
-          >
+          <Button variant="accent" icon="fullscreen" onClick={() => setArtworkOpen(true)}>
             명화 크게 보기
           </Button>
         </div>
-        {drawingPrompt ? (
-          <>
-            <p className="prompt-now__artwork">
-              {drawingOptionMark(drawingPrompt)} {drawingArtworkLabel(drawingPrompt)}
-            </p>
-            <p className="prompt-now__text">{drawingPrompt.text}</p>
-          </>
-        ) : (
-          <InlineAlert tone="warning">
-            이 학년이 그릴 그림 프롬프트가 없어요. “프롬프트 고르기”에서 확인해 주세요.
-          </InlineAlert>
-        )}
+        <p className="prompt-now__artwork">{drawingArtworkLabel(drawingPrompt)}</p>
+        <p className="muted">
+          표현 기법: {drawingPrompt.technique} · 이 학년의 어려운 점: {drawingPrompt.focus}
+        </p>
+        <p className="prompt-now__text">{drawingPrompt.text}</p>
         <ol className="prompt-box__steps">
           <li>“명화 크게 보기”를 전자칠판에 띄워 1분 동안 함께 감상하고 표현 기법을 확인해요.</li>
           <li>
@@ -292,12 +279,12 @@ export function DrawingGallery({
           </InlineAlert>
         ) : null}
         <ul className="rubric-list" aria-label="AI 심사 기준">
-          {DRAWING_RUBRIC.map((item) => (
+          {listDrawingCriteria(drawingPrompt.criteria).map(({ item, text }) => (
             <li key={item.id}>
               <strong>
                 {item.name} {item.max}점
               </strong>{' '}
-              {item.description}
+              {text}
             </li>
           ))}
         </ul>
@@ -310,23 +297,14 @@ export function DrawingGallery({
           value={prompt}
         />
         {/* 제출한 그림이 없어도 복사할 수 있다. 버튼을 끌 때는 이유를 함께 알려 준다. */}
-        {drawingPrompt === null ? (
-          <p className="muted">
-            <Icon name="info" size="sm" /> 이 학년의 그림 프롬프트가 없어 요청문을 만들 수 없어요.
-            “프롬프트 고르기”에서 먼저 골라 주세요.
-          </p>
-        ) : judged.length === 0 ? (
+        {judged.length === 0 ? (
           <p className="muted">
             <Icon name="info" size="sm" /> 아직 제출한 그림 사진이 없어 팀 이름 없이 심사 기준만
             담은 요청문이에요. 팀이 그림을 제출하면 팀 이름과 점수표가 함께 들어가요.
           </p>
         ) : null}
         <div className="cluster">
-          <Button
-            icon="content_copy"
-            onClick={() => void handleCopy()}
-            disabled={drawingPrompt === null}
-          >
+          <Button icon="content_copy" onClick={() => void handleCopy()}>
             요청문 복사
           </Button>
           {copyState === 'copied' ? (

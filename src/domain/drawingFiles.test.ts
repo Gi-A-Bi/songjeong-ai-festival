@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildDrawingEvaluationPrompt, drawingFileName, drawingZipName } from './drawingFiles';
+import { getDrawingPrompt } from './drawingPrompts';
 
 describe('그림 파일 이름', () => {
   it('학년·반·팀·라운드를 넣는다', () => {
@@ -65,6 +66,22 @@ describe('AI 심사 요청문', () => {
     expect(prompt).toContain('그림은 [첨부한 그림]에 적힌 순서대로 첨부했어.');
     expect(prompt).toContain('1. 4학년 1반 3팀 (파일 이름: 4학년-1반-3팀_1라운드.jpg)');
     expect(prompt).not.toContain('이름표');
+  });
+
+  it('학년 그림의 확인 조건을 [제시 문장] 다음에 영역 순서대로 덧붙인다', () => {
+    const prompt = buildDrawingEvaluationPrompt({
+      description,
+      criteria: getDrawingPrompt(4).criteria,
+      teams,
+      labeled: true,
+    });
+    expect(prompt).toMatch(/\[제시 문장\] : .+\n\[확인 조건\]\n- 요소·수량\(3점\): 별 11개/);
+    expect(prompt).toContain('- 재해석(1점): 사이프러스 나무 자리에 로봇');
+    expect(prompt).toContain('\n[첨부한 그림]\n1. 4학년 1반 3팀');
+    // 조건을 주지 않으면 계획서 문구만 있다.
+    expect(buildDrawingEvaluationPrompt({ description, teams, labeled: true })).not.toContain(
+      '[확인 조건]',
+    );
   });
 
   it('한 팀만 제출했으면 동점 안내는 넣지 않는다', () => {

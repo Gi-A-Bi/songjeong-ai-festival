@@ -1,5 +1,6 @@
 import {
   DRAWING_RUBRIC,
+  type DrawingCriteria,
   type DrawingRubricId,
   type DrawingRubricScores,
 } from '../../../domain/drawingPrompts';
@@ -7,11 +8,18 @@ import {
 interface DrawingRubricInputProps {
   teamName: string;
   scores: DrawingRubricScores;
+  /** 이 학년 그림의 영역별 확인 조건. 영역 이름에 마우스를 올리면 보인다. */
+  criteria?: DrawingCriteria;
   onChange: (scores: DrawingRubricScores) => void;
 }
 
 /** 그리기 심사 영역별 점수 입력. 고르면 합계가 점수 칸에 들어간다. */
-export function DrawingRubricInput({ teamName, scores, onChange }: DrawingRubricInputProps) {
+export function DrawingRubricInput({
+  teamName,
+  scores,
+  criteria,
+  onChange,
+}: DrawingRubricInputProps) {
   const change = (id: DrawingRubricId, value: string) => {
     const next = { ...scores };
     if (value === '') delete next[id];
@@ -22,7 +30,11 @@ export function DrawingRubricInput({ teamName, scores, onChange }: DrawingRubric
   return (
     <div className="rubric-input" role="group" aria-label={`${teamName} 영역별 점수`}>
       {DRAWING_RUBRIC.map((item) => (
-        <label key={item.id} className="rubric-input__item" title={item.description}>
+        <label
+          key={item.id}
+          className="rubric-input__item"
+          title={criteria?.[item.id] ?? item.description}
+        >
           <span className="rubric-input__name">{item.name}</span>
           <select
             className="rubric-input__select number"

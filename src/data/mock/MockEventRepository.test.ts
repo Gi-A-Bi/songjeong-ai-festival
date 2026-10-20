@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_EVENT_ID } from '../../config';
-import { resolveDrawingPrompt } from '../../domain/drawingPrompts';
 import { isRepositoryError } from '../errors';
 import { MockEventRepository } from './MockEventRepository';
 import { toTeamId } from './keys';
@@ -405,37 +404,14 @@ describe('MockEventRepository', () => {
     ]);
   });
 
-  it('교사는 학년별 그림 프롬프트를 고를 수 있고 다른 학년군의 프롬프트는 거부한다', async () => {
+  it('그리기 설정은 프로그램에 고정된 학년별 프롬프트를 쓰므로 저장할 값이 없다', async () => {
     await repository.signInTeacher();
     const mission = await repository.getMission(EVENT, 'drawing');
-    if (mission.config.type !== 'drawing') throw new Error('그리기 미션이 아니에요');
-    expect(resolveDrawingPrompt(mission.config, 4)?.id).toBe('starry-night');
-    expect(resolveDrawingPrompt(mission.config, 6)?.id).toBe('ssireum');
+    expect(mission.config).toEqual({ type: 'drawing' });
 
-    await repository.updateMissionConfig(EVENT, 'drawing', {
-      ...mission.config,
-      selectedPromptIds: { 4: 'gleaners', 6: 'grande-jatte' },
-    });
+    await repository.updateMissionConfig(EVENT, 'drawing', { type: 'drawing' });
     const saved = await repository.getMission(EVENT, 'drawing');
-    if (saved.config.type !== 'drawing') throw new Error('그리기 미션이 아니에요');
-    expect(resolveDrawingPrompt(saved.config, 4)?.id).toBe('gleaners');
-    // 고르지 않은 학년은 학년군의 첫 번째 프롬프트다.
-    expect(resolveDrawingPrompt(saved.config, 3)?.id).toBe('starry-night');
-    expect(resolveDrawingPrompt(saved.config, 6)?.id).toBe('grande-jatte');
-
-    await expect(
-      repository.updateMissionConfig(EVENT, 'drawing', {
-        ...mission.config,
-        selectedPromptIds: { 3: 'ssireum' },
-      }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
-    await expect(
-      repository.updateMissionConfig(EVENT, 'drawing', {
-        type: 'drawing',
-        prompts: [],
-        selectedPromptIds: {},
-      }),
-    ).rejects.toSatisfy((error) => isRepositoryError(error, 'invalid-input'));
+    expect(saved.config).toEqual({ type: 'drawing' });
   });
 
   it('교사는 골든벨 문제를 바꿀 수 있고 잘못된 문제는 거부한다', async () => {

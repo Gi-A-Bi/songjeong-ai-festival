@@ -47,28 +47,14 @@ describe('그리기 미션 학생 화면', () => {
     expect(screen.getByText(/노란 별 11개와 오른쪽 위에 초승달 1개/)).toBeInTheDocument();
     const rubric = screen.getByRole('list', { name: 'AI 심사위원이 보는 것' });
     expect(within(rubric).getAllByRole('listitem')).toHaveLength(5);
+    // 영역마다 이 학년 그림에서 확인하는 조건이 붙는다.
+    expect(within(rubric).getByText(/별 11개, 초승달 1개/)).toBeInTheDocument();
     expect(screen.getByText('종이에 그려요')).toBeInTheDocument();
     expect(screen.getByText('팀에서 1장을 골라요')).toBeInTheDocument();
     // 사진이 없으면 제출할 수 없다.
     expect(screen.getByRole('button', { name: /이 사진으로 제출/ })).toBeDisabled();
     // 화면 그림판은 더 이상 없다.
     expect(screen.queryByRole('toolbar', { name: '그리기 도구' })).toBeNull();
-  });
-
-  it('선생님이 고른 프롬프트가 학생 화면에 나온다', async () => {
-    const repository = new MockEventRepository();
-    await repository.signInTeacher();
-    const mission = await repository.getMission(DEFAULT_EVENT_ID, 'drawing');
-    if (mission.config.type !== 'drawing') throw new Error('그리기 미션이 아니에요');
-    await repository.updateMissionConfig(DEFAULT_EVENT_ID, 'drawing', {
-      ...mission.config,
-      selectedPromptIds: { 4: 'gleaners' },
-    });
-    await repository.signOutTeacher();
-
-    renderApp(missionPath(TEAM_ID), repository);
-    expect(await screen.findByText('밀레 〈이삭 줍는 여인들〉')).toBeInTheDocument();
-    expect(screen.getByText(/바구니를 든 로봇 세 대/)).toBeInTheDocument();
   });
 
   it('카메라를 쓸 수 없는 기기에서는 사진 파일을 골라 제출한다', async () => {

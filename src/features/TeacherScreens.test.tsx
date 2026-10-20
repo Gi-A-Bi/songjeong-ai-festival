@@ -75,8 +75,8 @@ describe('교사 미션 운영 화면', () => {
     const prompt = await screen.findByRole<HTMLTextAreaElement>('textbox', {
       name: 'AI 심사 요청문',
     });
-    // 4학년은 3~4학년 ① 〈별이 빛나는 밤〉이 기본이다.
-    expect(screen.getByText('① 반 고흐 〈별이 빛나는 밤〉')).toBeInTheDocument();
+    // 4학년은 〈별이 빛나는 밤〉으로 정해져 있다.
+    expect(screen.getByText('반 고흐 〈별이 빛나는 밤〉')).toBeInTheDocument();
     expect(prompt.value).toContain('[제시 문장] : 반 고흐의 〈별이 빛나는 밤〉처럼');
     expect(prompt.value).toContain('10점 만점');
     // 답변 맨 위에 팀별 점수표가 나오게 한다.
@@ -183,47 +183,32 @@ describe('교사 미션 운영 화면', () => {
     expect(within(dialog).getByText(/노란 별 11개/)).toBeInTheDocument();
   });
 
-  it('학년별 그림 프롬프트를 고르면 저장되고 요청문도 바뀐다', async () => {
+  it('학년별 그림 탭은 네 학년의 고정된 명화와 심사 기준을 보여 주고 고르는 기능은 없다', async () => {
     const user = userEvent.setup();
     const repository = await signedInRepository();
     renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
 
-    await user.click(await screen.findByRole('button', { name: /프롬프트 고르기/ }));
-    const grade3 = screen.getByRole('radiogroup', { name: '3학년 그림 프롬프트' });
-    expect(within(grade3).getByRole('radio', { name: /별이 빛나는 밤/ })).toBeChecked();
-    expect(screen.getByRole('button', { name: '프롬프트 저장' })).toBeDisabled();
+    await user.click(await screen.findByRole('button', { name: /학년별 그림/ }));
+    const list = await screen.findByRole('list', { name: '학년별 그림 프롬프트 목록' });
+    expect(within(list).getByText('밀레 〈이삭 줍는 여인들〉')).toBeInTheDocument();
+    expect(within(list).getByText('반 고흐 〈별이 빛나는 밤〉')).toBeInTheDocument();
+    expect(within(list).getByText('김홍도 〈씨름〉')).toBeInTheDocument();
+    expect(within(list).getByText('쇠라 〈그랑드자트섬의 일요일 오후〉')).toBeInTheDocument();
+    // 진행 중인 4학년에 표시가 붙고, 영역별 확인 조건이 함께 보인다.
+    expect(within(list).getByText('4학년 · 진행 중')).toBeInTheDocument();
+    const criteria = within(list).getByRole('list', { name: '3학년 심사 기준' });
+    expect(within(criteria).getAllByRole('listitem')).toHaveLength(5);
+    expect(within(criteria).getByText(/로봇 3대, 드론 2대/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '프롬프트 저장' })).toBeNull();
+    expect(screen.queryByRole('radio')).toBeNull();
 
-    await user.click(within(grade3).getByRole('radio', { name: /이삭 줍는 여인들/ }));
-    await user.click(screen.getByRole('button', { name: '프롬프트 저장' }));
-    expect(await screen.findByText('학년별 그림 프롬프트를 저장했어요.')).toBeInTheDocument();
-
-    const mission = await repository.getMission(DEFAULT_EVENT_ID, 'drawing');
-    expect(mission.config.type === 'drawing' && mission.config.selectedPromptIds[3]).toBe(
-      'gleaners',
-    );
-  });
-
-  it('진행 중인 학년의 프롬프트를 바꿀 때는 한 번 더 묻는다', async () => {
-    const user = userEvent.setup();
-    const repository = await signedInRepository();
-    renderApp(`/teacher/${DEFAULT_EVENT_ID}/station/drawing`, repository);
-
-    await user.click(await screen.findByRole('button', { name: /프롬프트 고르기/ }));
-    const grade4 = screen.getByRole('radiogroup', { name: '4학년 그림 프롬프트' });
-    await user.click(within(grade4).getByRole('radio', { name: /이삭 줍는 여인들/ }));
-    await user.click(screen.getByRole('button', { name: '프롬프트 저장' }));
-
-    const dialog = await screen.findByRole('dialog', {
-      name: '진행 중인 학년의 프롬프트를 바꿀까요?',
-    });
-    await user.click(within(dialog).getByRole('button', { name: '바꿔서 저장' }));
-    expect(await screen.findByText('학년별 그림 프롬프트를 저장했어요.')).toBeInTheDocument();
-
+    // 운영·채점의 AI 심사 요청문에는 그 학년 그림의 확인 조건이 들어간다.
     await user.click(screen.getByRole('button', { name: /운영·채점/ }));
     const prompt = await screen.findByRole<HTMLTextAreaElement>('textbox', {
       name: 'AI 심사 요청문',
     });
-    expect(prompt.value).toContain('[제시 문장] : 밀레의 〈이삭 줍는 여인들〉');
+    expect(prompt.value).toContain('[제시 문장] : 반 고흐의 〈별이 빛나는 밤〉');
+    expect(prompt.value).toContain('[확인 조건]\n- 요소·수량(3점): 별 11개');
   });
 
   it('그리기 채점은 영역별 점수를 고르면 합계가 들어가고 10점을 넘으면 확정할 수 없다', async () => {

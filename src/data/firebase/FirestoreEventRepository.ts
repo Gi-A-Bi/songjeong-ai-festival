@@ -42,7 +42,6 @@ import {
   presentFinalClassStatus,
   redactFinalClassState,
 } from '../../domain/finalMission';
-import { getDrawingConfigError } from '../../domain/drawingPrompts';
 import { getGoldenBellSetsError } from '../../domain/goldenBell';
 import { DEFAULT_GAME_DURATION_MS } from '../../config';
 import { toRoundStatus } from '../../domain/boothRound';
@@ -716,10 +715,6 @@ export class FirestoreEventRepository implements EventRepository {
       }
       if (config.type === 'golden_bell') {
         const error = getGoldenBellSetsError(config);
-        if (error) throw new RepositoryError('invalid-input', error);
-      }
-      if (config.type === 'drawing') {
-        const error = getDrawingConfigError(config);
         if (error) throw new RepositoryError('invalid-input', error);
       }
       if (config.type === 'library_check') {

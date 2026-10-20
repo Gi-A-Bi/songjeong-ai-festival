@@ -12,9 +12,14 @@ describe('예전 형식 그리기 자료', () => {
     expect(config).toEqual(createDefaultDrawingConfig());
   });
 
-  it('저장된 프롬프트와 학년별 선택은 그대로 읽는다', () => {
-    const saved = { ...createDefaultDrawingConfig(), selectedPromptIds: { 4: 'gleaners' } };
-    expect(normalizeMissionConfig(saved)).toEqual(saved);
+  it('예전에 저장한 프롬프트 목록과 학년별 선택은 버리고 고정 프롬프트를 쓴다', () => {
+    const saved = {
+      type: 'drawing',
+      prompts: [{ id: 'gleaners', gradeBand: 'grade34', optionNo: 2, text: '…' }],
+      selectedPromptIds: { 4: 'gleaners' },
+    };
+    expect(normalizeMissionConfig(saved)).toEqual(createDefaultDrawingConfig());
+    expect(normalizeMissionConfig(saved)).toEqual({ type: 'drawing' });
   });
 
   it('화면 그림판으로 낸 예전 제출은 프롬프트 없이 파일 정보만 읽는다', () => {
