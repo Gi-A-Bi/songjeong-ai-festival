@@ -1,5 +1,5 @@
-import { DRAWING_MAX_SCORE, DRAWING_RUBRIC } from './drawingPrompts';
-import type { RoundNo, Team } from './types';
+import { DRAWING_MAX_SCORE, DRAWING_RUBRIC, listDrawingCriteria } from './drawingPrompts';
+import type { DrawingCriteria, RoundNo, Team } from './types';
 
 /** 그림 목표 크기와 제출 차단 크기(명세 6.3) */
 export const DRAWING_TARGET_BYTES = 300 * 1024;
@@ -42,6 +42,8 @@ export interface DrawingPromptTeam {
 export interface DrawingPromptInput {
   /** 학생에게 제공한 그림 프롬프트 */
   description: string;
+  /** 심사 영역별로 이 그림에서 확인할 조건. 있으면 [확인 조건]으로 덧붙인다. */
+  criteria?: DrawingCriteria;
   /** 그림을 제출한 팀. 점수표의 줄 순서가 된다. */
   teams: readonly DrawingPromptTeam[];
   /** 내려받은 사진 아래에 팀 이름표가 붙어 있는지 */
@@ -50,16 +52,31 @@ export interface DrawingPromptInput {
 
 /**
  * 외부 생성형 AI 서비스에 붙여 넣을 AI 심사용 프롬프트.
- * 1)~4)와 [제시 문장]은 운영 계획 5장의 교사 입력용 문구 그대로다.
+ * 1)~4)와 [제시 문장]은 운영 계획 5장의 교사 입력용 문구 그대로고, [확인 조건]은 학년 그림의 심사 기준이다.
  * 앱은 AI를 호출하지 않는다. 교사가 복사해 그림 사진과 함께 직접 보내고, 답변 맨 위의 팀별 점수표를 보고 점수를 입력한다.
  */
-export function buildDrawingEvaluationPrompt({ description, teams, labeled }: DrawingPromptInput) {
+export function buildDrawingEvaluationPrompt({
+  description,
+  criteria,
+  teams,
+  labeled,
+}: DrawingPromptInput) {
   const base = `너는 초등학생 명화 재해석 그림 미션의 심사위원이야. 아래 [제시 문장]과 첨부한 그림을 비교해서 심사해 줘.
 1) 제시 문장의 조건을 ‘요소·수량, 위치·구도, 화풍 표현, 색채 조건, 재해석’으로 나누어 하나씩 확인하고, 지켰으면 ○, 지키지 않았으면 ×로 표시해 줘.
 2) 요소·수량 3점, 위치·구도 2점, 화풍 표현 2점, 색채 조건 2점, 재해석 1점으로 10점 만점 점수를 매기고, 점수를 준 이유를 한 줄씩 써 줘.
 3) 그림 실력이 아니라 조건을 얼마나 정확히 지켰는지만 평가하고, 사진이 흐려 판단하기 어려운 부분은 ‘판단 어려움’이라고 솔직하게 표시해 줘.
 4) 초등학생이 이해하기 쉬운 말로 칭찬 한 가지와 보완할 점 한 가지를 알려 줘.`;
-  const sentence = `[제시 문장] : ${description.trim()}`;
+  const sentence = [
+    `[제시 문장] : ${description.trim()}`,
+    ...(criteria
+      ? [
+          '[확인 조건]',
+          ...listDrawingCriteria(criteria).map(
+            ({ item, text }) => `- ${item.name}(${item.max}점): ${text}`,
+          ),
+        ]
+      : []),
+  ].join('\n');
   if (teams.length === 0) return `${base}\n${sentence}`;
 
   const count = teams.length;

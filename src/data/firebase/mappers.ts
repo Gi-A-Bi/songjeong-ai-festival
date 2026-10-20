@@ -12,9 +12,7 @@ import type {
   CardAward,
   CardType,
   ClassInfo,
-  DrawingConfig,
   DrawingFile,
-  DrawingPrompt,
   FestivalEvent,
   FinalClassState,
   FinalResponse,
@@ -174,14 +172,9 @@ export const LEGACY_GOLDEN_BELL_QUESTION_ID = 'q1';
 export function normalizeMissionConfig(raw: unknown): MissionConfig {
   const config = (raw ?? {}) as Record<string, unknown>;
   if (config.type === 'drawing') {
-    if (!Array.isArray(config.prompts) || config.prompts.length === 0) {
-      return createDefaultDrawingConfig();
-    }
-    return {
-      type: 'drawing',
-      prompts: config.prompts as DrawingPrompt[],
-      selectedPromptIds: (config.selectedPromptIds ?? {}) as DrawingConfig['selectedPromptIds'],
-    };
+    // 예전에 저장한 프롬프트 목록·학년별 선택(prompts, selectedPromptIds)은 더 쓰지 않는다.
+    // 프롬프트는 학년마다 프로그램에 고정되어 있다.
+    return createDefaultDrawingConfig();
   }
   if (config.type === 'library_check') {
     if (Array.isArray(config.questions)) {

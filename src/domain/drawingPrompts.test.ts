@@ -2,60 +2,51 @@ import { describe, expect, it } from 'vitest';
 import {
   createDefaultDrawingConfig,
   DEFAULT_DRAWING_PROMPTS,
+  DRAWING_GRADES,
   DRAWING_MAX_SCORE,
   DRAWING_RUBRIC,
   drawingArtworkLabel,
-  drawingOptionMark,
-  getDrawingConfigError,
-  getDrawingGradeBand,
-  listDrawingPromptOptions,
-  resolveDrawingPrompt,
-  selectDrawingPrompt,
+  getDrawingPrompt,
+  listDrawingCriteria,
   sumDrawingRubric,
 } from './drawingPrompts';
 
-describe('명화 그림 프롬프트', () => {
-  it('학년군마다 ①, ② 두 가지가 있다', () => {
-    const config = createDefaultDrawingConfig();
-    expect(listDrawingPromptOptions(config, 3).map((prompt) => prompt.id)).toEqual([
-      'starry-night',
+describe('학년별 명화 그림 프롬프트', () => {
+  it('학년마다 명화 한 점이 정해져 있고 쉬운 것부터 어려운 순서다', () => {
+    expect(DRAWING_GRADES.map((grade) => getDrawingPrompt(grade).id)).toEqual([
       'gleaners',
-    ]);
-    expect(listDrawingPromptOptions(config, 4)).toEqual(listDrawingPromptOptions(config, 3));
-    expect(listDrawingPromptOptions(config, 5).map((prompt) => prompt.id)).toEqual([
+      'starry-night',
       'ssireum',
       'grande-jatte',
     ]);
-    expect(getDrawingGradeBand(6)).toBe('grade56');
+    expect(drawingArtworkLabel(getDrawingPrompt(3))).toBe('밀레 〈이삭 줍는 여인들〉');
+    expect(drawingArtworkLabel(getDrawingPrompt(6))).toBe('쇠라 〈그랑드자트섬의 일요일 오후〉');
+    // 같은 학년은 언제나 같은 그림이다.
+    expect(getDrawingPrompt(4)).toBe(getDrawingPrompt(4));
   });
 
-  it('모든 프롬프트에 명화, 화풍, AI 시대 재해석 요소가 있다', () => {
+  it('모든 프롬프트에 명화, 화풍, AI 시대 재해석 요소와 영역별 확인 조건이 있다', () => {
+    expect(DEFAULT_DRAWING_PROMPTS).toHaveLength(4);
     for (const prompt of DEFAULT_DRAWING_PROMPTS) {
-      expect(prompt.text).toContain(prompt.artist === '쇠라' ? '쇠라' : prompt.artwork);
+      expect(prompt.text).toContain(prompt.artwork);
       expect(prompt.text).toMatch(/로봇/);
       expect(prompt.technique).not.toBe('');
+      expect(prompt.focus).not.toBe('');
+      for (const item of DRAWING_RUBRIC) {
+        expect(prompt.criteria[item.id]).toMatch(/는가$|가$/);
+      }
     }
-    expect(drawingOptionMark(DEFAULT_DRAWING_PROMPTS[1])).toBe('②');
-    expect(drawingArtworkLabel(DEFAULT_DRAWING_PROMPTS[2])).toBe('김홍도 〈씨름〉');
   });
 
-  it('고르지 않은 학년은 첫 번째 프롬프트, 고른 학년은 고른 프롬프트로 그린다', () => {
-    const config = createDefaultDrawingConfig();
-    expect(resolveDrawingPrompt(config, 3)?.id).toBe('starry-night');
-    const selected = selectDrawingPrompt(config, 3, 'gleaners');
-    expect(selected && resolveDrawingPrompt(selected, 3)?.id).toBe('gleaners');
-    // 학년별로 고르므로 같은 학년군의 다른 학년은 바뀌지 않는다.
-    expect(selected && resolveDrawingPrompt(selected, 4)?.id).toBe('starry-night');
+  it('확인 조건은 채점표와 같은 영역 순서로 돌려준다', () => {
+    const list = listDrawingCriteria(getDrawingPrompt(3).criteria);
+    expect(list.map(({ item }) => item.id)).toEqual(DRAWING_RUBRIC.map((item) => item.id));
+    expect(list[0].text).toContain('로봇 3대');
+    expect(list[3].text).toContain('황토색');
   });
 
-  it('다른 학년군의 프롬프트는 고를 수 없다', () => {
-    const config = createDefaultDrawingConfig();
-    expect(selectDrawingPrompt(config, 3, 'ssireum')).toBeNull();
-    expect(getDrawingConfigError({ ...config, selectedPromptIds: { 5: 'starry-night' } })).toMatch(
-      /5학년/,
-    );
-    expect(getDrawingConfigError(config)).toBeNull();
-    expect(getDrawingConfigError({ ...config, prompts: [] })).toMatch(/하나도 없어요/);
+  it('그리기 설정에는 저장할 값이 없다', () => {
+    expect(createDefaultDrawingConfig()).toEqual({ type: 'drawing' });
   });
 });
 

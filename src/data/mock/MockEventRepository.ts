@@ -8,7 +8,6 @@ import {
   reofferCardAward,
 } from '../../domain/cards';
 import { toDeviceCode } from '../../domain/device';
-import { getDrawingConfigError } from '../../domain/drawingPrompts';
 import { getTeacherInviteError } from '../../domain/teacherInvites';
 import { getGoldenBellSetsError } from '../../domain/goldenBell';
 import { toRoundStatus, type BoothAction } from '../../domain/boothRound';
@@ -338,10 +337,6 @@ export class MockEventRepository implements EventRepository, DevTools {
     }
     if (config.type === 'golden_bell') {
       const error = getGoldenBellSetsError(config);
-      if (error) throw new RepositoryError('invalid-input', error);
-    }
-    if (config.type === 'drawing') {
-      const error = getDrawingConfigError(config);
       if (error) throw new RepositoryError('invalid-input', error);
     }
     if (config.type === 'library_check') {

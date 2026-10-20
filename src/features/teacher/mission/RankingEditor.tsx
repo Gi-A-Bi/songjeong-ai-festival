@@ -11,6 +11,7 @@ import { canReofferAward, isNoCardAward } from '../../../domain/cards';
 import { CARD_INFO } from '../../../domain/catalog';
 import {
   DRAWING_MAX_SCORE,
+  getDrawingPrompt,
   sumDrawingRubric,
   type DrawingRubricScores,
 } from '../../../domain/drawingPrompts';
@@ -346,6 +347,7 @@ export function RankingEditor({
                       <DrawingRubricInput
                         teamName={team.displayName}
                         scores={rubrics[team.id] ?? {}}
+                        criteria={getDrawingPrompt(grade).criteria}
                         onChange={(scores) => {
                           setRubrics((previous) => ({ ...previous, [team.id]: scores }));
                           updateDraft(team.id, { score: String(sumDrawingRubric(scores)) });

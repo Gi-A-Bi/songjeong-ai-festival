@@ -1,7 +1,7 @@
 import { DEFAULT_EVENT_ID, DEFAULT_GAME_DURATION_MS } from '../../config';
 import type { BoothTimes } from '../../domain/boothRound';
 import { CARD_TYPES, drawOfferedTypes } from '../../domain/cards';
-import { createDefaultDrawingConfig } from '../../domain/drawingPrompts';
+import { createDefaultDrawingConfig, getDrawingPrompt } from '../../domain/drawingPrompts';
 import { classroomName } from '../../domain/missionRoom';
 import { getErrorHuntRegions } from '../../domain/errorHunt';
 import { getSelectionModeForRank, OFFER_COUNT_BY_MODE } from '../../domain/rewards';
@@ -374,7 +374,7 @@ function sampleAnswer(mission: Mission, variant: number, grade: Grade): Submissi
     case 'drawing':
       return {
         type: 'drawing',
-        promptId: config.prompts[0]?.id ?? null,
+        promptId: getDrawingPrompt(grade).id,
         mimeType: 'image/webp',
         byteSize: 0,
         width: 1280,

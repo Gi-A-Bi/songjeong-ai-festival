@@ -9,8 +9,8 @@ import { RepositoryError } from '../../../data/errors';
 import { formatBytes } from '../../../domain/drawingFiles';
 import {
   drawingArtworkLabel,
-  DRAWING_RUBRIC,
-  resolveDrawingPrompt,
+  getDrawingPrompt,
+  listDrawingCriteria,
 } from '../../../domain/drawingPrompts';
 import { canSubmitInPhase } from '../../../domain/missionPhase';
 import type { DrawingConfig } from '../../../domain/types';
@@ -57,7 +57,6 @@ export function DrawingMission({
   phase,
   gate,
   onSubmitted,
-  config,
 }: DrawingMissionProps) {
   const { team, mission, submission, roundNo } = view;
   // 게임을 시작하기 전(또는 입장 전)에는 프롬프트를 보여 주지 않는다(먼저 본 팀이 유리해지지 않게).
@@ -66,7 +65,8 @@ export function DrawingMission({
     submission && submission.status !== 'draft' && submission.answer.type === 'drawing'
       ? submission.answer
       : null;
-  const prompt = resolveDrawingPrompt(config, team.grade);
+  // 프롬프트는 학년마다 프로그램에 정해져 있다(설정에 저장하지 않는다).
+  const prompt = getDrawingPrompt(team.grade);
   const previewKey = `${eventId}|${team.id}|${mission.id}`;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -79,7 +79,7 @@ export function DrawingMission({
   const [photoError, setPhotoError] = useState<RepositoryError | null>(null);
   const { submit, isPending, error } = useMissionSubmit(eventId, team.id, mission.id, onSubmitted);
 
-  const editable = canSubmitInPhase(phase) && saved === null && prompt !== null && lock === null;
+  const editable = canSubmitInPhase(phase) && saved === null && lock === null;
 
   // 제출하지 않고 바꾼 미리보기 주소는 메모리에서 정리한다.
   useEffect(
@@ -221,29 +221,24 @@ export function DrawingMission({
               <Icon name="smart_toy" />
               그림 프롬프트
             </h2>
-            {prompt ? (
-              <>
-                <p className="drawing-prompt__artwork">
-                  <Icon name="museum" />
-                  {drawingArtworkLabel(prompt)}
-                </p>
-                <p className="drawing-prompt__text">{prompt.text}</p>
-                <ul className="drawing-rubric" aria-label="AI 심사위원이 보는 것">
-                  {DRAWING_RUBRIC.map((item) => (
-                    <li key={item.id} className="drawing-rubric__item">
-                      {item.name} <span className="number">{item.max}점</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="drawing-prompt__tip">
-                  그림 실력이 아니라 프롬프트의 조건을 얼마나 정확하게 지켰는지 봐요.
-                </p>
-              </>
-            ) : (
-              <p className="drawing-prompt__text">
-                그림 프롬프트가 아직 없어요. 선생님께 알려 주세요.
-              </p>
-            )}
+            <p className="drawing-prompt__artwork">
+              <Icon name="museum" />
+              {drawingArtworkLabel(prompt)}
+            </p>
+            <p className="drawing-prompt__text">{prompt.text}</p>
+            <ul className="drawing-rubric" aria-label="AI 심사위원이 보는 것">
+              {listDrawingCriteria(prompt.criteria).map(({ item, text }) => (
+                <li key={item.id} className="drawing-rubric__item">
+                  <span className="drawing-rubric__name">
+                    {item.name} <span className="number">{item.max}점</span>
+                  </span>{' '}
+                  {text}
+                </li>
+              ))}
+            </ul>
+            <p className="drawing-prompt__tip">
+              그림 실력이 아니라 프롬프트의 조건을 얼마나 정확하게 지켰는지 봐요.
+            </p>
           </section>
 
           {saved ? (
