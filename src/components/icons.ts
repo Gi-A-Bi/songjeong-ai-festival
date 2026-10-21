@@ -79,6 +79,7 @@ import sort from '@material-symbols/svg-400/rounded/sort.svg?raw';
 import stars from '@material-symbols/svg-400/rounded/stars.svg?raw';
 import stopCircle from '@material-symbols/svg-400/rounded/stop_circle.svg?raw';
 import style from '@material-symbols/svg-400/rounded/style.svg?raw';
+import swapHoriz from '@material-symbols/svg-400/rounded/swap_horiz.svg?raw';
 import taskAlt from '@material-symbols/svg-400/rounded/task_alt.svg?raw';
 import timer from '@material-symbols/svg-400/rounded/timer.svg?raw';
 import timerOff from '@material-symbols/svg-400/rounded/timer_off.svg?raw';
@@ -173,6 +174,7 @@ const RAW_ICONS = {
   stars,
   stop_circle: stopCircle,
   style,
+  swap_horiz: swapHoriz,
   task_alt: taskAlt,
   timer,
   timer_off: timerOff,

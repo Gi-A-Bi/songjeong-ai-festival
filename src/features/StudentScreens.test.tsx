@@ -5,6 +5,7 @@ import { DEFAULT_EVENT_ID } from '../config';
 import { toTeamId } from '../data/mock/keys';
 import { MockEventRepository } from '../data/mock/MockEventRepository';
 import { DEMO_TEAM_ID, SAMPLE_STATION_CODES } from '../data/mock/seed';
+import type { RoundNo } from '../domain/types';
 import { renderApp } from '../test/renderApp';
 
 describe('학생 화면', () => {
@@ -283,6 +284,69 @@ describe('학생 화면', () => {
     expect(screen.queryByRole('button', { name: /고르기, 지금/ })).not.toBeInTheDocument();
     const view = await repository.getTeamRewardView(DEFAULT_EVENT_ID, DEMO_TEAM_ID);
     expect(view.awards.every((award) => award.status === 'claimed')).toBe(true);
+  });
+
+  it('이미 완성한 카드를 고르면 팝업으로 알리고 다른 후보 카드 조각으로 바꿔 받는다', async () => {
+    // random이 늘 0이면 1위 후보는 생각·관찰·표현 순으로 고정된다.
+    const repository = new MockEventRepository({ random: () => 0 });
+    repository.signInAs('admin');
+    const teamId = toTeamId(5, 1, 1);
+    // 5학년 1반 1팀은 r라운드에 r번 미션을 한다. 다섯 번 모두 1위.
+    // 순위를 확정할 때는 완성한 종류를 후보에서 빼므로, 다섯 번째 후보를 먼저 만들어 두고
+    // 그 뒤에 네 번째 생각 카드를 받아 완성한다(고르기 전에 반이 완성한 경우).
+    const missionIds = ['golden-bell', 'error-hunt', 'drawing', 'ozobot', 'library-check'];
+    const awardIds: string[] = [];
+    for (const [index, missionId] of missionIds.entries()) {
+      const { awards } = await repository.finalizeRanking({
+        eventId: DEFAULT_EVENT_ID,
+        missionId,
+        grade: 5,
+        roundNo: (index + 1) as RoundNo,
+        entries: [{ teamId, score: 100, rank: 1 }],
+        requestId: `rank-${index}`,
+      });
+      awardIds.push(awards[0].id);
+      if (index < 3) {
+        await repository.claimCardAward({
+          eventId: DEFAULT_EVENT_ID,
+          teamId,
+          awardId: awards[0].id,
+          selectedType: 'thinking',
+          requestId: `claim-${index}`,
+        });
+      }
+    }
+    await repository.claimCardAward({
+      eventId: DEFAULT_EVENT_ID,
+      teamId,
+      awardId: awardIds[3],
+      selectedType: 'thinking',
+      requestId: 'claim-3',
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/team/${DEFAULT_EVENT_ID}/${teamId}/reward`, repository);
+    expect(
+      await screen.findByRole('heading', { name: '카드 3종 중 하나를 골라요' }),
+    ).toBeInTheDocument();
+    const completed = screen.getByRole('button', { name: '생각 카드 고르기, 지금 4/4' });
+    expect(completed).toHaveTextContent('이미 완성 · 대신 관찰 카드');
+
+    await user.click(completed);
+    const dialog = await screen.findByRole('dialog', { name: '생각 카드는 이미 완성했어요' });
+    expect(within(dialog).getByText(/대신/)).toHaveTextContent('관찰 카드 조각');
+    expect(within(dialog).getByText('0/4 → 1/4')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: /관찰 카드 받기/ }));
+
+    expect(
+      await screen.findByRole('heading', { name: '관찰 카드 조각 1/4가 열렸어요!' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('생각 카드는 이미 완성한 카드라 관찰 카드 조각으로 바꿔 받았어요.'),
+    ).toBeInTheDocument();
+    const view = await repository.getTeamRewardView(DEFAULT_EVENT_ID, teamId);
+    expect(view.awards.filter((award) => award.selectedType === 'observation')).toHaveLength(1);
+    expect(view.progress.cards.thinking).toMatchObject({ pieces: 4, duplicates: 0 });
   });
 
   it('학급 카드 현황에 조각 진행도, 완성 표시, 중복 수, 최종 미션 힌트 수가 보인다', async () => {

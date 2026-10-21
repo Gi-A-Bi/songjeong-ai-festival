@@ -1,5 +1,6 @@
-import { CARD_PIECES } from '../../domain/cards';
-import type { CardProgress } from '../../domain/types';
+import { CARD_PIECES, type ResolvedCardChoice } from '../../domain/cards';
+import { CARD_INFO } from '../../domain/catalog';
+import type { CardProgress, ClassCardProgress } from '../../domain/types';
 
 /** “2/4” */
 export function formatPieces(progress: Pick<CardProgress, 'pieces'>): string {
@@ -11,4 +12,13 @@ export function describeNextPiece(progress: CardProgress): string {
   if (progress.complete) return `이미 완성 · 중복 +${progress.duplicates + 1}`;
   if (progress.pieces === CARD_PIECES - 1) return '고르면 완성!';
   return `${formatPieces(progress)} → ${progress.pieces + 1}/${CARD_PIECES}`;
+}
+
+/** 후보를 골랐을 때 생기는 일. 완성한 카드는 대신 받는 카드 이름을 알려 준다. */
+export function describeChoice(
+  choice: ResolvedCardChoice,
+  progress: Pick<ClassCardProgress, 'cards'>,
+): string {
+  if (choice.substitutedFor) return `이미 완성 · 대신 ${CARD_INFO[choice.cardType].name}`;
+  return describeNextPiece(progress.cards[choice.cardType]);
 }

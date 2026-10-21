@@ -34,6 +34,7 @@ import {
   canReofferAward,
   createCardAward,
   reofferCardAward,
+  resolveCardChoice,
 } from '../../domain/cards';
 import {
   canViewFinalResults,
@@ -1340,6 +1341,7 @@ export class FirestoreEventRepository implements EventRepository {
 
       const teams = await this.validateRankingEntries(input);
       const submittedRefs = await this.submittedRefsByTeam(input.eventId, input.missionId, teams);
+      const progressByClass = await this.classProgressByClass(input.eventId, teams);
       const booth = await this.boothResultWrite(
         input,
         teams.map((team) => team.id),
@@ -1377,8 +1379,14 @@ export class FirestoreEventRepository implements EventRepository {
         };
         results.push(result);
 
-        // 결과 하나당 카드 보상 하나. 문서 ID를 결과 ID로 고정한다.
-        const award = createCardAward({ result, team, now, random: Math.random });
+        // 결과 하나당 카드 보상 하나. 문서 ID를 결과 ID로 고정한다. 그 반이 완성한 종류는 후보에서 뒤로 미룬다.
+        const award = createCardAward({
+          result,
+          team,
+          now,
+          random: Math.random,
+          progress: progressByClass.get(team.classId),
+        });
         awards.push(award);
         batch.set(doc(this.sub(input.eventId, 'cardAwards'), id), this.cardAwardData(award));
         const submittedRef = submittedRefs.get(team.id);
@@ -1417,6 +1425,7 @@ export class FirestoreEventRepository implements EventRepository {
       }
       const teams = await this.validateRankingEntries(input);
       const submittedRefs = await this.submittedRefsByTeam(input.eventId, input.missionId, teams);
+      const progressByClass = await this.classProgressByClass(input.eventId, teams);
       const booth = await this.boothResultWrite(
         input,
         [...new Set([...existing.map((result) => result.teamId), ...teams.map((team) => team.id)])],
@@ -1466,13 +1475,14 @@ export class FirestoreEventRepository implements EventRepository {
         // 고르기 전 보상만 새 순위에 맞추고, 이미 받은 보상은 그대로 둔다.
         const awardRef = doc(this.sub(input.eventId, 'cardAwards'), id);
         const awardSnapshot = await getDoc(awardRef);
+        const progress = progressByClass.get(team.classId);
         if (!awardSnapshot.exists()) {
-          const created = createCardAward({ result, team, now, random: Math.random });
+          const created = createCardAward({ result, team, now, random: Math.random, progress });
           awards.push(created);
           batch.set(awardRef, this.cardAwardData(created));
         } else {
           const current = mapCardAward(awardSnapshot);
-          const next = reofferCardAward(current, entry.rank, now, Math.random);
+          const next = reofferCardAward(current, entry.rank, now, Math.random, progress);
           awards.push(next.award);
           if (next.changed) {
             batch.update(awardRef, {
@@ -1691,6 +1701,20 @@ export class FirestoreEventRepository implements EventRepository {
     return computeClassCardProgress(classId, await this.classAwards(eventId, classId));
   }
 
+  /** 순위 확정 때 후보를 뽑으려고 참가 팀 학급의 진행도를 학급마다 한 번씩만 읽는다. */
+  private async classProgressByClass(
+    eventId: string,
+    teams: readonly Pick<Team, 'classId'>[],
+  ): Promise<Map<string, ClassCardProgress>> {
+    const classIds = [...new Set(teams.map((team) => team.classId))];
+    const entries = await Promise.all(
+      classIds.map(
+        async (classId) => [classId, await this.classProgress(eventId, classId)] as const,
+      ),
+    );
+    return new Map(entries);
+  }
+
   private async awardViews(eventId: string, awards: readonly CardAward[]) {
     const missions = await this.listMissions(eventId);
     return awards.map((award): CardAwardView => ({
@@ -1733,9 +1757,7 @@ export class FirestoreEventRepository implements EventRepository {
     return run(async () => {
       await this.ensureUser();
       const team = await this.getTeam(input.eventId, input.teamId);
-      const before = (await this.classProgress(input.eventId, team.classId)).cards[
-        input.selectedType
-      ];
+      const progressBefore = await this.classProgress(input.eventId, team.classId);
       const ref = doc(this.sub(input.eventId, 'cardAwards'), input.awardId);
       const claimed = await runTransaction(this.db, async (transaction) => {
         const snapshot = await transaction.get(ref);
@@ -1750,11 +1772,14 @@ export class FirestoreEventRepository implements EventRepository {
         if (award.status === 'claimed' && snapshot.data().claimRequestId === input.requestId) {
           return award;
         }
+        // 이미 완성한 카드를 골랐으면 제시된 후보 중 완성되지 않은 카드로 바꿔 받는다.
+        // 바꾼 종류도 후보 안에 있어 보안 규칙(selectedType in offeredTypes)을 그대로 지킨다.
+        const choice = resolveCardChoice(input.selectedType, award.offeredTypes, progressBefore);
         try {
-          const next = applyCardClaim(award, input.selectedType, Date.now());
+          const next = applyCardClaim(award, choice.cardType, Date.now());
           transaction.update(ref, {
             status: 'claimed',
-            selectedType: input.selectedType,
+            selectedType: choice.cardType,
             claimedAt: serverTimestamp(),
             claimRequestId: input.requestId,
           });
@@ -1771,7 +1796,13 @@ export class FirestoreEventRepository implements EventRepository {
       const progress = await this.classProgress(input.eventId, team.classId);
       const [view] = await this.awardViews(input.eventId, [claimed]);
       const selectedType = claimed.selectedType ?? input.selectedType;
-      return { award: view, before, after: progress.cards[selectedType], progress };
+      return {
+        award: view,
+        before: progressBefore.cards[selectedType],
+        after: progress.cards[selectedType],
+        progress,
+        substitutedFor: selectedType !== input.selectedType ? input.selectedType : null,
+      };
     });
   }
 

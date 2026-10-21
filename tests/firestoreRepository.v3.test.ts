@@ -1287,3 +1287,63 @@ describe('로봇 길찾기 성공 기록 (에뮬레이터)', () => {
     });
   });
 });
+
+describe('완성한 카드를 피하는 후보 (에뮬레이터)', () => {
+  it('순위를 확정·수정할 때 그 반이 이미 완성한 종류는 후보에서 빼고, 3위 무작위 배정도 피한다', async () => {
+    await prepareTour();
+    // 4학년 1반·2반·4반은 생각 카드를 완성한 상태다.
+    await seedCompletedCard('g4-c1', 4);
+    await seedCompletedCard('g4-c2', 4);
+    await seedCompletedCard('g4-c4', 4);
+    await signInAs('station-bell', 'teacher');
+    await startGame('golden-bell');
+
+    const participants = await repository.listMissionParticipants(EVENT, 'golden-bell', 4, 1);
+    const ranks: Record<string, number> = { 'g4-c1-t1': 1, 'g4-c3-t1': 2, 'g4-c2-t1': 3 };
+    let nextRank = 4;
+    const entries = participants.map((participant) => ({
+      teamId: participant.team.id,
+      score: 100,
+      rank: ranks[participant.team.id] ?? nextRank++,
+    }));
+    const base = {
+      eventId: EVENT,
+      missionId: 'golden-bell',
+      grade: 4 as const,
+      roundNo: 1 as const,
+    };
+    const finalized = await repository.finalizeRanking({ ...base, requestId: 'avoid-1', entries });
+
+    const first = finalized.awards.find((award) => award.teamId === 'g4-c1-t1');
+    expect(first?.offeredTypes).toHaveLength(3);
+    expect(first?.offeredTypes).not.toContain('thinking');
+    const third = finalized.awards.find((award) => award.teamId === 'g4-c2-t1');
+    expect(third).toMatchObject({ selectionMode: 'automatic', status: 'claimed' });
+    expect(third?.selectedType).not.toBe('thinking');
+
+    // 순위 수정: 1반 1팀은 2위로(후보 2개로 줄어도 생각 카드 없음), 보상 없던 4반 1팀은 1위로(새 후보도 생각 카드 없음).
+    const revised = await repository.reviseRanking({
+      ...base,
+      requestId: 'avoid-2',
+      entries: entries.map((entry) => ({
+        ...entry,
+        rank:
+          entry.teamId === 'g4-c1-t1'
+            ? 2
+            : entry.teamId === 'g4-c4-t1'
+              ? 1
+              : entry.teamId === 'g4-c3-t1'
+                ? 4
+                : entry.rank,
+      })),
+    });
+    const demoted = revised.awards.find((award) => award.teamId === 'g4-c1-t1');
+    expect(demoted?.offeredTypes).toHaveLength(2);
+    expect(demoted?.offeredTypes).not.toContain('thinking');
+    expect(first?.offeredTypes).toEqual(expect.arrayContaining(demoted?.offeredTypes ?? []));
+    const promoted = revised.awards.find((award) => award.teamId === 'g4-c4-t1');
+    expect(promoted).toMatchObject({ selectionMode: 'choose_three', status: 'pending' });
+    expect(promoted?.offeredTypes).toHaveLength(3);
+    expect(promoted?.offeredTypes).not.toContain('thinking');
+  });
+});
