@@ -359,6 +359,66 @@ describe('MockEventRepository', () => {
     expect(after.map((row) => row.award?.id)).toEqual(finalized.awards.map((award) => award.id));
   });
 
+  it('순위를 확정·수정할 때 그 반이 이미 완성한 종류는 후보에서 빼고, 3위 무작위 배정도 피한다', async () => {
+    await repository.signInTeacher();
+    const classTeam = (teamNo: 1 | 2) => toTeamId(5, 1, teamNo);
+    const missionIds = ['golden-bell', 'error-hunt', 'drawing', 'ozobot'];
+    // 5학년 1반 1팀은 r라운드에 r번 미션을 한다. 네 번 1위로 생각 카드를 받아 완성한다(random 0 → 후보 생각·관찰·표현).
+    for (const [index, missionId] of missionIds.entries()) {
+      const { awards } = await repository.finalizeRanking({
+        eventId: EVENT,
+        missionId,
+        grade: 5,
+        roundNo: (index + 1) as 1 | 2 | 3 | 4,
+        requestId: `done-${index}`,
+        entries: [{ teamId: classTeam(1), score: 100, rank: 1 }],
+      });
+      expect(awards[0].offeredTypes).toEqual(['thinking', 'observation', 'expression']);
+      await repository.claimCardAward({
+        eventId: EVENT,
+        teamId: classTeam(1),
+        awardId: awards[0].id,
+        selectedType: 'thinking',
+        requestId: `claim-${index}`,
+      });
+    }
+
+    // 5라운드: 1팀은 5번 미션(1위), 2팀은 1번 미션(3위). 완성한 생각 카드는 후보에서 빠진다.
+    const first = await repository.finalizeRanking({
+      eventId: EVENT,
+      missionId: 'library-check',
+      grade: 5,
+      roundNo: 5,
+      requestId: 'first',
+      entries: [{ teamId: classTeam(1), score: 100, rank: 1 }],
+    });
+    expect(first.awards[0].offeredTypes).toEqual(['observation', 'expression', 'command']);
+    const third = await repository.finalizeRanking({
+      eventId: EVENT,
+      missionId: 'golden-bell',
+      grade: 5,
+      roundNo: 5,
+      requestId: 'third',
+      entries: [{ teamId: classTeam(2), score: 100, rank: 3 }],
+    });
+    expect(third.awards[0]).toMatchObject({
+      selectionMode: 'automatic',
+      status: 'claimed',
+      selectedType: 'observation',
+    });
+
+    // 순위 수정: 3위였던 2팀이 1위가 되면 새 후보도 완성한 종류를 피한다(이미 받은 카드는 그대로).
+    const revised = await repository.reviseRanking({
+      eventId: EVENT,
+      missionId: 'library-check',
+      grade: 5,
+      roundNo: 5,
+      requestId: 'revise',
+      entries: [{ teamId: classTeam(1), score: 100, rank: 2 }],
+    });
+    expect(revised.awards[0].offeredTypes).toEqual(['observation', 'expression']);
+  });
+
   it('그림 파일은 제출과 함께 저장되고 교사만 불러온다', async () => {
     // 2라운드 그리기 미션(3번)은 2팀
     const teamId = toTeamId(4, 2, 2);

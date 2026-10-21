@@ -16,7 +16,12 @@ import type {
 } from '../../data/EventRepository';
 import { isRepositoryError, toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
-import { CARD_PIECES, newlyOpenedPiece } from '../../domain/cards';
+import {
+  CARD_PIECES,
+  newlyOpenedPiece,
+  resolveCardChoice,
+  type ResolvedCardChoice,
+} from '../../domain/cards';
 import { CARD_INFO } from '../../domain/catalog';
 import { getHintTotal } from '../../domain/finalMission';
 import { SELECTION_MODE_LABELS } from '../../domain/rewards';
@@ -25,7 +30,7 @@ import { useAction } from '../../hooks/useAction';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { createRequestId } from '../../lib/random';
 import { useTeamContext } from '../tour/teamContext';
-import { describeNextPiece, formatPieces } from './cardText';
+import { describeChoice, describeNextPiece, formatPieces } from './cardText';
 import { CardPieces } from './CardPieces';
 import { ClassProgressStrip } from './ClassProgressStrip';
 import './CardPages.css';
@@ -74,6 +79,9 @@ export function RewardPage() {
   // 받은 카드. 보상 없음(4위 이하) 기록은 카드가 없어 빼고 본다.
   const claimed = awards.filter((award) => award.status === 'claimed' && award.selectedType);
   const current = earned ? null : (pending[0] ?? null);
+  // 이미 완성한 카드를 골랐으면 대신 받을 후보를 미리 정해 팝업에서 알려 준다. 저장소도 같은 규칙으로 다시 정한다.
+  const resolved =
+    choice && current ? resolveCardChoice(choice, current.offeredTypes, progress) : null;
 
   const confirmChoice = async () => {
     if (!current || !choice) return;
@@ -173,24 +181,74 @@ export function RewardPage() {
           </section>
         ) : null}
 
-        <ConfirmDialog
-          open={choice !== null && current !== null}
-          title={choice ? `${CARD_INFO[choice].name}를 받을까요?` : ''}
-          confirmLabel="이 카드 받기"
-          confirmIcon="check"
+        <ChoiceDialog
+          choice={resolved}
+          progress={progress}
+          className={classInfo.displayName}
           loading={claim.isPending}
           onCancel={() => setChoice(null)}
           onConfirm={() => void confirmChoice()}
-        >
-          {choice ? (
-            <p>
-              받은 뒤에는 바꿀 수 없어요. {classInfo.displayName} {CARD_INFO[choice].name}:{' '}
-              <strong>{describeNextPiece(progress.cards[choice])}</strong>
-            </p>
-          ) : null}
-        </ConfirmDialog>
+        />
       </main>
     </>
+  );
+}
+
+/**
+ * 고른 카드를 받기 전에 한 번 더 묻는 팝업.
+ * 이미 완성한 카드를 골랐으면 대신 받는 카드를 알려 주고, 바꿀 후보가 없으면 중복으로 기록됨을 알린다.
+ */
+function ChoiceDialog({
+  choice,
+  progress,
+  className,
+  loading,
+  onCancel,
+  onConfirm,
+}: {
+  choice: ResolvedCardChoice | null;
+  progress: ClassCardProgress;
+  className: string;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const cardType = choice?.cardType ?? null;
+  const card = cardType ? progress.cards[cardType] : null;
+  const name = cardType ? CARD_INFO[cardType].name : '';
+  const substitutedFor = choice?.substitutedFor ?? null;
+  const duplicate = !substitutedFor && card?.complete === true;
+
+  let title = `${name}를 받을까요?`;
+  if (substitutedFor) title = `${CARD_INFO[substitutedFor].name}는 이미 완성했어요`;
+  else if (duplicate) title = `${name}는 이미 완성했어요`;
+
+  return (
+    <ConfirmDialog
+      open={choice !== null}
+      title={choice ? title : ''}
+      confirmLabel={substitutedFor ? `${name} 받기` : duplicate ? '중복으로 받기' : '이 카드 받기'}
+      confirmIcon={substitutedFor ? 'swap_horiz' : 'check'}
+      cancelLabel={substitutedFor || duplicate ? '다시 고르기' : '취소'}
+      loading={loading}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    >
+      {substitutedFor ? (
+        <p>
+          {CARD_INFO[substitutedFor].name}는 우리 반이 이미 완성해서 조각이 더 열리지 않아요. 대신{' '}
+          <strong>{name} 조각</strong>을 받아요.
+        </p>
+      ) : null}
+      {duplicate ? (
+        <p>제시된 카드가 모두 완성이라 대신 받을 조각이 없어요. 받으면 중복으로만 기록돼요.</p>
+      ) : null}
+      {card ? (
+        <p>
+          받은 뒤에는 바꿀 수 없어요. {className} {name}: <strong>{describeNextPiece(card)}</strong>
+        </p>
+      ) : null}
+    </ConfirmDialog>
   );
 }
 
@@ -215,12 +273,14 @@ function AwardChoice({
         카드 {count}종 중 하나를 골라요
       </h2>
       <p className="muted">
-        어떤 카드를 골라도 조각은 하나예요. 아래에서 우리 반에 부족한 카드를 확인해 보세요.
+        어떤 카드를 골라도 조각은 하나예요. 아래에서 우리 반에 부족한 카드를 확인해 보세요. 이미
+        완성한 카드를 고르면 다른 후보 카드의 조각으로 바꿔 받아요.
       </p>
       <ClassProgressStrip progress={progress} />
       <ul className={`reward-options reward-options--${count}`}>
         {award.offeredTypes.map((cardType) => {
           const cardProgress = progress.cards[cardType];
+          const choice = resolveCardChoice(cardType, award.offeredTypes, progress);
           return (
             <li key={cardType}>
               <button
@@ -234,7 +294,8 @@ function AwardChoice({
                 <span className="reward-option__name">{CARD_INFO[cardType].name}</span>
                 <span className="reward-option__next">
                   {cardProgress.pieces === 3 ? <Icon name="stars" size="sm" /> : null}
-                  {describeNextPiece(cardProgress)}
+                  {choice.substitutedFor ? <Icon name="swap_horiz" size="sm" /> : null}
+                  {describeChoice(choice, progress)}
                 </span>
               </button>
             </li>
@@ -256,7 +317,7 @@ function EarnedResult({
   onNext: () => void;
   cardsPath: string;
 }) {
-  const { before, after } = outcome;
+  const { before, after, substitutedFor } = outcome;
   const info = CARD_INFO[after.cardType];
   const opened = newlyOpenedPiece(before, after);
   const justCompleted = !before.complete && after.complete;
@@ -282,6 +343,12 @@ function EarnedResult({
         <h2 id="reward-result-title" className="reward-result__title">
           {title}
         </h2>
+        {substitutedFor ? (
+          <p className="reward-result__note">
+            <Icon name="swap_horiz" /> {CARD_INFO[substitutedFor].name}는 이미 완성한 카드라{' '}
+            {info.name} 조각으로 바꿔 받았어요.
+          </p>
+        ) : null}
         {opened !== null ? (
           // 조각이 하나 늘어난 만큼 막대가 차오른다. 숫자는 제목과 아래 문구가 알려 준다.
           <p className="reward-meter" aria-hidden="true">

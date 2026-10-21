@@ -95,6 +95,8 @@ export interface ClaimCardAwardOutcome {
   before: CardProgress;
   after: CardProgress;
   progress: ClassCardProgress;
+  /** 이미 완성한 카드를 골라 다른 후보로 바꿔 받았으면 원래 고른 종류. 그대로 받았으면 null */
+  substitutedFor: CardType | null;
 }
 
 export interface ClassCardBoard {

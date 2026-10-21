@@ -42,6 +42,30 @@ export function drawOfferedTypes(
   return pool.slice(0, size);
 }
 
+/** 학급이 이미 완성(4/4)한 카드 종류 */
+export function completedCardTypes(progress: Pick<ClassCardProgress, 'cards'>): CardType[] {
+  return CARD_TYPES.filter((cardType) => progress.cards[cardType].complete);
+}
+
+/**
+ * 후보를 뽑되 그 반이 이미 완성한 종류(avoid)는 뒤로 미룬다.
+ * 완성하지 않은 종류에서 먼저 같은 확률로 뽑고, 모자랄 때만 완성한 종류로 채운다.
+ * exclude는 이미 후보에 있는 종류처럼 아예 뽑지 않는 종류다.
+ */
+export function drawOfferedTypesAvoiding(
+  count: number,
+  random: () => number,
+  avoid: readonly CardType[],
+  exclude: readonly CardType[] = [],
+): CardType[] {
+  const preferred = drawOfferedTypes(count, random, [...exclude, ...avoid]);
+  if (preferred.length >= count) return preferred;
+  return [
+    ...preferred,
+    ...drawOfferedTypes(count - preferred.length, random, [...exclude, ...preferred]),
+  ];
+}
+
 export class CardAwardError extends Error {
   readonly reason: 'already-claimed' | 'not-offered';
 
@@ -61,6 +85,8 @@ interface CreateCardAwardInput {
   team: Pick<Team, 'id' | 'classId'>;
   now: number;
   random: () => number;
+  /** 그 팀 학급의 카드 진행도. 주면 이미 완성한 종류는 후보에서 뒤로 미룬다(모자랄 때만 채운다). */
+  progress?: Pick<ClassCardProgress, 'cards'>;
 }
 
 /**
@@ -68,9 +94,16 @@ interface CreateCardAwardInput {
  * 무작위 배정(3위)은 만들 때 바로 종류를 정하고 받은 상태가 된다.
  * 보상 없음(4위 이하)은 후보 없이 받은 상태로 남겨, 카드가 열리지 않는다.
  */
-export function createCardAward({ result, team, now, random }: CreateCardAwardInput): CardAward {
+export function createCardAward({
+  result,
+  team,
+  now,
+  random,
+  progress,
+}: CreateCardAwardInput): CardAward {
   const selectionMode = getSelectionModeForRank(result.rank);
-  const offeredTypes = drawOfferedTypes(OFFER_COUNT_BY_MODE[selectionMode], random);
+  const avoid = progress ? completedCardTypes(progress) : [];
+  const offeredTypes = drawOfferedTypesAvoiding(OFFER_COUNT_BY_MODE[selectionMode], random, avoid);
   // 고를 것이 없는 보상(무작위 배정·보상 없음)은 만들 때 바로 끝난 상태가 된다.
   const automatic = selectionMode === 'automatic' || selectionMode === 'none';
   return {
@@ -123,12 +156,14 @@ export function canReofferAward(award: Pick<CardAward, 'status' | 'selectionMode
  * 이미 받은 카드는 학급 카드가 열린 뒤라 바꾸지 않는다.
  * 아직 고르지 않은 보상은 기존 후보를 최대한 유지하며 개수만 맞추고,
  * 보상 없음이던 팀이 3위 안에 들면 새 보상이 생긴다(4위 이하로 내려가면 고르기 전 보상은 없어진다).
+ * 학급 진행도를 주면 이미 완성한 종류는 후보를 줄일 때 먼저 빼고, 더할 때는 뒤로 미룬다.
  */
 export function reofferCardAward(
   award: CardAward,
   rank: number,
   now: number,
   random: () => number,
+  progress?: Pick<ClassCardProgress, 'cards'>,
 ): ReofferResult {
   const selectionMode = getSelectionModeForRank(rank);
   if (!canReofferAward(award)) {
@@ -143,8 +178,17 @@ export function reofferCardAward(
     return { award: { ...award, rank }, changed: award.rank !== rank, keptClaimed: false };
   }
   const count = OFFER_COUNT_BY_MODE[selectionMode];
-  const kept = award.offeredTypes.slice(0, count);
-  const offeredTypes = [...kept, ...drawOfferedTypes(count - kept.length, random, kept)];
+  const avoid = progress ? completedCardTypes(progress) : [];
+  // 기존 후보 가운데 완성하지 않은 종류를 앞에 두어, 후보를 줄일 때 완성한 종류부터 빠진다.
+  const ordered = [
+    ...award.offeredTypes.filter((cardType) => !avoid.includes(cardType)),
+    ...award.offeredTypes.filter((cardType) => avoid.includes(cardType)),
+  ];
+  const kept = ordered.slice(0, count);
+  const offeredTypes = [
+    ...kept,
+    ...drawOfferedTypesAvoiding(count - kept.length, random, avoid, kept),
+  ];
   const automatic = selectionMode === 'automatic' || selectionMode === 'none';
   return {
     award: {
@@ -203,6 +247,39 @@ export function computeClassCardProgress(
 /** 받기 전후 진행도를 비교해 이번에 열린 조각 번호(1~4)를 돌려준다. 이미 완성이면 null */
 export function newlyOpenedPiece(before: CardProgress, after: CardProgress): number | null {
   return after.pieces > before.pieces ? after.pieces : null;
+}
+
+export interface ResolvedCardChoice {
+  /** 실제로 받는 종류 */
+  cardType: CardType;
+  /** 이미 완성한 카드를 골라 다른 후보로 바꿨을 때 원래 고른 종류. 바꾸지 않았으면 null */
+  substitutedFor: CardType | null;
+}
+
+/**
+ * 학생이 고른 종류가 이미 완성(4/4)된 카드면 제시된 후보 가운데 완성되지 않은 카드로 바꿔 받는다.
+ * 완성에 가까운(조각이 많은) 후보를 먼저 고르고, 같으면 제시 순서를 따른다.
+ * 후보가 모두 완성이면 고른 대로 두어 중복으로 기록되고,
+ * 고른 종류가 후보에 없으면 바꾸지 않는다(claimCardAward가 거부한다).
+ */
+export function resolveCardChoice(
+  selectedType: CardType,
+  offeredTypes: readonly CardType[],
+  progress: Pick<ClassCardProgress, 'cards'>,
+): ResolvedCardChoice {
+  const asChosen: ResolvedCardChoice = { cardType: selectedType, substitutedFor: null };
+  if (!offeredTypes.includes(selectedType) || !progress.cards[selectedType].complete) {
+    return asChosen;
+  }
+  let substitute: CardType | null = null;
+  for (const cardType of offeredTypes) {
+    const card = progress.cards[cardType];
+    if (card.complete) continue;
+    if (substitute === null || card.pieces > progress.cards[substitute].pieces) {
+      substitute = cardType;
+    }
+  }
+  return substitute ? { cardType: substitute, substitutedFor: selectedType } : asChosen;
 }
 
 /**

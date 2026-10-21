@@ -6,6 +6,7 @@ import {
   createCardAward,
   reconcileCardProgress,
   reofferCardAward,
+  resolveCardChoice,
 } from '../../domain/cards';
 import { toDeviceCode } from '../../domain/device';
 import { getTeacherInviteError } from '../../domain/teacherInvites';
@@ -700,7 +701,9 @@ export class MockEventRepository implements EventRepository, DevTools {
     const awards = results.map((result) => {
       const team = this.findTeam(result.teamId);
       this.markVerified(mission.id, team.id, result.score, now);
-      return createCardAward({ result, team, now, random: this.random });
+      // 그 반이 이미 완성한 종류는 후보에서 뒤로 미룬다.
+      const progress = this.classProgress(team.classId);
+      return createCardAward({ result, team, now, random: this.random, progress });
     });
     this.state.results.push(...results);
     this.state.cardAwards.push(...awards);
@@ -752,13 +755,14 @@ export class MockEventRepository implements EventRepository, DevTools {
       results.push(result);
 
       const awardIndex = this.state.cardAwards.findIndex((award) => award.id === id);
+      const progress = this.classProgress(team.classId);
       if (awardIndex === -1) {
-        const created = createCardAward({ result, team, now, random: this.random });
+        const created = createCardAward({ result, team, now, random: this.random, progress });
         this.state.cardAwards.push(created);
         awards.push(created);
       } else {
         const previous = this.state.cardAwards[awardIndex];
-        const next = reofferCardAward(previous, entry.rank, now, this.random);
+        const next = reofferCardAward(previous, entry.rank, now, this.random, progress);
         if (next.changed && canReofferAward(previous)) reoffered += 1;
         if (next.keptClaimed) keptClaimed += 1;
         this.state.cardAwards[awardIndex] = next.award;
@@ -926,13 +930,22 @@ export class MockEventRepository implements EventRepository, DevTools {
     ) {
       const progress = this.classProgress(current.classId);
       const same = progress.cards[current.selectedType];
-      return clone({ award: this.toAwardView(current), before: same, after: same, progress });
+      return clone({
+        award: this.toAwardView(current),
+        before: same,
+        after: same,
+        progress,
+        substitutedFor: current.selectedType !== input.selectedType ? input.selectedType : null,
+      });
     }
 
-    const before = this.classProgress(current.classId).cards[input.selectedType];
+    // 이미 완성한 카드를 골랐으면 제시된 후보 중 완성되지 않은 카드로 바꿔 받는다.
+    const progressBefore = this.classProgress(current.classId);
+    const choice = resolveCardChoice(input.selectedType, current.offeredTypes, progressBefore);
+    const before = progressBefore.cards[choice.cardType];
     let claimed: CardAward;
     try {
-      claimed = applyCardClaim(current, input.selectedType, this.now());
+      claimed = applyCardClaim(current, choice.cardType, this.now());
     } catch (error) {
       if (error instanceof CardAwardError) {
         throw error.reason === 'already-claimed'
@@ -948,8 +961,9 @@ export class MockEventRepository implements EventRepository, DevTools {
     return clone({
       award: this.toAwardView(claimed),
       before,
-      after: progress.cards[input.selectedType],
+      after: progress.cards[choice.cardType],
       progress,
+      substitutedFor: choice.substitutedFor,
     });
   }
 

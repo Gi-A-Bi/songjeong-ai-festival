@@ -4,12 +4,15 @@ import {
   CARD_TYPES,
   CardAwardError,
   claimCardAward,
+  completedCardTypes,
   computeClassCardProgress,
   createCardAward,
   drawOfferedTypes,
+  drawOfferedTypesAvoiding,
   newlyOpenedPiece,
   reconcileCardProgress,
   reofferCardAward,
+  resolveCardChoice,
   toCardProgress,
 } from './cards';
 import type { CardAward, CardType } from './types';
@@ -153,6 +156,109 @@ describe('순위 수정과 카드 보상', () => {
   });
 });
 
+describe('학급이 완성한 종류를 피하는 후보', () => {
+  function progressOf(counts: Partial<Record<CardType, number>>) {
+    const awards = (Object.entries(counts) as [CardType, number][]).flatMap(([cardType, count]) =>
+      Array.from({ length: count }, () => claimed(cardType)),
+    );
+    return computeClassCardProgress('g4-c2', awards);
+  }
+
+  it('완성한 종류를 가려낸다', () => {
+    expect(completedCardTypes(progressOf({ thinking: 4, observation: 5, expression: 3 }))).toEqual([
+      'thinking',
+      'observation',
+    ]);
+  });
+
+  it('완성하지 않은 종류가 충분하면 완성한 종류는 후보에 넣지 않는다', () => {
+    const random = createSeededRandom(11);
+    for (let trial = 0; trial < 200; trial += 1) {
+      const offered = drawOfferedTypesAvoiding(3, random, ['thinking', 'observation']);
+      expect(new Set(offered)).toEqual(new Set(['expression', 'command', 'verification']));
+    }
+  });
+
+  it('완성하지 않은 종류가 모자랄 때만 완성한 종류로 채우고, 완성하지 않은 종류를 앞에 둔다', () => {
+    const random = createSeededRandom(5);
+    for (let trial = 0; trial < 200; trial += 1) {
+      const offered = drawOfferedTypesAvoiding(3, random, [
+        'thinking',
+        'observation',
+        'expression',
+      ]);
+      expect(new Set(offered.slice(0, 2))).toEqual(new Set(['command', 'verification']));
+      expect(['thinking', 'observation', 'expression']).toContain(offered[2]);
+      expect(new Set(offered).size).toBe(3);
+    }
+    // 다섯 종류를 모두 완성했으면 어느 종류든 후보가 된다.
+    expect(drawOfferedTypesAvoiding(3, () => 0, [...CARD_TYPES])).toEqual([
+      'thinking',
+      'observation',
+      'expression',
+    ]);
+  });
+
+  it('이미 후보에 있는 종류(exclude)는 채울 때도 뽑지 않는다', () => {
+    const offered = drawOfferedTypesAvoiding(
+      2,
+      () => 0,
+      ['thinking', 'observation'],
+      ['expression', 'command'],
+    );
+    expect(offered).toEqual(['verification', 'thinking']);
+  });
+
+  it('순위 확정 때 학급 진행도를 주면 1위 후보와 3위 무작위 배정 모두 완성한 종류를 피한다', () => {
+    const progress = progressOf({ thinking: 4, observation: 4 });
+    const first = createCardAward({
+      result: { id: 'r1', missionId: 'drawing', grade: 4, roundNo: 1, rank: 1 },
+      team,
+      now: 100,
+      random: () => 0,
+      progress,
+    });
+    expect(first.offeredTypes).toEqual(['expression', 'command', 'verification']);
+    const third = createCardAward({
+      result: { id: 'r3', missionId: 'drawing', grade: 4, roundNo: 1, rank: 3 },
+      team,
+      now: 100,
+      random: () => 0,
+      progress,
+    });
+    expect(third).toMatchObject({ status: 'claimed', selectedType: 'expression' });
+
+    // 완성하지 않은 종류가 하나뿐이면 그 종류를 앞에 두고 완성한 종류로 채운다.
+    const almost = progressOf({ thinking: 4, observation: 4, expression: 4, command: 4 });
+    const filled = createCardAward({
+      result: { id: 'r1', missionId: 'drawing', grade: 4, roundNo: 1, rank: 1 },
+      team,
+      now: 100,
+      random: () => 0,
+      progress: almost,
+    });
+    expect(filled.offeredTypes[0]).toBe('verification');
+    expect(filled.offeredTypes).toHaveLength(3);
+  });
+
+  it('순위를 고칠 때 후보를 줄이면 완성한 종류부터 빼고, 더하면 완성한 종류를 피한다', () => {
+    const pending = award(1); // 후보: 생각·관찰·표현
+    const progress = progressOf({ thinking: 4 });
+    const toSecond = reofferCardAward(pending, 2, 500, () => 0, progress);
+    expect(toSecond.award.offeredTypes).toEqual(['observation', 'expression']);
+    const toThird = reofferCardAward(pending, 3, 500, () => 0, progress);
+    expect(toThird.award).toMatchObject({ status: 'claimed', selectedType: 'observation' });
+
+    const none = award(4);
+    const toFirst = reofferCardAward(none, 1, 500, () => 0, progress);
+    expect(toFirst.award.offeredTypes).toEqual(['observation', 'expression', 'command']);
+
+    const second = award(2); // 후보: 생각·관찰
+    const up = reofferCardAward(second, 1, 500, () => 0, progress);
+    expect(up.award.offeredTypes).toEqual(['observation', 'thinking', 'expression']);
+  });
+});
+
 describe('네 조각 카드 성장', () => {
   it('0~4회는 0/4~4/4, 이후는 4/4와 중복 +N으로 계산한다', () => {
     expect([0, 1, 2, 3, 4, 5, 7].map((earned) => toCardProgress('command', earned))).toEqual([
@@ -221,5 +327,65 @@ describe('네 조각 카드 성장', () => {
     ]);
     expect(reconcileCardProgress(cached, ledger)).toEqual({ progress: ledger, stale: true });
     expect(reconcileCardProgress(ledger, ledger).stale).toBe(false);
+  });
+});
+
+describe('완성한 카드를 골랐을 때 바꿔 받기', () => {
+  function progressOf(counts: Partial<Record<CardType, number>>) {
+    const awards = (Object.entries(counts) as [CardType, number][]).flatMap(([cardType, count]) =>
+      Array.from({ length: count }, () => claimed(cardType)),
+    );
+    return computeClassCardProgress('g4-c2', awards);
+  }
+  const offered: CardType[] = ['thinking', 'observation', 'expression'];
+
+  it('완성하지 않은 카드를 고르면 그대로 받는다', () => {
+    const progress = progressOf({ thinking: 4, observation: 1 });
+    expect(resolveCardChoice('observation', offered, progress)).toEqual({
+      cardType: 'observation',
+      substitutedFor: null,
+    });
+  });
+
+  it('완성한 카드를 고르면 후보 중 완성에 가장 가까운 카드로 바꿔 받는다', () => {
+    const progress = progressOf({ thinking: 4, observation: 1, expression: 3 });
+    expect(resolveCardChoice('thinking', offered, progress)).toEqual({
+      cardType: 'expression',
+      substitutedFor: 'thinking',
+    });
+  });
+
+  it('조각 수가 같으면 제시 순서가 앞선 후보로 바꾼다', () => {
+    const progress = progressOf({ thinking: 4, observation: 2, expression: 2 });
+    expect(resolveCardChoice('thinking', offered, progress).cardType).toBe('observation');
+    expect(
+      resolveCardChoice('thinking', ['expression', 'thinking', 'observation'], progress),
+    ).toEqual({ cardType: 'expression', substitutedFor: 'thinking' });
+  });
+
+  it('완성한 후보끼리는 건너뛰고 완성하지 않은 후보만 고른다', () => {
+    const progress = progressOf({ thinking: 5, observation: 4, expression: 0 });
+    expect(resolveCardChoice('observation', offered, progress)).toEqual({
+      cardType: 'expression',
+      substitutedFor: 'observation',
+    });
+  });
+
+  it('후보가 모두 완성이면 고른 대로 두어 중복으로 기록된다', () => {
+    const progress = progressOf({ thinking: 4, observation: 4, expression: 6 });
+    expect(resolveCardChoice('thinking', offered, progress)).toEqual({
+      cardType: 'thinking',
+      substitutedFor: null,
+    });
+  });
+
+  it('후보에 없는 종류는 바꾸지 않아 claimCardAward가 거부한다', () => {
+    const progress = progressOf({ command: 4, observation: 1 });
+    expect(resolveCardChoice('command', offered, progress)).toEqual({
+      cardType: 'command',
+      substitutedFor: null,
+    });
+    const pending = award(1);
+    expect(() => claimCardAward(pending, 'command', 200)).toThrow(CardAwardError);
   });
 });
