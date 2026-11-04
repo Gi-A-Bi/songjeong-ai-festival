@@ -11,6 +11,7 @@ import {
   countFoundInPuzzle,
   getErrorHuntPuzzles,
   getFirstOpenPuzzleIndex,
+  isErrorHuntComplete,
 } from '../../../domain/errorHunt';
 import { canSubmitInPhase } from '../../../domain/missionPhase';
 import { findHitRegion } from '../../../domain/scoring';
@@ -84,6 +85,8 @@ export function ErrorHuntMission({
   const currentDone = currentFound === current.regions.length;
   const isLast = currentIndex === puzzles.length - 1;
   const many = puzzles.length > 1;
+  // 그림을 모두 풀어야(이상한 곳 15군데를 다 찾아야) 제출할 수 있다.
+  const complete = isErrorHuntComplete(puzzles, found);
 
   const goTo = (next: number) => {
     setIndex(next);
@@ -161,16 +164,31 @@ export function ErrorHuntMission({
               제출 완료
             </StatusBadge>
           ) : (
-            <Button
-              size="xl"
-              icon="send"
-              onClick={handleSubmit}
-              disabled={!canSubmitInPhase(phase) || hidden}
-              loading={isPending}
-              loadingLabel="제출하는 중"
-            >
-              찾은 결과 제출
-            </Button>
+            <>
+              {/* 덜 찾고 실수로 내지 않도록, 모든 그림을 다 풀기 전에는 제출 버튼을 잠근다. */}
+              {hidden ? null : complete ? (
+                <p className="mission-actions__hint hunt-submit-hint">
+                  <Icon name="task_alt" />
+                  {total}곳을 모두 찾았어요 · 빨리 제출할수록 보너스가 커요
+                </p>
+              ) : (
+                <p className="mission-actions__hint hunt-submit-hint">
+                  <Icon name="info" />
+                  {many ? `그림 ${puzzles.length}장을 모두 풀면` : '모두 찾으면'} 제출 버튼이 켜져요
+                  · 남은 곳 {total - foundCount}군데
+                </p>
+              )}
+              <Button
+                size="xl"
+                icon="send"
+                onClick={handleSubmit}
+                disabled={!canSubmitInPhase(phase) || hidden || !complete}
+                loading={isPending}
+                loadingLabel="제출하는 중"
+              >
+                찾은 결과 제출
+              </Button>
+            </>
           )}
         </>
       }
@@ -249,6 +267,9 @@ export function ErrorHuntMission({
               </li>
               <li>
                 <Icon name="arrow_forward" /> 다 찾으면 다음 그림으로 넘어가요.
+              </li>
+              <li>
+                <Icon name="send" /> {total}군데를 모두 찾아야 결과를 제출할 수 있어요.
               </li>
             </ul>
           ) : null}
@@ -330,7 +351,8 @@ export function ErrorHuntMission({
 
           <p className="hunt-bonus">
             <Icon name="bolt" size="sm" />
-            {total}곳을 모두 찾고 제출하면 남은 시간만큼 보너스 점수! 틀리게 누르면 감점이에요.
+            {total}곳을 모두 찾아야 제출할 수 있어요. 빨리 제출할수록 남은 시간만큼 보너스 점수!
+            틀리게 누르면 감점이에요.
           </p>
         </aside>
       </div>

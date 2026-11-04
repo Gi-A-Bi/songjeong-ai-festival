@@ -77,6 +77,19 @@ export function getFirstOpenPuzzleIndex(
   return index === -1 ? Math.max(0, puzzles.length - 1) : index;
 }
 
+/**
+ * 모든 그림의 이상한 곳을 다 찾았는지. 덜 찾고 실수로 내지 않도록 제출은 이때만 할 수 있다.
+ * 찾아야 할 곳이 없는 그림 묶음이면 바로 제출할 수 있다.
+ */
+export function isErrorHuntComplete(
+  puzzles: readonly Pick<ErrorHuntPuzzle, 'regions'>[],
+  foundRegionIds: readonly string[],
+): boolean {
+  return puzzles.every(
+    (puzzle) => countFoundInPuzzle(puzzle, foundRegionIds) >= puzzle.regions.length,
+  );
+}
+
 /** 그림 묶음을 검사한다. 문제가 없으면 null */
 export function getErrorHuntPuzzlesError(puzzles: readonly ErrorHuntPuzzle[]): string | null {
   const ids = new Set<string>();

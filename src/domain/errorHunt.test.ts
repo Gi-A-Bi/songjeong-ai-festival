@@ -8,6 +8,7 @@ import {
   getErrorHuntRegions,
   getFirstOpenPuzzleIndex,
   getRegionRadiusY,
+  isErrorHuntComplete,
   isErrorHuntPictureHidden,
 } from './errorHunt';
 import { DEFAULT_ERROR_HUNT_PUZZLES } from './errorHuntPuzzles';
@@ -122,6 +123,17 @@ describe('학년이 푸는 그림 고르기', () => {
     expect(countFoundInPuzzle(puzzles[0], [...first, 'g4-2-a'])).toBe(3);
     const all = puzzles.flatMap((puzzle) => puzzle.regions.map((region) => region.id));
     expect(getFirstOpenPuzzleIndex(puzzles, all)).toBe(4);
+  });
+
+  it('모든 그림의 이상한 곳을 다 찾아야 제출할 수 있다', () => {
+    const puzzles = DEFAULT_ERROR_HUNT_PUZZLES.grade4;
+    const all = puzzles.flatMap((puzzle) => puzzle.regions.map((region) => region.id));
+    expect(isErrorHuntComplete(puzzles, [])).toBe(false);
+    expect(isErrorHuntComplete(puzzles, all.slice(0, 14))).toBe(false);
+    expect(isErrorHuntComplete(puzzles, all)).toBe(true);
+    // 다른 학년 그림의 정답 ID는 세지 않는다.
+    expect(isErrorHuntComplete(puzzles, [...all.slice(0, 14), 'g3-1-a'])).toBe(false);
+    expect(isErrorHuntComplete(getErrorHuntPuzzles(config, null), ['common-1'])).toBe(true);
   });
 
   it('그림 밖으로 나간 정답과 겹친 ID를 알려 준다', () => {
