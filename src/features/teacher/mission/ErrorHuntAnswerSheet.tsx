@@ -55,8 +55,9 @@ export function ErrorHuntAnswerSheet({ config, grade }: ErrorHuntAnswerSheetProp
         </label>
       </div>
       <p className="muted">
-        {picked}학년은 그림 {puzzles.length}장에서 이상한 곳 {total}군데를 찾아요. 한 곳에 100점,
-        잘못 누르면 20점 감점, 모두 찾으면 남은 시간(초) × 2점을 더해요.
+        {picked}학년은 그림 {puzzles.length}장에서 이상한 곳 {total}군데를 찾아요. {total}군데를
+        모두 찾아야 제출할 수 있어요. 한 곳에 100점, 잘못 누르면 20점 감점, 제출하면 남은 시간(초) ×
+        2점을 더해요.
       </p>
 
       <ol className="hunt-sheet">

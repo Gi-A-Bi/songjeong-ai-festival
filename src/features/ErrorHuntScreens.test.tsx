@@ -122,33 +122,61 @@ describe('학생 틀린그림 찾기: 그림 5장을 차례로', () => {
     expect(screen.getByText(PUZZLES[0].regions[0].label)).toBeInTheDocument();
   });
 
-  it('찾은 곳을 모두 합쳐 한 번에 제출하고 자동으로 채점된다', async () => {
+  it('그림 5장을 모두 풀기 전에는 제출 버튼이 꺼져 있다', async () => {
+    const user = userEvent.setup();
+    renderApp(`/team/${EVENT}/${TEAM}/mission/error-hunt`);
+    await screen.findByRole('heading', { name: /1번 그림 · 도서관/ });
+    expect(screen.getByRole('button', { name: /찾은 결과 제출/ })).toBeDisabled();
+    expect(
+      screen.getByText('그림 5장을 모두 풀면 제출 버튼이 켜져요 · 남은 곳 15군데'),
+    ).toBeInTheDocument();
+
+    // 한 그림만 다 찾아도, 마지막 한 곳만 남겨도 아직 제출할 수 없다.
+    for (const region of PUZZLES[0].regions) tapRegion(region);
+    expect(screen.getByRole('button', { name: /찾은 결과 제출/ })).toBeDisabled();
+    for (const [index, puzzle] of PUZZLES.entries()) {
+      if (index === 0) continue;
+      await user.click(screen.getByRole('button', { name: /다음 그림/ }));
+      for (const region of puzzle.regions.slice(0, index === 4 ? 2 : 3)) tapRegion(region);
+    }
+    expect(screen.getByText('찾은 곳 14/15')).toBeInTheDocument();
+    expect(screen.getByText(/남은 곳 1군데/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /찾은 결과 제출/ })).toBeDisabled();
+
+    tapRegion(PUZZLES[4].regions[2]);
+    expect(screen.getByText('찾은 곳 15/15')).toBeInTheDocument();
+    expect(screen.getByText(/15곳을 모두 찾았어요/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /찾은 결과 제출/ })).toBeEnabled();
+  });
+
+  it('15곳을 모두 찾아 제출하면 자동으로 채점된다', async () => {
     const user = userEvent.setup();
     const repository = new MockEventRepository();
     renderApp(`/team/${EVENT}/${TEAM}/mission/error-hunt`, repository);
     await screen.findByRole('heading', { name: /1번 그림 · 도서관/ });
 
     tap(0.75, 0.5);
-    for (const region of PUZZLES[0].regions) tapRegion(region);
-    await user.click(screen.getByRole('button', { name: /다음 그림/ }));
-    tapRegion(PUZZLES[1].regions[0]);
-
+    for (const [index, puzzle] of PUZZLES.entries()) {
+      if (index > 0) await user.click(screen.getByRole('button', { name: /다음 그림/ }));
+      for (const region of puzzle.regions) tapRegion(region);
+    }
     await user.click(screen.getByRole('button', { name: /찾은 결과 제출/ }));
     expect(await screen.findByText(/제출했어요!/)).toBeInTheDocument();
 
     const [submission] = (await repository.listTeamSubmissions(EVENT, TEAM)).filter(
       (item) => item.missionId === 'error-hunt',
     );
-    expect(submission.answer).toMatchObject({
-      type: 'error_hunt',
-      foundRegionIds: ['g4-1-a', 'g4-1-b', 'g4-1-c', 'g4-2-a'],
-      wrongTaps: 1,
-    });
+    const answer = submission.answer;
+    if (answer.type !== 'error_hunt') throw new Error('틀린그림 찾기 답이 아니에요');
+    expect(answer.foundRegionIds).toEqual(
+      PUZZLES.flatMap((puzzle) => puzzle.regions.map((region) => region.id)),
+    );
+    expect(answer.wrongTaps).toBe(1);
     await repository.signInTeacher();
     const participants = await repository.listMissionParticipants(EVENT, 'error-hunt', 4, 2);
     const mine = participants.find((item) => item.team.id === TEAM);
-    // 4곳 × 100 − 오답 1번 × 20. 모두 찾지 못해 시간 보너스는 없다.
-    expect(mine?.submission?.score).toBe(380);
+    // 15곳 × 100 − 오답 1번 × 20 + 남은 시간(초) × 2
+    expect(mine?.submission?.score).toBe(1500 - 20 + answer.remainingSeconds * 2);
   });
 
   it('15곳을 모두 찾으면 제출하라고 알려 준다', async () => {
@@ -162,6 +190,7 @@ describe('학생 틀린그림 찾기: 그림 5장을 차례로', () => {
     }
     expect(screen.getByText('찾은 곳 15/15')).toBeInTheDocument();
     expect(screen.getByText(/모두 찾았어요. 찾은 결과를 제출해요/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /찾은 결과 제출/ })).toBeEnabled();
   });
 
   it('다른 학년은 그 학년의 그림을 푼다', async () => {

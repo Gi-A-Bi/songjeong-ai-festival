@@ -296,6 +296,16 @@
   margin-right: auto;
 }
 
+/* 제출 안내는 남는 자리에 맞춰 글줄을 바꿔, 1024px 너비에서도 버튼 줄이 둘로 늘지 않게 한다. */
+.hunt-submit-hint {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.hunt-submit-hint .icon {
+  flex-shrink: 0;
+}
+
 /* 교사 화면의 그림과 정답 */
 .hunt-sheet {
   display: grid;
