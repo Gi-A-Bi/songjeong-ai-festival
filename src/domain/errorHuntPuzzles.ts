@@ -126,7 +126,16 @@ export const DEFAULT_ERROR_HUNT_PUZZLES: Record<ErrorHuntBand, readonly ErrorHun
       regions: [
         { id: 'g56-1-a', x: 0.185, y: 0.4, r: 0.15, ry: 0.27, label: '거울 속 옷 색이 다름' },
         { id: 'g56-1-b', x: 0.42, y: 0.32, r: 0.07, ry: 0.13, label: '손가락이 6개' },
-        { id: 'g56-1-c', x: 0.83, y: 0.78, r: 0.125, ry: 0.1, label: '붓 끝이 포크' },
+        // 탁자 위의 포크 모양 붓은 정답에서 빼고, 방향이 잘못 그려진 왼손을 정답으로 한다(2026-11-05 교사 결정).
+        // 예전 기록의 포크 정답과 섞이지 않게 ID를 새로 준다.
+        {
+          id: 'g56-1-d',
+          x: 0.61,
+          y: 0.485,
+          r: 0.065,
+          ry: 0.105,
+          label: '붓을 든 왼손 방향이 이상함',
+        },
       ],
     },
     {

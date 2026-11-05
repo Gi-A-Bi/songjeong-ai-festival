@@ -108,6 +108,20 @@ describe('학년이 푸는 그림 고르기', () => {
     expect(getErrorHuntPuzzles(custom, 5)).toBe(DEFAULT_ERROR_HUNT_PUZZLES.grade56);
   });
 
+  it('5·6학년 미술실은 붓을 든 왼손이 정답이고, 탁자 위 포크 모양 붓은 정답이 아니다', () => {
+    const { regions } = DEFAULT_ERROR_HUNT_PUZZLES.grade56[0];
+    expect(regions.map((region) => region.label)).toEqual([
+      '거울 속 옷 색이 다름',
+      '손가락이 6개',
+      '붓을 든 왼손 방향이 이상함',
+    ]);
+    // 붓을 쥔 손과 붓 끝을 누르면 찾은 것이다.
+    expect(findHitRegion(regions, { x: 0.606, y: 0.49 }, 16 / 9)?.id).toBe('g56-1-d');
+    expect(findHitRegion(regions, { x: 0.663, y: 0.446 }, 16 / 9)?.id).toBe('g56-1-d');
+    // 포크 모양 붓은 그림에 남아 있지만 정답이 아니다(누르면 오답으로 센다).
+    expect(findHitRegion(regions, { x: 0.83, y: 0.78 }, 16 / 9)).toBe(null);
+  });
+
   it('학년을 모르면 공통 그림 한 장을 쓴다', () => {
     const puzzles = getErrorHuntPuzzles(config, null);
     expect(puzzles).toHaveLength(1);
