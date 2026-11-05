@@ -105,6 +105,9 @@ describe('학생 틀린그림 찾기: 그림 5장을 차례로', () => {
     renderApp(`/team/${EVENT}/${TEAM}/mission/error-hunt`);
     await screen.findByRole('heading', { name: /1번 그림 · 도서관/ });
     expect(screen.getByRole('button', { name: /이전 그림/ })).toBeDisabled();
+    // 버튼에는 화살표와 두 글자만 보이고, 읽어 주는 이름은 “이전 그림”, “다음 그림”이다.
+    expect(screen.getByRole('button', { name: '이전 그림' })).toHaveTextContent(/^이전$/);
+    expect(screen.getByRole('button', { name: '다음 그림' })).toHaveTextContent(/^다음$/);
 
     tapRegion(PUZZLES[0].regions[0]);
     await user.click(screen.getByRole('button', { name: /다음 그림/ }));

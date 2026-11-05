@@ -282,11 +282,17 @@
   gap: var(--space-2);
 }
 
-/* 옆 칸이 좁아도 “이전 그림”, “다음 그림”이 잘리지 않게 한다. */
+/* 옆 칸이 좁아도 잘 보이게 “이전”, “다음” 두 글자와 화살표만 크게 보여 준다. */
 .hunt-pager .btn {
-  gap: var(--space-1);
+  gap: var(--space-2);
   padding-inline: var(--space-2);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-lg);
+}
+
+.hunt-pager .btn .icon {
+  width: var(--icon-size-lg);
+  height: var(--icon-size-lg);
+  flex-shrink: 0;
 }
 
 .hunt-stats {

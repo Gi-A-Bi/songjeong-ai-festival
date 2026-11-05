@@ -328,23 +328,26 @@ export function ErrorHuntMission({
 
           {many && !hidden ? (
             <div className="hunt-pager">
+              {/* 좁은 칸에서도 잘 보이게 글자는 두 글자만 크게 적고, 읽어 주는 이름은 그대로 둔다. */}
               <Button
                 variant="secondary"
                 size="lg"
                 icon="arrow_back"
+                aria-label="이전 그림"
                 disabled={currentIndex === 0}
                 onClick={() => goTo(currentIndex - 1)}
               >
-                이전 그림
+                이전
               </Button>
               <Button
                 variant={currentDone ? 'primary' : 'secondary'}
                 size="lg"
                 iconEnd="arrow_forward"
+                aria-label="다음 그림"
                 disabled={isLast}
                 onClick={() => goTo(currentIndex + 1)}
               >
-                다음 그림
+                다음
               </Button>
             </div>
           ) : null}
