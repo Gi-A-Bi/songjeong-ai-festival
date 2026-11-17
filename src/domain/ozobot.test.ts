@@ -49,7 +49,7 @@ describe('로봇 길찾기 도전 과제', () => {
     expect(pickOzobotChallenge(1, ['card-4', 'card-5'])).toBeNull();
   });
 
-  it('로봇 길찾기 부스는 따로 정한 제한 시간(기본 7분)으로 게임을 시작한다', () => {
+  it('로봇 길찾기(기본 7분)와 설명대로 그려라(7분) 부스는 따로 정한 제한 시간으로 게임을 시작한다', () => {
     const ten = 10 * 60_000;
     expect(getMissionGameDurationMs({ config: { type: 'ozobot', rules: [] } }, ten)).toBe(
       7 * 60_000,
@@ -57,6 +57,7 @@ describe('로봇 길찾기 도전 과제', () => {
     expect(
       getMissionGameDurationMs({ config: { type: 'ozobot', rules: [], timeLimitMinutes: 5 } }, ten),
     ).toBe(5 * 60_000);
+    expect(getMissionGameDurationMs({ config: { type: 'drawing' } }, ten)).toBe(7 * 60_000);
     expect(
       getMissionGameDurationMs({ config: { type: 'library_check', questions: [] } }, ten),
     ).toBe(ten);

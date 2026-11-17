@@ -1,4 +1,5 @@
 import type { Mission, OzobotAnswer, OzobotConfig, OzobotSolve } from './types';
+import { DRAWING_MINUTES } from './drawingPrompts';
 
 /**
  * 로봇 길찾기(오조봇) 도전 과제.
@@ -179,13 +180,16 @@ export function pickOzobotChallenge(
   return pool[index];
 }
 
-/** 부스에서 게임을 시작할 때 쓰는 게임 시간. 로봇 길찾기는 따로 정한 시간(기본 7분)을 쓴다. */
+/** 부스에서 게임을 시작할 때 쓰는 게임 시간. 로봇 길찾기(기본 7분)와 설명대로 그려라(7분)는 따로 정한 시간을 쓴다. */
 export function getMissionGameDurationMs(
   mission: Pick<Mission, 'config'>,
   eventDurationMs: number,
 ): number {
   if (mission.config.type === 'ozobot') {
     return getOzobotMinutes(mission.config) * 60_000;
+  }
+  if (mission.config.type === 'drawing') {
+    return DRAWING_MINUTES * 60_000;
   }
   return eventDurationMs;
 }

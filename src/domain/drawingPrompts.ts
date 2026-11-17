@@ -111,6 +111,9 @@ export function createDefaultDrawingConfig(): DrawingConfig {
   return { type: 'drawing' };
 }
 
+/** 그리기 미션 제한 시간(분). 다른 부스의 게임 시간과 따로 프로그램에 고정한다(2026-11-17, 7분). */
+export const DRAWING_MINUTES = 7;
+
 // ---- AI 심사 기준(10점 만점) ----
 
 export interface DrawingRubricItem {
