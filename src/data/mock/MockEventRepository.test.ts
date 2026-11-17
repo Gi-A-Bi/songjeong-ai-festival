@@ -589,4 +589,23 @@ describe('MockEventRepository 로봇 길찾기 성공 기록', () => {
     });
     expect((library.endsAt ?? 0) - (library.startedAt ?? 0)).toBe(10 * 60_000);
   });
+
+  it('설명대로 그려라 부스는 게임 시간을 7분으로 시작한다', async () => {
+    const booth = { eventId: EVENT, missionId: 'drawing', grade: 4 as const };
+    const participants = await repository.listMissionParticipants(EVENT, 'drawing', 4, 2);
+    await repository.finalizeRanking({
+      ...booth,
+      roundNo: 2,
+      requestId: 'drawing-close',
+      entries: participants.map((item, index) => ({
+        teamId: item.team.id,
+        score: 0,
+        rank: index + 1,
+      })),
+    });
+    await repository.closeStationRound({ ...booth, roundNo: 2 });
+    await repository.openStationRound({ ...booth, roundNo: 3 });
+    const started = await repository.startStationRound({ ...booth, roundNo: 3 });
+    expect((started.endsAt ?? 0) - (started.startedAt ?? 0)).toBe(7 * 60_000);
+  });
 });

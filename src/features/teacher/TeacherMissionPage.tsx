@@ -437,6 +437,8 @@ function BoothRound({
           finalized: rankingFinalized,
         })
       : null;
+  // 게임 시간은 부스마다 다를 수 있다(로봇 길찾기·설명대로 그려라 7분).
+  const gameMinutes = Math.round(getMissionGameDurationMs(mission, event.gameDurationMs) / 60_000);
 
   return (
     <>
@@ -459,7 +461,7 @@ function BoothRound({
               }
             : null
         }
-        gameMinutes={Math.round(getMissionGameDurationMs(mission, event.gameDurationMs) / 60_000)}
+        gameMinutes={gameMinutes}
         onChanged={(message) => {
           onNotice(message);
           onBoothChanged();
@@ -541,7 +543,7 @@ function BoothRound({
               mission={mission}
               grade={grade}
               round={round}
-              roundMinutes={Math.round(event.gameDurationMs / 60_000)}
+              roundMinutes={gameMinutes}
               participants={roundData.data.participants}
             />
           ) : null}
