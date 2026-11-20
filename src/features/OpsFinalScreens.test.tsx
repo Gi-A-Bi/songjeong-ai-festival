@@ -464,6 +464,40 @@ describe('최종 미션 현황과 결과', () => {
     expect(adjusted?.state.manualOverride).toBe(true);
     expect(adjusted?.state.overrideReason).toBe('채점 입력 오류');
   });
+
+  it('총괄은 학급 답안지에서 문제마다 맞고 틀림, 고른 보기, 정답, 해설을 본다', async () => {
+    const user = userEvent.setup();
+    renderApp(`/teacher/${EVENT}/final-results`, await repositoryAs());
+    await user.selectOptions(await screen.findByLabelText('학년'), '3');
+
+    const row = within(await waitFor(() => rowOf('3학년 2반')));
+    await user.click(row.getByRole('button', { name: '답안 보기' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '3학년 2반 답안 보기' });
+    expect(within(dialog).getByText(/맞힘/)).toHaveTextContent('맞힘 8 / 10문제');
+    expect(within(dialog).getAllByText('맞음')).toHaveLength(8);
+    expect(within(dialog).getAllByText('틀림')).toHaveLength(2);
+    expect(within(dialog).getAllByText('힌트 씀')).toHaveLength(2);
+
+    // 4번은 틀린 문제다. 고른 보기와 정답, 해설을 함께 보여 준다.
+    const fourth = within(dialog).getByText('4번').closest('li');
+    if (!fourth) throw new Error('4번 문제 줄이 없어요');
+    const wrong = within(fourth);
+    expect(wrong.getByText('1번 한 번 훑어보고 끝낸다')).toBeInTheDocument();
+    expect(wrong.getByText('2번 구역을 나누어 차례로 비교한다')).toBeInTheDocument();
+    expect(wrong.getByText(/구역으로 나누어/)).toBeInTheDocument();
+  });
+
+  it('교사 기기에는 답안지 버튼도 정답도 내려가지 않는다', async () => {
+    const user = userEvent.setup();
+    const repository = await repositoryAs('teacher');
+    renderApp(`/teacher/${EVENT}/final-results`, repository);
+    await user.selectOptions(await screen.findByLabelText('학년'), '3');
+    await waitFor(() => rowOf('3학년 2반'));
+
+    expect(screen.queryByRole('button', { name: '답안 보기' })).toBeNull();
+    await expect(repository.getFinalAnswerSheet(EVENT, toClassId(3, 2))).rejects.toThrow();
+  });
 });
 
 describe('예전 주소', () => {

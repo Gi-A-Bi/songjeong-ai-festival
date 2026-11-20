@@ -658,3 +658,45 @@ export interface FinalQuestionSet {
   /** 마지막으로 넣거나 바꾼 시각. 모르면 null */
   updatedAt: number | null;
 }
+
+/** 답안지의 보기 하나. 번호는 전자칠판에 보이던 번호와 같다. */
+export interface FinalAnswerSheetChoice {
+  no: number;
+  id: string;
+  label: string;
+}
+
+/** 답안지 한 줄(문제 하나). 정답과 해설이 들어 있어 총괄 운영자에게만 보낸다. */
+export interface FinalAnswerSheetRow {
+  /** 문제 번호(1부터) */
+  no: number;
+  questionId: string;
+  area: CardType;
+  category: string | null;
+  text: string;
+  /** 함께 보여 준 자료 글. 없으면 null */
+  passage: string | null;
+  /** 함께 보여 준 그림. 없으면 null */
+  image: FinalQuestionImage | null;
+  choices: FinalAnswerSheetChoice[];
+  /** 학급이 고른 보기. 고르지 않았으면 null */
+  selectedChoiceId: string | null;
+  answerChoiceId: string;
+  correct: boolean;
+  hintUsed: boolean;
+  /** 힌트로 지운 보기. 힌트를 쓰지 않았으면 null */
+  removedChoiceId: string | null;
+  confirmedAt: number | null;
+  explanation: string | null;
+}
+
+/** 한 학급이 최종 미션에서 어떤 문제를 맞고 틀렸는지 모은 답안지(총괄 운영자만 읽는다). */
+export interface FinalAnswerSheet {
+  classId: string;
+  grade: Grade;
+  questionCount: number;
+  correctCount: number;
+  /** 힌트를 쓴 문제 수 */
+  hintUsedCount: number;
+  rows: FinalAnswerSheetRow[];
+}

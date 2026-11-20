@@ -72,6 +72,7 @@ import type {
   ClassInfo,
   DrawingFile,
   FestivalEvent,
+  FinalAnswerSheet,
   FinalClassState,
   FinalSession,
   Grade,
@@ -2126,6 +2127,10 @@ export class FirestoreEventRepository implements EventRepository {
 
   async resetClassFinal(input: FinalAdminActionInput): Promise<FinalClassState> {
     return run(() => this.final.reset(input));
+  }
+
+  async getFinalAnswerSheet(eventId: string, classId: string): Promise<FinalAnswerSheet> {
+    return run(() => this.final.answerSheet(eventId, classId));
   }
 
   async listFinalQuestionSets(eventId: string): Promise<FinalQuestionSetSummary[]> {

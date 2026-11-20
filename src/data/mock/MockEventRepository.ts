@@ -41,6 +41,7 @@ import type {
   ClassInfo,
   DrawingFile,
   FestivalEvent,
+  FinalAnswerSheet,
   FinalClassState,
   FinalSession,
   Grade,
@@ -1246,6 +1247,12 @@ export class MockEventRepository implements EventRepository, DevTools {
     await this.request();
     this.assertEvent(input.eventId);
     return clone(this.final.reset(input));
+  }
+
+  async getFinalAnswerSheet(eventId: string, classId: string): Promise<FinalAnswerSheet> {
+    await this.request();
+    this.assertEvent(eventId);
+    return clone(this.final.answerSheet(classId));
   }
 
   async listFinalQuestionSets(eventId: string): Promise<FinalQuestionSetSummary[]> {

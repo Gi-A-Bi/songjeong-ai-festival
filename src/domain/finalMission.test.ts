@@ -3,6 +3,7 @@ import { createSampleFinalQuestionSet } from '../data/mock/finalQuestions';
 import { CARD_TYPES, computeClassCardProgress } from './cards';
 import {
   applyHint,
+  buildFinalAnswerSheet,
   canViewFinalResults,
   emptyFinalClassState,
   emptyFinalResponse,
@@ -256,6 +257,32 @@ describe('최종 순위', () => {
       finished('b', { correctCount: 5, durationMs: MINUTE, manualOverride: true, finalRank: 1 }),
     ]);
     expect(ranks.get('b')).toBe(1);
+  });
+});
+
+describe('총괄 답안지', () => {
+  it('문제마다 고른 보기와 정답을 함께 묶고, 답하지 않은 문제도 남긴다', () => {
+    // 3문제만 확정했고 2번 문제는 힌트를 쓰고 오답을 골랐다.
+    const responses = set.questions.slice(0, 3).map((config, index) => ({
+      ...emptyFinalResponse('c1', 3, config.question.id, 100 * (index + 1)),
+      selectedChoiceId: index === 1 ? config.hintRemoveChoiceId : config.answerChoiceId,
+      hintUsed: index === 1,
+      removedChoiceId: index === 1 ? config.hintRemoveChoiceId : null,
+      confirmedAt: 100 * (index + 1),
+    }));
+    const sheet = buildFinalAnswerSheet('c1', 3, set, responses);
+
+    expect(sheet).toMatchObject({ classId: 'c1', grade: 3, questionCount: 10, hintUsedCount: 1 });
+    expect(sheet.correctCount).toBe(scoreResponses(set, responses));
+    expect(sheet.correctCount).toBe(2);
+    expect(sheet.rows[0]).toMatchObject({ no: 1, correct: true, hintUsed: false });
+    expect(sheet.rows[1]).toMatchObject({ no: 2, correct: false, hintUsed: true });
+    expect(sheet.rows[1].selectedChoiceId).not.toBe(sheet.rows[1].answerChoiceId);
+    // 보기 번호는 전자칠판에 보이던 번호와 같다.
+    expect(sheet.rows[0].choices.map((choice) => choice.no)).toEqual([1, 2, 3, 4]);
+    // 끝까지 가지 못한 문제도 줄로 남고 오답으로 센다.
+    expect(sheet.rows[9]).toMatchObject({ no: 10, correct: false, selectedChoiceId: null });
+    expect(sheet.rows).toHaveLength(10);
   });
 });
 

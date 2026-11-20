@@ -428,6 +428,25 @@ describe('MockEventRepository 학급 최종 미션', () => {
     expect(never).toMatchObject({ status: 'timeout', correctCount: 0, durationMs: 12 * MINUTE });
   });
 
+  it('답안지는 총괄만 보고, 시작하지 않은 반은 볼 수 없다', async () => {
+    // 샘플 3학년 2반: 10문제를 모두 확정했고 4번·8번이 오답이다.
+    const sheet = await repository.getFinalAnswerSheet(EVENT, 'g3-c2');
+    expect(sheet).toMatchObject({ classId: 'g3-c2', questionCount: 10, correctCount: 8 });
+    expect(sheet.rows.filter((row) => !row.correct).map((row) => row.no)).toEqual([4, 8]);
+    expect(sheet.rows[3].selectedChoiceId).not.toBe(sheet.rows[3].answerChoiceId);
+    expect(sheet.rows[3].explanation).toMatch(/구역으로 나누어/);
+
+    // 시작하지 않은 4반은 볼 답안이 없다.
+    await expect(repository.getFinalAnswerSheet(EVENT, 'g3-c4')).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+    // 교사 기기에는 정답이 내려가지 않는다.
+    repository.signInAs('teacher');
+    await expect(repository.getFinalAnswerSheet(EVENT, 'g3-c2')).rejects.toSatisfy((error) =>
+      isRepositoryError(error, 'not-allowed'),
+    );
+  });
+
   it('어느 반이라도 시작한 뒤에는 제한 시간을 바꿀 수 없다', async () => {
     await expect(repository.setFinalDuration(EVENT, 3, 600)).rejects.toSatisfy((error) =>
       isRepositoryError(error, 'not-allowed'),
