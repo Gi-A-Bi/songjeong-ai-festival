@@ -10,8 +10,15 @@ import type { IconName } from '../../components/icons';
 import type { FinalBoard, FinalBoardRow } from '../../data/EventRepository';
 import { toUserMessage } from '../../data/errors';
 import { useRepository } from '../../data/RepositoryContext';
+import { CARD_INFO } from '../../domain/catalog';
 import { FINAL_CLASS_STATUS_LABELS, getOverrideError } from '../../domain/finalMission';
-import type { FinalClassStatus, FinalSessionStatus, Grade } from '../../domain/types';
+import type {
+  FinalAnswerSheet,
+  FinalAnswerSheetRow,
+  FinalClassStatus,
+  FinalSessionStatus,
+  Grade,
+} from '../../domain/types';
 import { useAction } from '../../hooks/useAction';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { useFinalLive } from '../../hooks/useFinalLive';
@@ -406,6 +413,7 @@ function ClassRows({
 }) {
   const now = useServerNow(1000);
   const [editing, setEditing] = useState<{ row: FinalBoardRow; action: AdminAction } | null>(null);
+  const [sheetRow, setSheetRow] = useState<FinalBoardRow | null>(null);
   const { session, canViewResults } = board;
 
   return (
@@ -506,6 +514,15 @@ function ClassRows({
                       >
                         화면 열기
                       </Link>
+                      {isAdmin && started ? (
+                        <Button
+                          variant="secondary"
+                          icon="fact_check"
+                          onClick={() => setSheetRow(row)}
+                        >
+                          답안 보기
+                        </Button>
+                      ) : null}
                       {isAdmin && session.status !== 'locked' ? (
                         <>
                           {finished ? (
@@ -545,6 +562,15 @@ function ClassRows({
         </table>
       </div>
 
+      {sheetRow ? (
+        <AnswerSheetDialog
+          key={sheetRow.classInfo.id}
+          eventId={eventId}
+          row={sheetRow}
+          onClose={() => setSheetRow(null)}
+        />
+      ) : null}
+
       {editing ? (
         <AdminActionDialog
           key={`${editing.row.classInfo.id}-${editing.action}`}
@@ -560,6 +586,108 @@ function ClassRows({
         />
       ) : null}
     </section>
+  );
+}
+
+/** 총괄 전용 답안지: 학급이 문제마다 무엇을 골랐는지, 정답과 해설이 무엇인지 */
+function AnswerSheetDialog({
+  eventId,
+  row,
+  onClose,
+}: {
+  eventId: string;
+  row: FinalBoardRow;
+  onClose: () => void;
+}) {
+  const repository = useRepository();
+  const classId = row.classInfo.id;
+  const load = useCallback(
+    () => repository.getFinalAnswerSheet(eventId, classId),
+    [repository, eventId, classId],
+  );
+  const sheet = useAsyncData(load);
+
+  return (
+    <Dialog
+      open
+      size="lg"
+      title={`${row.classInfo.displayName} 답안 보기`}
+      onClose={onClose}
+      footer={
+        <Button variant="secondary" size="lg" onClick={onClose} data-autofocus>
+          닫기
+        </Button>
+      }
+    >
+      {sheet.status === 'loading' ? <LoadingView label="답안을 불러오고 있어요" /> : null}
+      {sheet.status === 'error' ? <ErrorView error={sheet.error} onRetry={sheet.reload} /> : null}
+      {sheet.status === 'success' ? <AnswerSheetBody sheet={sheet.data} /> : null}
+    </Dialog>
+  );
+}
+
+function AnswerSheetBody({ sheet }: { sheet: FinalAnswerSheet }) {
+  return (
+    <div className="stack">
+      <p className="final-sheet__summary">
+        맞힘 <strong className="number">{sheet.correctCount}</strong> / {sheet.questionCount}문제 ·
+        힌트 쓴 문제 <span className="number">{sheet.hintUsedCount}</span>개
+      </p>
+      <InlineAlert tone="warning">
+        정답과 해설이 함께 보여요. 아직 푸는 반이 있으니 전자칠판이나 학생 기기에 이 창을 띄우지
+        말아 주세요.
+      </InlineAlert>
+      <ol className="final-sheet">
+        {sheet.rows.map((item) => (
+          <AnswerSheetItem key={item.questionId} row={item} />
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function AnswerSheetItem({ row }: { row: FinalAnswerSheetRow }) {
+  const picked = row.choices.find((choice) => choice.id === row.selectedChoiceId) ?? null;
+  const answer = row.choices.find((choice) => choice.id === row.answerChoiceId) ?? null;
+  const unanswered = row.selectedChoiceId === null;
+
+  return (
+    <li className={`final-sheet__item${row.correct ? '' : ' final-sheet__item--wrong'}`}>
+      <div className="final-sheet__head">
+        <span className="final-sheet__no number">{row.no}번</span>
+        <StatusBadge
+          tone={row.correct ? 'success' : 'danger'}
+          icon={row.correct ? 'check_circle' : unanswered ? 'do_not_disturb_on' : 'close'}
+        >
+          {row.correct ? '맞음' : unanswered ? '안 고름' : '틀림'}
+        </StatusBadge>
+        {row.hintUsed ? (
+          <StatusBadge tone="info" icon="lightbulb">
+            힌트 씀
+          </StatusBadge>
+        ) : null}
+        <span className="muted">
+          {row.category ?? `${CARD_INFO[row.area].name.replace(' 카드', '')} 영역`}
+        </span>
+      </div>
+      <p className="final-sheet__text">{row.text}</p>
+      {row.passage ? <p className="final-sheet__passage">{row.passage}</p> : null}
+      {row.image ? (
+        <img className="final-sheet__image" src={row.image.src} alt={row.image.alt} />
+      ) : null}
+      <dl className="answer-list">
+        <dt>우리 반 답</dt>
+        <dd>{picked ? `${picked.no}번 ${picked.label}` : '고르지 않았어요'}</dd>
+        <dt>정답</dt>
+        <dd className="final-sheet__answer">{answer ? `${answer.no}번 ${answer.label}` : '-'}</dd>
+        {row.explanation ? (
+          <>
+            <dt>해설</dt>
+            <dd>{row.explanation}</dd>
+          </>
+        ) : null}
+      </dl>
+    </li>
   );
 }
 

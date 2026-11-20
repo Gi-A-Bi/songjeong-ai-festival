@@ -1,6 +1,8 @@
 import { FINAL_DEFAULT_DURATION_SEC, FINAL_MAX_HINTS, FINAL_QUESTION_COUNT } from '../config';
 import type {
   ClassCardProgress,
+  FinalAnswerSheet,
+  FinalAnswerSheetRow,
   FinalClassState,
   FinalClassStatus,
   FinalQuestionConfig,
@@ -249,6 +251,51 @@ export function scoreResponses(
       response?.selectedChoiceId != null && response.selectedChoiceId === config.answerChoiceId
     );
   }).length;
+}
+
+/**
+ * 학급이 문제마다 무엇을 골랐는지, 정답이 무엇인지 한 줄씩 묶는다.
+ * 정답과 해설이 들어 있으므로 총괄 운영자 화면에만 내려 준다.
+ */
+export function buildFinalAnswerSheet(
+  classId: string,
+  grade: Grade,
+  set: Pick<FinalQuestionSet, 'questions'>,
+  responses: readonly FinalResponse[],
+): FinalAnswerSheet {
+  const rows: FinalAnswerSheetRow[] = set.questions.map((config, index) => {
+    const response = responses.find((item) => item.questionId === config.question.id) ?? null;
+    const selectedChoiceId = response?.selectedChoiceId ?? null;
+    return {
+      no: index + 1,
+      questionId: config.question.id,
+      area: config.question.area,
+      category: config.question.category,
+      text: config.question.text,
+      passage: config.question.passage,
+      image: config.question.image,
+      choices: config.question.choices.map((choice, order) => ({
+        no: order + 1,
+        id: choice.id,
+        label: choice.label,
+      })),
+      selectedChoiceId,
+      answerChoiceId: config.answerChoiceId,
+      correct: selectedChoiceId !== null && selectedChoiceId === config.answerChoiceId,
+      hintUsed: response?.hintUsed ?? false,
+      removedChoiceId: response?.removedChoiceId ?? null,
+      confirmedAt: response?.confirmedAt ?? null,
+      explanation: config.explanation,
+    };
+  });
+  return {
+    classId,
+    grade,
+    questionCount: rows.length,
+    correctCount: rows.filter((row) => row.correct).length,
+    hintUsedCount: rows.filter((row) => row.hintUsed).length,
+    rows,
+  };
 }
 
 /** 제출 마감. 시간 초과면 제한 시간에 제출한 것으로 기록한다. durationMs = submittedAt - startedAt */

@@ -9,6 +9,7 @@ import type {
   ClassInfo,
   DrawingFile,
   FestivalEvent,
+  FinalAnswerSheet,
   FinalClassState,
   FinalClassStatus,
   FinalQuestion,
@@ -705,6 +706,11 @@ export interface EventRepository {
   adjustFinalResult(input: AdjustFinalResultInput): Promise<FinalClassState>;
   /** 총괄 운영자가 학급 최종 미션을 시작 전으로 되돌린다. 다시 시작하면 새 스냅샷을 만든다. */
   resetClassFinal(input: FinalAdminActionInput): Promise<FinalClassState>;
+  /**
+   * 한 학급이 문제마다 무엇을 골랐는지, 정답과 해설이 무엇인지 모은 답안지.
+   * 정답이 들어 있어 총괄 운영자만 읽을 수 있고, 시작한 학급만 볼 수 있다.
+   */
+  getFinalAnswerSheet(eventId: string, classId: string): Promise<FinalAnswerSheet>;
   /** 학년별 최종 미션 문제의 상태(개수·그림·출처·바꿀 수 있는지). 교사면 누구나 본다. */
   listFinalQuestionSets(eventId: string): Promise<FinalQuestionSetSummary[]>;
   /**

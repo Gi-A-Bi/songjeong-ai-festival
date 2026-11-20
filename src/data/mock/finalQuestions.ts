@@ -9,6 +9,8 @@ interface SampleQuestion {
   answer: 'a' | 'b' | 'c' | 'd';
   /** 힌트로 지울 오답 */
   remove: 'a' | 'b' | 'c' | 'd';
+  /** 총괄 답안지에만 보이는 해설 */
+  explanation?: string;
 }
 
 /**
@@ -54,6 +56,7 @@ const SAMPLE_QUESTIONS: SampleQuestion[] = [
     ],
     answer: 'b',
     remove: 'c',
+    explanation: '그림을 구역으로 나누어 차례로 비교하면 빠뜨리는 곳이 줄어들어요.',
   },
   {
     area: 'expression',
@@ -90,6 +93,7 @@ const SAMPLE_QUESTIONS: SampleQuestion[] = [
     choices: ['3칸', '6칸', '9칸', '12칸'],
     answer: 'c',
     remove: 'a',
+    explanation: '한 번에 앞으로 2칸 + 1칸 = 3칸이고, 3번 반복하면 9칸이에요.',
   },
   {
     area: 'verification',
@@ -135,7 +139,7 @@ export function createSampleFinalQuestionSet(grade: Grade): FinalQuestionSet {
     },
     answerChoiceId: sample.answer,
     hintRemoveChoiceId: sample.remove,
-    explanation: null,
+    explanation: sample.explanation ?? null,
   }));
   return { grade, questions, source: 'sample', updatedAt: null };
 }

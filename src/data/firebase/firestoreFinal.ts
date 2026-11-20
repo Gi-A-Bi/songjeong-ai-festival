@@ -14,6 +14,7 @@ import {
 import { ROUND_NUMBERS } from '../../domain/rotation';
 import {
   applyHint,
+  buildFinalAnswerSheet,
   canViewFinalResults,
   emptyFinalClassState,
   emptyFinalResponse,
@@ -36,6 +37,7 @@ import {
 import { FINAL_GRADES, getQuestionReplaceBlocker } from '../../domain/finalQuestionUpload';
 import type {
   ClassInfo,
+  FinalAnswerSheet,
   FinalClassState,
   FinalQuestion,
   FinalQuestionSet,
@@ -891,6 +893,28 @@ export class FirestoreFinalStore {
       state,
       question ? this.toQuestion(question) : null,
       response?.response ?? null,
+    );
+  }
+
+  /** 총괄 운영자만 보는 학급 답안지. 정답 문서(finalAnswerKeys)는 이 기기에서만 읽는다. */
+  async answerSheet(eventId: string, classId: string): Promise<FinalAnswerSheet> {
+    await this.ctx.ensureUser();
+    this.ctx.requireAdmin();
+    const classInfo = await this.ctx.getClass(eventId, classId);
+    const session = await this.sessionOf(eventId, classInfo.grade);
+    const state = await this.stateOf(eventId, classInfo, session);
+    if (state.startedAt === null) {
+      throw new RepositoryError('not-allowed', '아직 최종 미션을 시작하지 않은 반이에요.');
+    }
+    const [set, responses] = await Promise.all([
+      this.fullSetOf(eventId, classInfo.grade, session.questionCount),
+      this.responsesOf(eventId, classInfo),
+    ]);
+    return buildFinalAnswerSheet(
+      classId,
+      classInfo.grade,
+      set,
+      responses.map((item) => item.response),
     );
   }
 

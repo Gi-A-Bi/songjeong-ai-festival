@@ -1,6 +1,7 @@
 import { ROUND_NUMBERS } from '../../domain/rotation';
 import {
   applyHint,
+  buildFinalAnswerSheet,
   canViewFinalResults,
   emptyFinalClassState,
   emptyFinalResponse,
@@ -30,6 +31,7 @@ import {
 } from '../../domain/finalQuestionUpload';
 import type {
   ClassInfo,
+  FinalAnswerSheet,
   FinalClassState,
   FinalQuestionConfig,
   FinalQuestionSet,
@@ -208,6 +210,21 @@ export class MockFinalStore {
       canViewResults,
       allFinished: states.length > 0 && states.every(isFinalFinished),
     };
+  }
+
+  /** 총괄 운영자만 보는 학급 답안지(문제마다 고른 보기·정답·해설) */
+  answerSheet(classId: string): FinalAnswerSheet {
+    this.ctx.requireAdmin();
+    const classInfo = this.ctx.findClass(classId);
+    if (this.stateOf(classInfo).startedAt === null) {
+      throw new RepositoryError('not-allowed', '아직 최종 미션을 시작하지 않은 반이에요.');
+    }
+    return buildFinalAnswerSheet(
+      classId,
+      classInfo.grade,
+      this.questionSetOf(classInfo.grade),
+      this.responsesOf(classId),
+    );
   }
 
   open(input: OpenFinalInput): FinalSession {
